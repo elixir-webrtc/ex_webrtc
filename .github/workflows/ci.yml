@@ -1,0 +1,42 @@
+name: Lint and test
+
+on: push
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: Lint (OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}})
+    strategy:
+      matrix:
+        otp: ['26']
+        elixir: ['1.15']
+    steps:
+      - uses: actions/checkout@v3
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+          elixir-version: ${{matrix.elixir}}
+      - run: mix deps.get
+      - run: mix credo
+      - run: mix dialyzer
+      - run: mix format --check-formatted
+      - run: mix docs 2>&1 | (! grep -q "warning:")
+
+  test:
+    runs-on: ubuntu-latest
+    name: Test (OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}})
+    strategy:
+      matrix:
+        otp: ['26']
+        elixir: ['1.15']
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v3
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+          elixir-version: ${{matrix.elixir}}
+      - run: mix deps.get
+      - run: mix coveralls.json
+      - uses: codecov/codecov-action@v3
