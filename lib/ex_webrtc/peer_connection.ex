@@ -70,40 +70,53 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_call({:create_offer, options}, _from, state) do
-    _ice_restart = Keyword.get(options, :ice_restart, false)
-
-    # TODO probably will need to move SDP stuff to its module
-    sdp =
-      %{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
-      |> ExSDP.add_attribute({:ice_options, "trickle"})
-
-    sdp = Enum.reduce(state.transceivers, sdp, &add_media_description/2)
-
-    desc = %SessionDescription{type: :offer, sdp: to_string(sdp)}
-    {:reply, {:ok, desc}, state}
+  def handle_call({:create_offer, _options}, _from, state) do
+    {:reply, :ok, state}
   end
 
   @impl true
   def handle_call({:create_answer, _options}, _from, state) do
-    # TODO
     {:reply, :ok, state}
   end
 
   @impl true
-  def handle_call({:set_local_description, _desc}, _from, state) do
-    # TODO
+  def handle_call({:set_local_description, desc}, _from, state) do
     {:reply, :ok, state}
   end
 
   @impl true
-  def handle_call({:set_remote_description, _desc}, _from, state) do
-    # TODO
-    {:reply, :ok, state}
+  def handle_call({:set_remote_description, desc}, _from, state) do
+    %SessionDescription{type: type, sdp: sdp} = desc
+
+    cond do
+      # TODO handle rollback
+      type == :rollback ->
+        {:reply, :ok, state}
+
+      valid_transition?(:remote, state.signaling_state, type) ->
+        with {:ok, sdp} <- ExSDP.parse(sdp),
+             {:ok, state} <- apply_remote_description(type, sdp, state) do
+          {:reply, :ok, state}
+        end
+
+      true ->
+        {:reply, :error, state}
+    end
   end
 
-  defp add_media_description(_transceiver, sdp) do
-    # TODO
-    sdp
+  defp apply_remote_description(_type, _sdp, state) do
+    {:ok, state}
   end
+
+  defp valid_transition?(_, _, :rollback), do: false
+
+  defp valid_transition?(:remote, state, :offer)
+       when state in [:stable, :have_remote_offer],
+       do: true
+
+  defp valid_transition?(:remote, state, type)
+       when state in [:have_local_offer, :have_remote_pranswer] and type in [:answer, :pranswer],
+       do: true
+
+  defp valid_transition?(:remote, _, _), do: false
 end

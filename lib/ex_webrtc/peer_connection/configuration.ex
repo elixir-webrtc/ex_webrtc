@@ -6,6 +6,15 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           | :max_compat
           | :max_bundle
 
+  @type ice_server() :: %{
+          optional(:credential) => String.t(),
+          optional(:username) => String.t(),
+          :urls => [String.t()] | String.t()
+        }
+
+  # TODO implement
+  @type certificate() :: :TODO
+
   @type ice_transport_policy() ::
           :all
           | :relay
@@ -16,10 +25,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   @type t() :: %__MODULE__{
           bundle_policy: bundle_policy(),
-          # TODO certs type
-          certificates: term(),
+          certificates: [certificate()],
           ice_candidate_pool_size: non_neg_integer(),
-          ice_servers: [String.t()],
+          ice_servers: [ice_server()],
           ice_transport_policy: ice_transport_policy(),
           peer_identity: String.t(),
           rtcp_mux_policy: rtcp_mux_policy()
