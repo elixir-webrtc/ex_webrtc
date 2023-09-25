@@ -12,11 +12,13 @@ const mediaConstraints = {
 const start_connection = async (ws) => {
   const pc = new RTCPeerConnection(pcConfig);
 
+  pc.onconnectionstatechange = _ => console.log("Connection state changed:", pc.connectionState);
+
   pc.onicecandidate = event => {
     console.log("New local ICE candidate:", event.candidate);
 
     if (event.candidate !== null) {
-      ws.send(JSON.stringify({type: "ice", data: event.candidate.candidate}));
+      ws.send(JSON.stringify({type: "ice", data: event.candidate}));
     }
   };
 
@@ -27,10 +29,8 @@ const start_connection = async (ws) => {
     console.log("Received message:", msg);
 
     if (msg.type === "answer") {
-      console.log("Received SDP answer:", msg.data);
-      pc.setRemoteDescription(msg.data);
+      pc.setRemoteDescription(msg);
     } else if (msg.type === "ice") {
-      console.log("Received ICE candidate:", msg.data);
       pc.addIceCandidate(msg.data);
     }
   };
@@ -44,7 +44,7 @@ const start_connection = async (ws) => {
   console.log("Generated SDP offer:", desc);
   await pc.setLocalDescription(desc);
 
-  ws.send(JSON.stringify({type: "offer", data: desc.sdp}))
+  ws.send(JSON.stringify(desc))
 };
 
 const ws = new WebSocket("ws://127.0.0.1:4000/websocket");

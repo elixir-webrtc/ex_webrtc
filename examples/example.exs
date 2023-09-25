@@ -1,17 +1,17 @@
 Mix.install([{:gun, "~> 2.0.1"}, {:ex_webrtc, path: "./", force: true}, {:jason, "~> 1.4.0"}])
 
 require Logger
-Logger.configure(level: :info)
+Logger.configure(level: :debug)
 
 defmodule Peer do
   use GenServer
 
   require Logger
 
-  alias ExWebRTC.{PeerConnection, SessionDescription}
+  alias ExWebRTC.{IceCandidate, PeerConnection, SessionDescription}
 
   @ice_servers [
-    %{urls: "stun:stun.stunprotocol.org:3478"},
+    # %{urls: "stun:stun.stunprotocol.org:3478"},
     %{urls: "stun:stun.l.google.com:19302"}
   ]
 
@@ -60,7 +60,7 @@ defmodule Peer do
   def handle_info({:gun_ws, _, _, {:text, msg}}, state) do
     msg
     |> Jason.decode!()
-    |> handle_ws_message(state.peer_connection)
+    |> handle_ws_message(state)
 
     {:noreply, state}
   end
@@ -72,23 +72,53 @@ defmodule Peer do
   end
 
   @impl true
+  def handle_info({:ex_webrtc, msg}, state) do
+    Logger.info("Received ExWebRTC message: #{inspect(msg)}")
+    handle_webrtc_message(msg, state)
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(msg, state) do
     Logger.warning("Received unknown msg: #{inspect(msg)}")
     {:noreply, state}
   end
 
-  defp handle_ws_message(%{type: "offer", data: data}, pc) do
-    Logger.info("Received SDP offer: #{data}")
-    {:ok, desc} = SessionDescription.from_init(data)
-    PeerConnection.addRemoteDescription(desc)
+  defp handle_ws_message(%{"type" => "offer", "sdp" => sdp}, state) do
+    Logger.info("Received SDP offer: #{inspect(sdp)}")
+    offer = %SessionDescription{type: :offer, sdp: sdp}
+    :ok = PeerConnection.set_remote_description(state.peer_connection, offer)
+    {:ok, answer} = PeerConnection.create_answer(state.peer_connection)
+    msg = %{"type" => "answer", "sdp" => answer.sdp}
+    :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
   end
 
-  defp handle_ws_message(%{type: "ice", data: data}, pc) do
-    Logger.info("Received remote ICE candidate: #{data}")
+  defp handle_ws_message(%{"type" => "ice", "data" => data}, state) do
+    Logger.info("Received remote ICE candidate: #{inspect(data)}")
+    candidate = %IceCandidate{
+      candidate: data["candidate"],
+      sdp_mid: data["sdpMid"],
+      sdp_m_line_index: data["sdpMLineIndex"],
+      username_fragment: data["usernameFragment"]
+    }
+    :ok = PeerConnection.add_ice_candidate(state.peer_connection, candidate)
   end
 
-  defp handle_ws_message(msg, _pc) do
+  defp handle_ws_message(msg, _state) do
     Logger.info("Received unexpected message: #{inspect(msg)}")
+  end
+
+  defp handle_webrtc_message({:ice_candidate, candidate}, state) do
+    candidate = %{
+      "candidate" => candidate.candidate,
+      "sdpMid" => candidate.sdp_mid,
+      "sdpMLineIndex" => candidate.sdp_m_line_index,
+      "usernameFragment" => candidate.username_fragment
+    }
+    msg = %{"type" => "ice", "data" => candidate}
+    :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
+
   end
 end
 
