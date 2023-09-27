@@ -13,7 +13,11 @@ const start_connection = async (ws) => {
   const pc = new RTCPeerConnection(pcConfig);
 
   pc.onconnectionstatechange = _ => console.log("Connection state changed:", pc.connectionState);
-
+  pc.onicecandidateerror = event => console.log("ICE candidate error:", event);
+  pc.oniceconnectionstatechange = _ => console.log("ICE connection state changed:", pc.iceConnectionState);
+  pc.onicegatheringstatechange = _ => console.log("ICE gathering state changed:", pc.iceGatheringState);
+  pc.onsignalingstatechange = _ => console.log("Signaling state changed:", pc.signalingState);
+  pc.ontrack = event => console.log("New track:", event);
   pc.onicecandidate = event => {
     console.log("New local ICE candidate:", event.candidate);
 
@@ -22,16 +26,17 @@ const start_connection = async (ws) => {
     }
   };
 
-  pc.ontrack = null;  // TODO
-
   ws.onmessage = event => {
     const msg = JSON.parse(event.data);
-    console.log("Received message:", msg);
 
     if (msg.type === "answer") {
+      console.log("Recieved SDP answer:", msg);
       pc.setRemoteDescription(msg);
     } else if (msg.type === "ice") {
+      console.log("Recieved remote ICE candidate:", msg.data);
       pc.addIceCandidate(msg.data);
+    } else {
+      console.log("Received unexpected message:", msg);
     }
   };
 
