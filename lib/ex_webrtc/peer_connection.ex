@@ -3,9 +3,13 @@ defmodule ExWebRTC.PeerConnection do
 
   use GenServer
 
+  require Logger
+
   alias __MODULE__.Configuration
   alias ExICE.ICEAgent
   alias ExWebRTC.{IceCandidate, SessionDescription}
+
+  import ExWebRTC.Utils
 
   @type peer_connection() :: GenServer.server()
 
@@ -20,45 +24,49 @@ defmodule ExWebRTC.PeerConnection do
                 :current_remote_desc,
                 :pending_remote_desc,
                 :ice_agent,
+                :ice_state,
+                :dtls_client,
+                :dtls_buffered_packets,
+                dtls_finished: false,
                 transceivers: [],
                 signaling_state: :stable
               ]
 
-  @dummy_sdp "
-  v=0\r\n
-  o=- 7596991810024734139 2 IN IP4 127.0.0.1\r\n
-  s=-\r\n
-  t=0 0\r\n
-  a=group:BUNDLE 0\r\n
-  a=extmap-allow-mixed\r\n
-  a=msid-semantic: WMS\r\n
-  m=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0 8 13 110 126\r\n
-  c=IN IP4 0.0.0.0\r\n
-  a=rtcp:9 IN IP4 0.0.0.0\r\n
-  a=ice-ufrag:vx/1\r\n
-  a=ice-pwd:ldFUrCsXvndFY2L1u0UQ7ikf\r\n
-  a=ice-options:trickle\r\n
-  a=fingerprint:sha-256 76:61:77:1E:7C:2E:BB:CD:19:B5:27:4E:A7:40:84:06:6B:17:97:AB:C4:61:90:16:EE:96:9F:9E:BD:42:96:3D\r\n
-  a=setup:passive\r\n
-  a=mid:0\r\n
-  a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\n
-  a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n
-  a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\n
-  a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid\r\n
-  a=recvonly\r\n
-  a=rtcp-mux\r\n
-  a=rtpmap:111 opus/48000/2\r\n
-  a=rtcp-fb:111 transport-cc\r\n
-  a=fmtp:111 minptime=10;useinbandfec=1\r\n
-  a=rtpmap:63 red/48000/2\r\n
-  a=fmtp:63 111/111\r\n
-  a=rtpmap:9 G722/8000\r\n
-  a=rtpmap:0 PCMU/8000\r\n
-  a=rtpmap:8 PCMA/8000\r\n
-  a=rtpmap:13 CN/8000\r\n
-  a=rtpmap:110 telephone-event/48000\r\n
-  a=rtpmap:126 telephone-event/8000\r\n
-  "
+  @dummy_sdp """
+  v=0
+  o=- 7596991810024734139 2 IN IP4 127.0.0.1
+  s=-
+  t=0 0
+  a=group:BUNDLE 0
+  a=extmap-allow-mixed
+  a=msid-semantic: WMS
+  m=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0 8 13 110 126
+  c=IN IP4 0.0.0.0
+  a=rtcp:9 IN IP4 0.0.0.0
+  a=ice-ufrag:vx/1
+  a=ice-pwd:ldFUrCsXvndFY2L1u0UQ7ikf
+  a=ice-options:trickle
+  a=fingerprint:sha-256 76:61:77:1E:7C:2E:BB:CD:19:B5:27:4E:A7:40:84:06:6B:17:97:AB:C4:61:90:16:EE:96:9F:9E:BD:42:96:3D
+  a=setup:passive
+  a=mid:0
+  a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
+  a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+  a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+  a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+  a=recvonly
+  a=rtcp-mux
+  a=rtpmap:111 opus/48000/2
+  a=rtcp-fb:111 transport-cc
+  a=fmtp:111 minptime=10;useinbandfec=1
+  a=rtpmap:63 red/48000/2
+  a=fmtp:63 111/111
+  a=rtpmap:9 G722/8000
+  a=rtpmap:0 PCMU/8000
+  a=rtpmap:8 PCMA/8000
+  a=rtpmap:13 CN/8000
+  a=rtpmap:110 telephone-event/48000
+  a=rtpmap:126 telephone-event/8000
+  """
 
   #### API ####
 
@@ -114,8 +122,15 @@ defmodule ExWebRTC.PeerConnection do
       |> Enum.filter(&String.starts_with?(&1, "stun:"))
 
     {:ok, ice_agent} = ICEAgent.start_link(:controlled, stun_servers: stun_servers)
+    {:ok, dtls_client} = ExDTLS.start_link(client_mode: false, dtls_srtp: true)
 
-    state = %__MODULE__{owner: owner, config: config, ice_agent: ice_agent}
+    state = %__MODULE__{
+      owner: owner,
+      config: config,
+      ice_agent: ice_agent,
+      dtls_client: dtls_client
+    }
+
     {:ok, state}
   end
 
@@ -129,14 +144,24 @@ defmodule ExWebRTC.PeerConnection do
       when state.signaling_state in [:have_remote_offer, :have_local_pranswer] do
     {:ok, ufrag, pwd} = ICEAgent.get_local_credentials(state.ice_agent)
 
+    {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
+
     sdp = ExSDP.parse!(@dummy_sdp)
     media = hd(sdp.media)
 
     attrs =
       Enum.map(media.attributes, fn
-        {:ice_ufrag, _} -> {:ice_ufrag, ufrag}
-        {:ice_pwd, _} -> {:ice_pwd, pwd}
-        other -> other
+        {:ice_ufrag, _} ->
+          {:ice_ufrag, ufrag}
+
+        {:ice_pwd, _} ->
+          {:ice_pwd, pwd}
+
+        {:fingerprint, {hash_function, _}} ->
+          {:fingerprint, {hash_function, hex_dump(dtls_fingerprint)}}
+
+        other ->
+          other
       end)
 
     media = Map.put(media, :attributes, attrs)
@@ -189,6 +214,16 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_info({:ex_ice, _from, :connected}, state) do
+    if state.dtls_buffered_packets do
+      Logger.debug("Sending buffered DTLS packets")
+      ICEAgent.send_data(state.ice_agent, state.dtls_buffered_packets)
+    end
+
+    {:noreply, %__MODULE__{state | ice_state: :connected, dtls_buffered_packets: nil}}
+  end
+
+  @impl true
   def handle_info({:ex_ice, _from, {:new_candidate, candidate}}, state) do
     candidate = %IceCandidate{
       candidate: "candidate:" <> candidate,
@@ -203,8 +238,54 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_info({:ex_ice, _from, {:data, data}}, %{dtls_finished: false} = state) do
+    case ExDTLS.process(state.dtls_client, data) do
+      {:handshake_packets, packets} when state.ice_state in [:connected, :completed] ->
+        :ok = ICEAgent.send_data(state.ice_agent, packets)
+
+      {:handshake_packets, packets} ->
+        Logger.debug("""
+        Generated local DTLS packets but ICE is not in the connected or completed state yet.
+        We will send those packets once ICE is ready.
+        """)
+
+        {:noreply, %__MODULE__{state | dtls_buffered_packets: packets}}
+
+      {:handshake_finished, _keying_material, packets} ->
+        Logger.debug("DTLS handshake finished")
+        ICEAgent.send_data(state.ice_agent, packets)
+        {:noreply, %__MODULE__{state | dtls_finished: true}}
+
+      {:handshake_finished, _keying_material} ->
+        Logger.debug("DTLS handshake finished")
+        {:noreply, %__MODULE__{state | dtls_finished: true}}
+
+      :handshake_want_read ->
+        {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_info({:ex_dtls, _from, {:retransmit, packets}}, state)
+      when state.ice_state in [:connected, :completed] do
+    ICEAgent.send_data(state.ice_agent, packets)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(
+        {:ex_dtls, _from, {:retransmit, packets}},
+        %{dtls_buffered_packets: packets} = state
+      ) do
+    # we got DTLS packets from the other side but
+    # we haven't established ICE connection yet so 
+    # packets to retransmit have to be the same as dtls_buffered_packets
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(msg, state) do
-    IO.inspect(msg, label: :OTHER_MSG)
+    Logger.info("OTHER MSG #{inspect(msg)}")
     {:noreply, state}
   end
 

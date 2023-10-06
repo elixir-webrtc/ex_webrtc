@@ -45,12 +45,15 @@ defmodule ExWebRTC.MixProject do
 
   defp deps do
     [
+      {:ex_sdp, "~> 0.11"},
+      {:ex_ice, "~> 0.1"},
+      {:ex_dtls, github: "membraneframework/ex_dtls", branch: "retransmit-msg"},
+
+      # dev/test
       {:excoveralls, "~> 0.14", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.30", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:ex_sdp, "~> 0.11"},
-      {:ex_ice, "~> 0.1"}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 

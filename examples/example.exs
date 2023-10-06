@@ -1,4 +1,4 @@
-Mix.install([{:gun, "~> 2.0.1"}, {:ex_webrtc, path: "./", force: true}, {:jason, "~> 1.4.0"}])
+Mix.install([{:gun, "~> 2.0.1"}, {:ex_webrtc, path: "./"}, {:jason, "~> 1.4.0"}])
 
 require Logger
 Logger.configure(level: :info)
