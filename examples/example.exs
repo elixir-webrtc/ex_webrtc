@@ -31,7 +31,6 @@ defmodule Peer do
         Process.send_after(self(), :ws_ping, 1000)
 
         {:ok, pc} = PeerConnection.start_link(
-          bundle_policy: :max_bundle,
           ice_servers: @ice_servers
         )
 

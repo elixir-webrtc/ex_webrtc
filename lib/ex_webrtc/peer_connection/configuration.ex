@@ -33,7 +33,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           rtcp_mux_policy: rtcp_mux_policy()
         }
 
-  defstruct bundle_policy: :balanced,
+  defstruct bundle_policy: :max_bundle,
             certificates: nil,
             ice_candidate_pool_size: 0,
             ice_servers: [],
