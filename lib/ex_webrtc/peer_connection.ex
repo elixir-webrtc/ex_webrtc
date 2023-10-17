@@ -242,6 +242,7 @@ defmodule ExWebRTC.PeerConnection do
     case ExDTLS.process(state.dtls_client, data) do
       {:handshake_packets, packets} when state.ice_state in [:connected, :completed] ->
         :ok = ICEAgent.send_data(state.ice_agent, packets)
+        {:noreply, state}
 
       {:handshake_packets, packets} ->
         Logger.debug("""
