@@ -27,22 +27,12 @@ defmodule ExWebRTC.RTPTransceiver do
   def update_or_create(transceivers, mid, mline) do
     case find_by_mid(transceivers, mid) do
       {idx, %__MODULE__{} = tr} ->
-        case update(tr, mline) do
-          {:ok, tr} -> List.replace_at(transceivers, idx, tr)
-          {:error, :remove} -> List.delete_at(transceivers, idx)
-        end
+        List.replace_at(transceivers, idx, update(tr, mline))
 
       nil ->
         transceivers ++ [%__MODULE__{mid: mid, direction: :recvonly, kind: mline.type}]
     end
   end
 
-  defp update(transceiver, mline) do
-    # if there is no direction, the default is sendrecv
-    # see RFC 3264, sec. 6.1  
-    case ExWebRTC.Utils.get_media_direction(mline) || :sendrecv do
-      :inactive -> {:error, :remove}
-      other_direction -> {:ok, %__MODULE__{transceiver | direction: other_direction}}
-    end
-  end
+  defp update(transceiver, _mline), do: transceiver
 end
