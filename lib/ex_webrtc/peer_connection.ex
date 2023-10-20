@@ -32,42 +32,6 @@ defmodule ExWebRTC.PeerConnection do
                 signaling_state: :stable
               ]
 
-  @dummy_sdp """
-  v=0
-  o=- 7596991810024734139 2 IN IP4 127.0.0.1
-  s=-
-  t=0 0
-  a=group:BUNDLE 0
-  a=extmap-allow-mixed
-  a=msid-semantic: WMS
-  m=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0 8 13 110 126
-  c=IN IP4 0.0.0.0
-  a=rtcp:9 IN IP4 0.0.0.0
-  a=ice-ufrag:vx/1
-  a=ice-pwd:ldFUrCsXvndFY2L1u0UQ7ikf
-  a=ice-options:trickle
-  a=fingerprint:sha-256 76:61:77:1E:7C:2E:BB:CD:19:B5:27:4E:A7:40:84:06:6B:17:97:AB:C4:61:90:16:EE:96:9F:9E:BD:42:96:3D
-  a=setup:passive
-  a=mid:0
-  a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
-  a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
-  a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
-  a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
-  a=recvonly
-  a=rtcp-mux
-  a=rtpmap:111 opus/48000/2
-  a=rtcp-fb:111 transport-cc
-  a=fmtp:111 minptime=10;useinbandfec=1
-  a=rtpmap:63 red/48000/2
-  a=fmtp:63 111/111
-  a=rtpmap:9 G722/8000
-  a=rtpmap:0 PCMU/8000
-  a=rtpmap:8 PCMA/8000
-  a=rtpmap:13 CN/8000
-  a=rtpmap:110 telephone-event/48000
-  a=rtpmap:126 telephone-event/8000
-  """
-
   #### API ####
 
   def start_link(configuration \\ []) do
@@ -147,36 +111,45 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:create_answer, _options}, _from, state)
       when state.signaling_state in [:have_remote_offer, :have_local_pranswer] do
-    {:ok, ufrag, pwd} = ICEAgent.get_local_credentials(state.ice_agent)
-
+    {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
     {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
 
-    sdp = ExSDP.parse!(@dummy_sdp)
-    media = hd(sdp.media)
+    answer = %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
 
-    attrs =
-      Enum.map(media.attributes, fn
-        {:ice_ufrag, _} ->
-          {:ice_ufrag, ufrag}
+    config =
+      [
+        ice_ufrag: ice_ufrag,
+        ice_pwd: ice_pwd,
+        ice_options: "trickle",
+        fingerprint: {:sha256, hex_dump(dtls_fingerprint)},
+        # TODO offer will always contain actpass
+        # and answer should contain active
+        # see RFC 8829 sec. 5.3.1
+        setup: :passive
+      ]
 
-        {:ice_pwd, _} ->
-          {:ice_pwd, pwd}
-
-        {:fingerprint, {hash_function, _}} ->
-          {:fingerprint, {hash_function, hex_dump(dtls_fingerprint)}}
-
-        other ->
-          other
+    mlines =
+      Enum.map(state.transceivers, fn transceiver ->
+        RTPTransceiver.to_mline(transceiver, config)
       end)
 
-    media = Map.put(media, :attributes, attrs)
+    mids =
+      Enum.map(mlines, fn mline ->
+        {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+        mid
+      end)
 
-    sdp =
-      sdp
-      |> Map.put(:media, [media])
-      |> to_string()
+    answer =
+      answer
+      |> ExSDP.add_attributes([
+        %ExSDP.Attribute.Group{semantics: "BUNDLE", mids: mids},
+        # always allow for mixing one- and two-byte RTP header extensions
+        # TODO ensure this was also offered
+        "extmap-allow-mixed"
+      ])
+      |> ExSDP.add_media(mlines)
 
-    desc = %SessionDescription{type: :answer, sdp: sdp}
+    desc = %SessionDescription{type: :answer, sdp: to_string(answer)}
     {:reply, {:ok, desc}, state}
   end
 
