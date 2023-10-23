@@ -7,7 +7,7 @@ defmodule ExWebRTC.PeerConnection do
 
   alias __MODULE__.Configuration
   alias ExICE.ICEAgent
-  alias ExWebRTC.{IceCandidate, SessionDescription}
+  alias ExWebRTC.{IceCandidate, MediaStreamTrack, RTPTransceiver, SessionDescription}
 
   import ExWebRTC.Utils
 
@@ -106,6 +106,11 @@ defmodule ExWebRTC.PeerConnection do
           :ok | {:error, :TODO}
   def add_ice_candidate(peer_connection, candidate) do
     GenServer.call(peer_connection, {:add_ice_candidate, candidate})
+  end
+
+  @spec get_transceivers(peer_connection()) :: [RTPTransceiver.t()]
+  def get_transceivers(peer_connection) do
+    GenServer.call(peer_connection, :get_transceivers)
   end
 
   #### CALLBACKS ####
@@ -213,6 +218,10 @@ defmodule ExWebRTC.PeerConnection do
     {:reply, :ok, state}
   end
 
+  def handle_call(:get_transceivers, _from, state) do
+    {:reply, state.transceivers, state}
+  end
+
   @impl true
   def handle_info({:ex_ice, _from, :connected}, state) do
     if state.dtls_buffered_packets do
@@ -232,7 +241,7 @@ defmodule ExWebRTC.PeerConnection do
       # username_fragment: "vx/1"
     }
 
-    send(state.owner, {:ex_webrtc, {:ice_candidate, candidate}})
+    notify(state.owner, {:ice_candidate, candidate})
 
     {:noreply, state}
   end
@@ -293,13 +302,43 @@ defmodule ExWebRTC.PeerConnection do
   defp apply_remote_description(_type, sdp, state) do
     # TODO apply steps listed in RFC 8829 5.10
     media = hd(sdp.media)
-    {:ice_ufrag, ufrag} = ExSDP.Media.get_attribute(media, :ice_ufrag)
-    {:ice_pwd, pwd} = ExSDP.Media.get_attribute(media, :ice_pwd)
 
-    :ok = ICEAgent.set_remote_credentials(state.ice_agent, ufrag, pwd)
-    :ok = ICEAgent.gather_candidates(state.ice_agent)
+    with {:ice_ufrag, ufrag} <- ExSDP.Media.get_attribute(media, :ice_ufrag),
+         {:ice_pwd, pwd} <- ExSDP.Media.get_attribute(media, :ice_pwd),
+         {:ok, new_transceivers} <- update_transceivers(state.transceivers, sdp) do
+      :ok = ICEAgent.set_remote_credentials(state.ice_agent, ufrag, pwd)
+      :ok = ICEAgent.gather_candidates(state.ice_agent)
 
-    {:ok, %{state | current_remote_desc: sdp}}
+      new_remote_tracks =
+        new_transceivers
+        # only take new transceivers that can receive tracks
+        |> Enum.filter(fn tr ->
+          RTPTransceiver.find_by_mid(state.transceivers, tr.mid) == nil and
+            tr.direction in [:recvonly, :sendrecv]
+        end)
+        |> Enum.map(fn tr -> MediaStreamTrack.from_transceiver(tr) end)
+
+      for track <- new_remote_tracks do
+        notify(state.owner, {:track, track})
+      end
+
+      {:ok, %{state | current_remote_desc: sdp, transceivers: new_transceivers}}
+    else
+      nil -> {:error, :missing_ice_ufrag_or_pwd}
+    end
+  end
+
+  defp update_transceivers(transceivers, sdp) do
+    Enum.reduce_while(sdp.media, {:ok, transceivers}, fn mline, {:ok, transceivers} ->
+      case ExSDP.Media.get_attribute(mline, :mid) do
+        {:mid, mid} ->
+          transceivers = RTPTransceiver.update_or_create(transceivers, mid, mline)
+          {:cont, {:ok, transceivers}}
+
+        _other ->
+          {:halt, {:error, :missing_mid}}
+      end
+    end)
   end
 
   # Signaling state machine, RFC 8829 3.2
@@ -326,4 +365,6 @@ defmodule ExWebRTC.PeerConnection do
 
   defp maybe_next_state(:have_remote_pranswer, :remote, :answer), do: {:ok, :stable}
   defp maybe_next_state(:have_remote_pranswer, _, _), do: {:error, :invalid_transition}
+
+  defp notify(pid, msg), do: send(pid, {:ex_webrtc, self(), msg})
 end
