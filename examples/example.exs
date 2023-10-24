@@ -71,7 +71,7 @@ defmodule Peer do
   end
 
   @impl true
-  def handle_info({:ex_webrtc, msg}, state) do
+  def handle_info({:ex_webrtc, _pid, msg}, state) do
     Logger.info("Received ExWebRTC message: #{inspect(msg)}")
     handle_webrtc_message(msg, state)
 
@@ -118,6 +118,10 @@ defmodule Peer do
     msg = %{"type" => "ice", "data" => candidate}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
+  end
+
+  defp handle_webrtc_message(msg, _state) do
+    Logger.warning("Received unknown ex_webrtc message: #{inspect(msg)}")
   end
 end
 
