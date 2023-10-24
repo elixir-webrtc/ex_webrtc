@@ -7,9 +7,15 @@ defmodule ExWebRTC.PeerConnection do
 
   alias __MODULE__.Configuration
   alias ExICE.ICEAgent
-  alias ExWebRTC.{IceCandidate, MediaStreamTrack, RTPTransceiver, SessionDescription}
 
-  import ExWebRTC.Utils
+  alias ExWebRTC.{
+    IceCandidate,
+    MediaStreamTrack,
+    RTPTransceiver,
+    SessionDescription,
+    SDPUtils,
+    Utils
+  }
 
   @type peer_connection() :: GenServer.server()
 
@@ -121,7 +127,7 @@ defmodule ExWebRTC.PeerConnection do
         ice_ufrag: ice_ufrag,
         ice_pwd: ice_pwd,
         ice_options: "trickle",
-        fingerprint: {:sha256, hex_dump(dtls_fingerprint)},
+        fingerprint: {:sha256, Utils.hex_dump(dtls_fingerprint)},
         # TODO offer will always contain actpass
         # and answer should contain active
         # see RFC 8829 sec. 5.3.1
@@ -276,8 +282,11 @@ defmodule ExWebRTC.PeerConnection do
     # TODO apply steps listed in RFC 8829 5.10
     media = hd(sdp.media)
 
-    with {:ice_ufrag, ufrag} <- ExSDP.Media.get_attribute(media, :ice_ufrag),
-         {:ice_pwd, pwd} <- ExSDP.Media.get_attribute(media, :ice_pwd),
+    with :ok <- SDPUtils.ensure_mid(sdp),
+         :ok <- SDPUtils.ensure_bundle(sdp),
+         {:ice_ufrag, {:ice_ufrag, ufrag}} <-
+           {:ice_ufrag, ExSDP.Media.get_attribute(media, :ice_ufrag)},
+         {:ice_pwd, {:ice_pwd, pwd}} <- {:ice_pwd, ExSDP.Media.get_attribute(media, :ice_pwd)},
          {:ok, new_transceivers} <- update_transceivers(state.transceivers, sdp) do
       :ok = ICEAgent.set_remote_credentials(state.ice_agent, ufrag, pwd)
       :ok = ICEAgent.gather_candidates(state.ice_agent)
@@ -297,7 +306,9 @@ defmodule ExWebRTC.PeerConnection do
 
       {:ok, %{state | current_remote_desc: sdp, transceivers: new_transceivers}}
     else
-      nil -> {:error, :missing_ice_ufrag_or_pwd}
+      {:ice_ufrag, nil} -> {:error, :missing_ice_ufrag}
+      {:ice_pwd, nil} -> {:error, :missing_ice_pwd}
+      other -> other
     end
   end
 

@@ -81,7 +81,7 @@ defmodule ExWebRTC.PeerConnectionTest do
   a=ssrc:184440407 msid:- 1259ea70-c6b7-445a-9c20-49cec7433ccb
   """
 
-  test "transceivers" do
+  test "track notification" do
     {:ok, pc} = PeerConnection.start_link()
 
     offer = %SessionDescription{type: :offer, sdp: @single_audio_offer}
@@ -94,5 +94,48 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{mid: "1", kind: :video}}}
     refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
+  end
+
+  test "set_remote_description/2" do
+    {:ok, pc} = PeerConnection.start_link()
+
+    raw_sdp = ExSDP.new()
+
+    audio_mline =
+      ExSDP.Media.new("audio", 9, "UDP/TLS/RTP/SAVPF", [108])
+      |> ExSDP.Media.add_attributes(mid: "0", ice_ufrag: "someufrag", ice_pwd: "somepwd")
+
+    video_mline =
+      ExSDP.Media.new("video", 9, "UDP/TLS/RTP/SAVPF", [96])
+      |> ExSDP.Media.add_attributes(mid: "1", ice_ufrag: "someufrag", ice_pwd: "somepwd")
+
+    sdp = ExSDP.add_media(raw_sdp, audio_mline) |> to_string()
+    offer = %SessionDescription{type: :offer, sdp: sdp}
+    assert {:error, :missing_bundle_group} = PeerConnection.set_remote_description(pc, offer)
+
+    mline = ExSDP.Media.add_attribute(audio_mline, {:mid, "1"})
+    sdp = ExSDP.add_media(raw_sdp, mline) |> to_string()
+    offer = %SessionDescription{type: :offer, sdp: sdp}
+    assert {:error, :duplicated_mid} = PeerConnection.set_remote_description(pc, offer)
+
+    mline = ExSDP.Media.new("audio", 9, "UDP/TLS/RTP/SAVPF", [96])
+    sdp = ExSDP.add_media(raw_sdp, mline) |> to_string()
+    offer = %SessionDescription{type: :offer, sdp: sdp}
+    assert {:error, :missing_mid} = PeerConnection.set_remote_description(pc, offer)
+
+    sdp =
+      raw_sdp
+      |> ExSDP.add_attribute(%ExSDP.Attribute.Group{semantics: "BUNDLE", mids: [0]})
+      |> ExSDP.add_media(audio_mline)
+
+    offer = %SessionDescription{type: :offer, sdp: to_string(sdp)}
+    assert :ok == PeerConnection.set_remote_description(pc, offer)
+
+    sdp = ExSDP.add_media(sdp, video_mline) |> to_string()
+
+    offer = %SessionDescription{type: :offer, sdp: sdp}
+
+    assert {:error, :non_exhaustive_bundle_group} ==
+             PeerConnection.set_remote_description(pc, offer)
   end
 end
