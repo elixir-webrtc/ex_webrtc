@@ -262,8 +262,6 @@ defmodule ExWebRTC.PeerConnection do
           error -> {:reply, error, state}
         end
     end
-
-    {:reply, :ok, state}
   end
 
   @impl true

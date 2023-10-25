@@ -5,10 +5,6 @@ const pcConfig = {
   ]
 };
 
-const mediaConstraints = {
-  audio: true
-};
-
 const start_connection = async (ws) => {
   const pc = new RTCPeerConnection(pcConfig);
 
@@ -25,13 +21,25 @@ const start_connection = async (ws) => {
       ws.send(JSON.stringify({type: "ice", data: event.candidate}));
     }
   };
+  
+  const localStream = await navigator.mediaDevices.getUserMedia({audio: true});
+  for (const track of localStream.getTracks()) {
+    pc.addTrack(track, localStream);
+  }
 
-  ws.onmessage = event => {
+  ws.onmessage = async event => {
     const msg = JSON.parse(event.data);
 
     if (msg.type === "answer") {
       console.log("Recieved SDP answer:", msg);
       pc.setRemoteDescription(msg);
+    } else if (msg.type === "offer") {
+      console.log("Received SDP offer:", msg);
+      await pc.setRemoteDescription(msg)
+
+      const desc = await pc.createAnswer();
+      await pc.setLocalDescription(desc);
+      ws.send(JSON.stringify(desc));
     } else if (msg.type === "ice") {
       console.log("Recieved remote ICE candidate:", msg.data);
       pc.addIceCandidate(msg.data);
@@ -40,17 +48,16 @@ const start_connection = async (ws) => {
     }
   };
 
-  const localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-  for (const track of localStream.getTracks()) {
-    pc.addTrack(track, localStream);
+  if (mode === "active") {
+    const desc = await pc.createOffer();
+    console.log("Generated SDP offer:", desc);
+    await pc.setLocalDescription(desc);
+    ws.send(JSON.stringify(desc))
   }
-
-  const desc = await pc.createOffer();
-  console.log("Generated SDP offer:", desc);
-  await pc.setLocalDescription(desc);
-
-  ws.send(JSON.stringify(desc))
 };
 
+const mode = "passive"
+
 const ws = new WebSocket("ws://127.0.0.1:4000/websocket");
+ws.onclose = event => console.log("WebSocket was closed", event);
 ws.onopen = _ => start_connection(ws);
