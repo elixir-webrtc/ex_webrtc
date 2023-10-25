@@ -139,8 +139,7 @@ defmodule ExWebRTC.PeerConnection do
     # we need to asign unique mid values for the transceivers
     # in this case internal counter is used
 
-    # TODO: set counter so its greater than any mid in remote description or own transcevers mids
-    next_mid = find_next_mid(state.next_mid)
+    next_mid = find_next_mid(state)
     {transceivers, next_mid} = assign_mids(state.transceivers, next_mid)
 
     {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
@@ -452,9 +451,28 @@ defmodule ExWebRTC.PeerConnection do
     assign_mids(rest, next_mid, [transceiver | acc])
   end
 
-  defp find_next_mid(next_mid) do
-    # TODO: implement
-    next_mid
+  defp find_next_mid(state) do
+    # next mid must be unique, it's acomplished by looking for values
+    # greater than any mid in remote description or our own transceivers
+    crd_mids =
+      if is_nil(state.current_remote_desc) do
+        []
+      else
+        for mline <- state.current_remote_desc.media,
+            {:mid, mid} <- ExSDP.Media.get_attribute(mline, :mid),
+            {mid, _} <- Integer.parse(mid) do
+          mid
+        end
+      end
+
+    tsc_mids =
+      for %RTPTransceiver{mid: mid} when mid != nil <- state.transceivers,
+          {mid, _} <- Integer.parse(mid) do
+        mid
+      end
+
+    max_mid = Enum.max(crd_mids ++ tsc_mids, &>=/2, fn -> -1 end) + 1
+    max(state.next_mid, max_mid + 1)
   end
 
   defp check_desc_altered(:offer, sdp, %{last_offer: offer}) when sdp == offer, do: :ok
