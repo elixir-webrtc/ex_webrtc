@@ -45,8 +45,7 @@ defmodule ExWebRTC.MixProject do
 
   defp deps do
     [
-      # {:ex_sdp, "~> 0.11"},
-      {:ex_sdp, github: "membraneframework/ex_sdp", branch: "get-attr"},
+      {:ex_sdp, "~> 0.13"},
       {:ex_ice, "~> 0.1"},
       {:ex_dtls, "~> 0.13"},
 

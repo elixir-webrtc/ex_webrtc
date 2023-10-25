@@ -280,15 +280,11 @@ defmodule ExWebRTC.PeerConnection do
 
   defp apply_remote_description(_type, sdp, state) do
     # TODO apply steps listed in RFC 8829 5.10
-    media = hd(sdp.media)
-
     with :ok <- SDPUtils.ensure_mid(sdp),
          :ok <- SDPUtils.ensure_bundle(sdp),
-         {:ice_ufrag, {:ice_ufrag, ufrag}} <-
-           {:ice_ufrag, ExSDP.Media.get_attribute(media, :ice_ufrag)},
-         {:ice_pwd, {:ice_pwd, pwd}} <- {:ice_pwd, ExSDP.Media.get_attribute(media, :ice_pwd)},
+         {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, new_transceivers} <- update_transceivers(state.transceivers, sdp) do
-      :ok = ICEAgent.set_remote_credentials(state.ice_agent, ufrag, pwd)
+      :ok = ICEAgent.set_remote_credentials(state.ice_agent, ice_ufrag, ice_pwd)
       :ok = ICEAgent.gather_candidates(state.ice_agent)
 
       new_remote_tracks =
@@ -306,9 +302,7 @@ defmodule ExWebRTC.PeerConnection do
 
       {:ok, %{state | current_remote_desc: sdp, transceivers: new_transceivers}}
     else
-      {:ice_ufrag, nil} -> {:error, :missing_ice_ufrag}
-      {:ice_pwd, nil} -> {:error, :missing_ice_pwd}
-      other -> other
+      error -> error
     end
   end
 

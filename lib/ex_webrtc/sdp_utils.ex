@@ -56,4 +56,93 @@ defmodule ExWebRTC.SDPUtils do
         {:error, :multiple_bundle_groups}
     end
   end
+
+  @spec get_ice_credentials(ExSDP.t()) ::
+          {:ok, {binary(), binary()}}
+          | {:error,
+             :missing_ice_pwd
+             | :missing_ice_ufrag
+             | :missing_ice_credentials
+             | :conflicting_ice_credentials}
+  def get_ice_credentials(sdp) do
+    session_creds = do_get_ice_credentials(sdp)
+    mline_creds = Enum.map(sdp.media, fn mline -> do_get_ice_credentials(mline) end)
+
+    case {session_creds, mline_creds} do
+      # no session creds and no mlines (empty SDP)
+      {{nil, nil}, []} ->
+        {:error, :missing_ice_credentials}
+
+      # session creds but no mlines (empty SDP)
+      {session_creds, []} ->
+        {:ok, session_creds}
+
+      {{nil, nil}, mline_creds} ->
+        with :ok <- ensure_ice_credentials_present(mline_creds),
+             :ok <- ensure_ice_credentials_unique(mline_creds) do
+          {:ok, List.first(mline_creds)}
+        end
+
+      {{s_ufrag, s_pwd} = session_creds, mline_creds} ->
+        creds =
+          Enum.map([session_creds | mline_creds], fn
+            {nil, nil} -> session_creds
+            {nil, pwd} -> {s_ufrag, pwd}
+            {ufrag, nil} -> {ufrag, s_pwd}
+            other -> other
+          end)
+
+        case ensure_ice_credentials_unique(creds) do
+          :ok -> {:ok, List.first(creds)}
+          error -> error
+        end
+    end
+  end
+
+  defp do_get_ice_credentials(sdp_or_mline) do
+    get_attr =
+      case sdp_or_mline do
+        %ExSDP{} -> &ExSDP.get_attribute/2
+        %ExSDP.Media{} -> &ExSDP.Media.get_attribute/2
+      end
+
+    ice_ufrag =
+      case get_attr.(sdp_or_mline, :ice_ufrag) do
+        {:ice_ufrag, ice_ufrag} -> ice_ufrag
+        nil -> nil
+      end
+
+    ice_pwd =
+      case get_attr.(sdp_or_mline, :ice_pwd) do
+        {:ice_pwd, ice_pwd} -> ice_pwd
+        nil -> nil
+      end
+
+    {ice_ufrag, ice_pwd}
+  end
+
+  defp ensure_ice_credentials_present(creds) do
+    creds
+    |> Enum.find(fn {ice_ufrag, ice_pwd} -> ice_ufrag == nil or ice_pwd == nil end)
+    |> case do
+      {nil, nil} ->
+        {:error, :missing_ice_credentials}
+
+      {nil, _} ->
+        {:error, :missing_ice_ufrag}
+
+      {_, nil} ->
+        {:error, :missing_ice_pwd}
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp ensure_ice_credentials_unique(creds) do
+    case Enum.uniq(creds) do
+      [_] -> :ok
+      _ -> {:error, :conflicting_ice_credentials}
+    end
+  end
 end
