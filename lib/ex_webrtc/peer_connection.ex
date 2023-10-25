@@ -22,6 +22,12 @@ defmodule ExWebRTC.PeerConnection do
   @type offer_options() :: [ice_restart: boolean()]
   @type answer_options() :: []
 
+  @type transceiver_options() :: [
+          direction: RTPTransceiver.direction(),
+          send_encodings: [:TODO],
+          streams: [:TODO]
+        ]
+
   @enforce_keys [:config, :owner]
   defstruct @enforce_keys ++
               [
@@ -35,7 +41,10 @@ defmodule ExWebRTC.PeerConnection do
                 :dtls_buffered_packets,
                 dtls_finished: false,
                 transceivers: [],
-                signaling_state: :stable
+                signaling_state: :stable,
+                next_mid: 0,
+                last_offer: nil,
+                last_answer: nil
               ]
 
   #### API ####
@@ -83,6 +92,15 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, :get_transceivers)
   end
 
+  @spec add_transceiver(
+          peer_connection(),
+          RTPTransceiver.kind() | MediaStreamTrack.t(),
+          transceiver_options()
+        ) :: {:ok, RTPTransceiver.t()} | {:error, :TODO}
+  def add_transceiver(peer_connection, track_or_kind, options \\ []) do
+    GenServer.call(peer_connection, {:add_transceiver, track_or_kind, options})
+  end
+
   #### CALLBACKS ####
 
   @impl true
@@ -110,8 +128,67 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_call({:create_offer, options}, _from, state)
+      when state.signaling_state in [:stable, :have_local_offer, :have_remote_pranswer] do
+    # TODO: handle subsequent offers
+
+    if Keyword.get(options, :ice_restart, false) do
+      ICEAgent.restart(state.ice_agent)
+    end
+
+    # we need to asign unique mid values for the transceivers
+    # in this case internal counter is used
+
+    # TODO: set counter so its greater than any mid in remote description or own transcevers mids
+    next_mid = find_next_mid(state.next_mid)
+    {transceivers, next_mid} = assign_mids(state.transceivers, next_mid)
+
+    {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
+    {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
+
+    offer =
+      %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
+      |> ExSDP.add_attribute({:ice_options, "trickle"})
+
+    config =
+      [
+        ice_ufrag: ice_ufrag,
+        ice_pwd: ice_pwd,
+        ice_options: "trickle",
+        fingerprint: {:sha256, Utils.hex_dump(dtls_fingerprint)},
+        setup: :actpass,
+        rtcp: true
+      ]
+
+    mlines =
+      Enum.map(transceivers, fn transceiver ->
+        RTPTransceiver.to_mline(transceiver, config)
+      end)
+
+    mids =
+      Enum.map(mlines, fn mline ->
+        {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+        mid
+      end)
+
+    offer =
+      offer
+      |> ExSDP.add_attributes([
+        %ExSDP.Attribute.Group{semantics: "BUNDLE", mids: mids},
+        "extmap-allow-mixed"
+      ])
+      |> ExSDP.add_media(mlines)
+
+    sdp = to_string(offer)
+    desc = %SessionDescription{type: :offer, sdp: sdp}
+    state = %{state | next_mid: next_mid, last_offer: sdp}
+
+    {:reply, {:ok, desc}, state}
+  end
+
+  @impl true
   def handle_call({:create_offer, _options}, _from, state) do
-    {:reply, :ok, state}
+    {:reply, {:error, :invalid_state}, state}
   end
 
   @impl true
@@ -155,18 +232,37 @@ defmodule ExWebRTC.PeerConnection do
       ])
       |> ExSDP.add_media(mlines)
 
-    desc = %SessionDescription{type: :answer, sdp: to_string(answer)}
+    sdp = to_string(answer)
+    desc = %SessionDescription{type: :answer, sdp: sdp}
+    state = %{state | last_answer: sdp}
+
     {:reply, {:ok, desc}, state}
   end
 
+  @impl true
   def handle_call({:create_answer, _options}, _from, state) do
     {:reply, {:error, :invalid_state}, state}
   end
 
   @impl true
-  def handle_call({:set_local_description, _desc}, _from, state) do
-    # temporary, so the dialyzer will shut up
-    maybe_next_state(:stable, :local, :offer)
+  def handle_call({:set_local_description, desc}, _from, state) do
+    %SessionDescription{type: type, sdp: sdp} = desc
+
+    case type do
+      :rollback ->
+        {:reply, :ok, state}
+
+      other_type ->
+        with {:ok, next_state} <- maybe_next_state(state.signaling_state, :local, other_type),
+             :ok <- check_desc_altered(type, sdp, state),
+             {:ok, sdp} <- ExSDP.parse(sdp),
+             {:ok, state} <- apply_local_description(other_type, sdp, state) do
+          {:reply, :ok, %{state | signaling_state: next_state}}
+        else
+          error -> {:reply, error, state}
+        end
+    end
+
     {:reply, :ok, state}
   end
 
@@ -189,6 +285,7 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
+  @impl true
   def handle_call({:add_ice_candidate, candidate}, _from, state) do
     with "candidate:" <> attr <- candidate.candidate do
       ICEAgent.add_remote_candidate(state.ice_agent, attr)
@@ -197,8 +294,29 @@ defmodule ExWebRTC.PeerConnection do
     {:reply, :ok, state}
   end
 
+  @impl true
   def handle_call(:get_transceivers, _from, state) do
     {:reply, state.transceivers, state}
+  end
+
+  @impl true
+  def handle_call({:add_transceiver, :audio, options}, _from, state) do
+    # TODO: proper implementation, change the :audio above to track_or_kind
+    direction = Keyword.get(options, :direction, :sendrcv)
+
+    # hardcoded audio codec
+    codecs = [
+      %ExWebRTC.RTPCodecParameters{
+        payload_type: 111,
+        mime_type: "audio/opus",
+        clock_rate: 48_000,
+        channels: 2
+      }
+    ]
+
+    transceiver = %RTPTransceiver{mid: nil, direction: direction, kind: :audio, codecs: codecs}
+    transceivers = List.insert_at(state.transceivers, -1, transceiver)
+    {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
   end
 
   @impl true
@@ -278,6 +396,11 @@ defmodule ExWebRTC.PeerConnection do
     {:noreply, state}
   end
 
+  defp apply_local_description(_type, _sdp, state) do
+    # TODO: implement
+    {:ok, state}
+  end
+
   defp apply_remote_description(_type, sdp, state) do
     # TODO apply steps listed in RFC 8829 5.10
     with :ok <- SDPUtils.ensure_mid(sdp),
@@ -318,6 +441,28 @@ defmodule ExWebRTC.PeerConnection do
       end
     end)
   end
+
+  defp assign_mids(transceivers, next_mid, acc \\ [])
+  defp assign_mids([], next_mid, acc), do: {Enum.reverse(acc), next_mid}
+
+  defp assign_mids([transceiver | rest], next_mid, acc) when is_nil(transceiver.mid) do
+    transceiver = %RTPTransceiver{transceiver | mid: Integer.to_string(next_mid)}
+    assign_mids(rest, next_mid + 1, [transceiver | acc])
+  end
+
+  defp assign_mids([transceiver | rest], next_mid, acc) do
+    assign_mids(rest, next_mid, [transceiver | acc])
+  end
+
+  defp find_next_mid(next_mid) do
+    # TODO: implement
+    next_mid
+  end
+
+  defp check_desc_altered(:offer, sdp, %{last_offer: offer}) when sdp == offer, do: :ok
+  defp check_desc_altered(:offer, _sdp, _state), do: {:error, :offer_altered}
+  defp check_desc_altered(:answer, sdp, %{last_answer: answer}) when sdp == answer, do: :ok
+  defp check_desc_altered(:answer, _sdp, _state), do: {:error, :answer_altered}
 
   # Signaling state machine, RFC 8829 3.2
   defp maybe_next_state(:stable, :remote, :offer), do: {:ok, :have_remote_offer}
