@@ -460,14 +460,14 @@ defmodule ExWebRTC.PeerConnection do
       else
         for mline <- state.current_remote_desc.media,
             {:mid, mid} <- ExSDP.Media.get_attribute(mline, :mid),
-            {mid, _} <- Integer.parse(mid) do
+            {mid, ""} <- Integer.parse(mid) do
           mid
         end
       end
 
     tsc_mids =
       for %RTPTransceiver{mid: mid} when mid != nil <- state.transceivers,
-          {mid, _} <- Integer.parse(mid) do
+          {mid, ""} <- Integer.parse(mid) do
         mid
       end
 
