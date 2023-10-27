@@ -5,10 +5,13 @@ defmodule ExWebRTC.RTPTransceiver do
 
   alias ExWebRTC.{RTPCodecParameters, RTPReceiver}
 
+  @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
+  @type kind() :: :audio | :video
+
   @type t() :: %__MODULE__{
           mid: String.t(),
-          direction: :sendonly | :recvonly | :sendrecv | :inactive | :stopped,
-          kind: :audio | :video,
+          direction: direction(),
+          kind: kind(),
           hdr_exts: [],
           codecs: [],
           rtp_receiver: nil
@@ -69,23 +72,26 @@ defmodule ExWebRTC.RTPTransceiver do
         [rtp_mapping, codec.sdp_fmtp_line, codec.rtcp_fbs]
       end)
 
+    attributes =
+      if(Keyword.get(config, :rtcp, false), do: [{"rtcp", "9 IN IP4 0.0.0.0"}], else: []) ++
+        [
+          transceiver.direction,
+          {:mid, transceiver.mid},
+          {:ice_ufrag, Keyword.fetch!(config, :ice_ufrag)},
+          {:ice_pwd, Keyword.fetch!(config, :ice_pwd)},
+          {:ice_options, Keyword.fetch!(config, :ice_options)},
+          {:fingerprint, Keyword.fetch!(config, :fingerprint)},
+          {:setup, Keyword.fetch!(config, :setup)},
+          :rtcp_mux
+        ]
+
     %ExSDP.Media{
       ExSDP.Media.new(transceiver.kind, 9, "UDP/TLS/RTP/SAVPF", pt)
       | # mline must be followed by a cline, which must contain
         # the default value "IN IP4 0.0.0.0" (as there are no candidates yet)
         connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
     }
-    |> ExSDP.Media.add_attributes([
-      transceiver.direction,
-      {:mid, transceiver.mid},
-      {:ice_ufrag, Keyword.fetch!(config, :ice_ufrag)},
-      {:ice_pwd, Keyword.fetch!(config, :ice_pwd)},
-      {:ice_options, Keyword.fetch!(config, :ice_options)},
-      {:fingerprint, Keyword.fetch!(config, :fingerprint)},
-      {:setup, Keyword.fetch!(config, :setup)},
-      :rtcp_mux
-    ])
-    |> ExSDP.Media.add_attributes(media_formats)
+    |> ExSDP.Media.add_attributes(attributes ++ media_formats)
   end
 
   defp update(transceiver, mline) do

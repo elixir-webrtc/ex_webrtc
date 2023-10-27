@@ -15,12 +15,12 @@ defmodule Peer do
     %{urls: "stun:stun.l.google.com:19302"}
   ]
 
-  def start_link() do
-    GenServer.start_link(__MODULE__, [])
+  def start_link(mode \\ :passive) do
+    GenServer.start_link(__MODULE__, mode)
   end
 
   @impl true
-  def init(_) do
+  def init(mode) do
     {:ok, conn} = :gun.open({127, 0, 0, 1}, 4000)
     {:ok, _protocol} = :gun.await_up(conn)
     :gun.ws_upgrade(conn, "/websocket")
@@ -30,11 +30,18 @@ defmodule Peer do
         Logger.info("Connected to the signalling server")
         Process.send_after(self(), :ws_ping, 1000)
 
-        {:ok, pc} = PeerConnection.start_link(
-          ice_servers: @ice_servers
-        )
+        {:ok, pc} = PeerConnection.start_link(ice_servers: @ice_servers)
 
-        {:ok, %{conn: conn, stream: stream, peer_connection: pc}}
+        if mode == :active do
+          {:ok, _transceiver} = PeerConnection.add_transceiver(pc, :audio)
+          {:ok, offer} = PeerConnection.create_offer(pc)
+          :ok = PeerConnection.set_local_description(pc, offer)
+          msg = %{"type" => "offer", "sdp" => offer.sdp}
+          :gun.ws_send(conn, stream, {:text, Jason.encode!(msg)})
+          Logger.info("Send SDP offer: #{offer.sdp}")
+        end
+
+        {:ok, %{conn: conn, stream: stream, peer_connection: pc, mode: mode}}
 
       other ->
         Logger.error("Couldn't connect to the signalling server: #{inspect(other)}")
@@ -84,7 +91,7 @@ defmodule Peer do
     {:noreply, state}
   end
 
-  defp handle_ws_message(%{"type" => "offer", "sdp" => sdp}, state) do
+  defp handle_ws_message(%{"type" => "offer", "sdp" => sdp}, %{mode: :passive} = state) do
     Logger.info("Received SDP offer: #{inspect(sdp)}")
     offer = %SessionDescription{type: :offer, sdp: sdp}
     :ok = PeerConnection.set_remote_description(state.peer_connection, offer)
@@ -93,14 +100,22 @@ defmodule Peer do
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
   end
 
+  defp handle_ws_message(%{"type" => "answer", "sdp" => sdp}, %{mode: :active} = state) do
+    Logger.info("Received SDP answer: #{inspect(sdp)}")
+    answer = %SessionDescription{type: :answer, sdp: sdp}
+    :ok = PeerConnection.set_remote_description(state.peer_connection, answer)
+  end
+
   defp handle_ws_message(%{"type" => "ice", "data" => data}, state) do
     Logger.info("Received remote ICE candidate: #{inspect(data)}")
+
     candidate = %IceCandidate{
       candidate: data["candidate"],
       sdp_mid: data["sdpMid"],
       sdp_m_line_index: data["sdpMLineIndex"],
       username_fragment: data["usernameFragment"]
     }
+
     :ok = PeerConnection.add_ice_candidate(state.peer_connection, candidate)
   end
 
@@ -115,9 +130,9 @@ defmodule Peer do
       "sdpMLineIndex" => candidate.sdp_m_line_index,
       "usernameFragment" => candidate.username_fragment
     }
+
     msg = %{"type" => "ice", "data" => candidate}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
-
   end
 
   defp handle_webrtc_message(msg, _state) do
@@ -125,7 +140,8 @@ defmodule Peer do
   end
 end
 
-{:ok, pid} = Peer.start_link()
+mode = :active
+{:ok, pid} = Peer.start_link(mode)
 ref = Process.monitor(pid)
 
 receive do
