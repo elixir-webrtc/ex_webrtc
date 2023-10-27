@@ -73,16 +73,17 @@ defmodule ExWebRTC.RTPTransceiver do
       end)
 
     attributes =
-      [
-        transceiver.direction,
-        {:mid, transceiver.mid},
-        {:ice_ufrag, Keyword.fetch!(config, :ice_ufrag)},
-        {:ice_pwd, Keyword.fetch!(config, :ice_pwd)},
-        {:ice_options, Keyword.fetch!(config, :ice_options)},
-        {:fingerprint, Keyword.fetch!(config, :fingerprint)},
-        {:setup, Keyword.fetch!(config, :setup)},
-        :rtcp_mux
-      ] ++ if(Keyword.get(config, :rtcp, false), do: [{"rtcp", "9 IN IP4 0.0.0.0"}], else: [])
+      if(Keyword.get(config, :rtcp, false), do: [{"rtcp", "9 IN IP4 0.0.0.0"}], else: []) ++
+        [
+          transceiver.direction,
+          {:mid, transceiver.mid},
+          {:ice_ufrag, Keyword.fetch!(config, :ice_ufrag)},
+          {:ice_pwd, Keyword.fetch!(config, :ice_pwd)},
+          {:ice_options, Keyword.fetch!(config, :ice_options)},
+          {:fingerprint, Keyword.fetch!(config, :fingerprint)},
+          {:setup, Keyword.fetch!(config, :setup)},
+          :rtcp_mux
+        ]
 
     %ExSDP.Media{
       ExSDP.Media.new(transceiver.kind, 9, "UDP/TLS/RTP/SAVPF", pt)

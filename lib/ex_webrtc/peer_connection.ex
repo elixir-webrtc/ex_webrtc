@@ -42,7 +42,6 @@ defmodule ExWebRTC.PeerConnection do
                 dtls_finished: false,
                 transceivers: [],
                 signaling_state: :stable,
-                next_mid: 0,
                 last_offer: nil,
                 last_answer: nil
               ]
@@ -140,7 +139,7 @@ defmodule ExWebRTC.PeerConnection do
     # in this case internal counter is used
 
     next_mid = find_next_mid(state)
-    {transceivers, next_mid} = assign_mids(state.transceivers, next_mid)
+    transceivers = assign_mids(state.transceivers, next_mid)
 
     {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
     {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
@@ -180,7 +179,7 @@ defmodule ExWebRTC.PeerConnection do
 
     sdp = to_string(offer)
     desc = %SessionDescription{type: :offer, sdp: sdp}
-    state = %{state | next_mid: next_mid, last_offer: sdp}
+    state = %{state | last_offer: sdp}
 
     {:reply, {:ok, desc}, state}
   end
@@ -440,7 +439,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp assign_mids(transceivers, next_mid, acc \\ [])
-  defp assign_mids([], next_mid, acc), do: {Enum.reverse(acc), next_mid}
+  defp assign_mids([], _next_mid, acc), do: Enum.reverse(acc)
 
   defp assign_mids([transceiver | rest], next_mid, acc) when is_nil(transceiver.mid) do
     transceiver = %RTPTransceiver{transceiver | mid: Integer.to_string(next_mid)}
@@ -454,6 +453,7 @@ defmodule ExWebRTC.PeerConnection do
   defp find_next_mid(state) do
     # next mid must be unique, it's acomplished by looking for values
     # greater than any mid in remote description or our own transceivers
+    # should we keep track of next_mid in the state?
     crd_mids =
       if is_nil(state.current_remote_desc) do
         []
@@ -471,8 +471,7 @@ defmodule ExWebRTC.PeerConnection do
         mid
       end
 
-    max_mid = Enum.max(crd_mids ++ tsc_mids, &>=/2, fn -> -1 end) + 1
-    max(state.next_mid, max_mid + 1)
+    Enum.max(crd_mids ++ tsc_mids, &>=/2, fn -> -1 end) + 1
   end
 
   defp check_desc_altered(:offer, sdp, %{last_offer: offer}) when sdp == offer, do: :ok
