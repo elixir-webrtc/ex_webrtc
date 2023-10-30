@@ -545,7 +545,7 @@ defmodule ExWebRTC.PeerConnection do
     }
   end
 
-  defp set_description(:local, other, sdp, state) when other in [:answer, :pranswer] do
+  defp set_description(:local, other, sdp, state) when other in [:offer, :pranswer] do
     %{state | pending_local_desc: {other, sdp}}
   end
 
