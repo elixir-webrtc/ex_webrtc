@@ -16,7 +16,7 @@ defmodule ExWebRTC.SessionDescription do
   defstruct @enforce_keys
 
   @spec from_json(%{String.t() => String.t()}) :: {:ok, t()} | :error
-  def from_init(%{"type" => type})
+  def from_json(%{"type" => type})
       when type not in ["answer", "offer", "pranswer", "rollback"],
       do: :error
 

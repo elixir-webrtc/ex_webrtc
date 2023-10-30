@@ -192,10 +192,18 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:create_answer, _options}, _from, state)
       when state.signaling_state in [:have_remote_offer, :have_local_pranswer] do
+    {:offer, remote_offer} = state.pending_remote_desc
+
     {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
     {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
 
     answer = %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
+
+    answer =
+      case ExSDP.get_attribute(remote_offer, :ice_options) do
+        {:ice_options, "trickle"} = attr -> ExSDP.add_attribute(answer, attr)
+        _other -> answer
+      end
 
     config =
       [
@@ -203,15 +211,15 @@ defmodule ExWebRTC.PeerConnection do
         ice_pwd: ice_pwd,
         ice_options: "trickle",
         fingerprint: {:sha256, Utils.hex_dump(dtls_fingerprint)},
-        # TODO offer will always contain actpass
-        # and answer should contain active
-        # see RFC 8829 sec. 5.3.1
-        setup: :passive
+        setup: :active
       ]
 
+    # TODO: rejected media sections
     mlines =
-      Enum.map(state.transceivers, fn transceiver ->
-        RTPTransceiver.to_mline(transceiver, config)
+      Enum.map(remote_offer.media, fn mline ->
+        {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+        {_ix, transceiver} = RTPTransceiver.find_by_mid(state.transceivers, mid)
+        SDPUtils.get_answer_mline(mline, transceiver, config)
       end)
 
     mids =
@@ -394,7 +402,9 @@ defmodule ExWebRTC.PeerConnection do
 
   defp apply_local_description(type, sdp, state) do
     new_transceivers = update_local_transceivers(type, state.transceivers, sdp)
-    {:ok, %{state | current_local_desc: sdp, transceivers: new_transceivers}}
+    state = set_description(:local, type, sdp, state)
+
+    {:ok, %{state | transceivers: new_transceivers}}
   end
 
   defp update_local_transceivers(:offer, transceivers, sdp) do
@@ -411,7 +421,7 @@ defmodule ExWebRTC.PeerConnection do
     transceivers
   end
 
-  defp apply_remote_description(_type, sdp, state) do
+  defp apply_remote_description(type, sdp, state) do
     # TODO apply steps listed in RFC 8829 5.10
     with :ok <- SDPUtils.ensure_mid(sdp),
          :ok <- SDPUtils.ensure_bundle(sdp),
@@ -433,7 +443,9 @@ defmodule ExWebRTC.PeerConnection do
         notify(state.owner, {:track, track})
       end
 
-      {:ok, %{state | current_remote_desc: sdp, transceivers: new_transceivers}}
+      state = set_description(:remote, type, sdp, state)
+
+      {:ok, %{state | transceivers: new_transceivers}}
     else
       error -> error
     end
@@ -517,6 +529,41 @@ defmodule ExWebRTC.PeerConnection do
 
   defp maybe_next_state(:have_remote_pranswer, :remote, :answer), do: {:ok, :stable}
   defp maybe_next_state(:have_remote_pranswer, _, _), do: {:error, :invalid_transition}
+
+  defp set_description(:local, :answer, sdp, state) do
+    # NOTICE: internaly, we don't create SessionDescription
+    # as it would require serialization of sdp
+    %{
+      state
+      | current_local_desc: {:answer, sdp},
+        current_remote_desc: state.pending_remote_desc,
+        pending_local_desc: nil,
+        pending_remote_desc: nil,
+        # W3C 4.4.1.5 (.4.7.5.2) suggests setting these to "", not nil
+        last_offer: nil,
+        last_answer: nil
+    }
+  end
+
+  defp set_description(:local, other, sdp, state) when other in [:answer, :pranswer] do
+    %{state | pending_local_desc: {other, sdp}}
+  end
+
+  defp set_description(:remote, :answer, sdp, state) do
+    %{
+      state
+      | current_remote_desc: {:answer, sdp},
+        current_local_desc: state.pending_local_desc,
+        pending_remote_desc: nil,
+        pending_local_desc: nil,
+        last_offer: nil,
+        last_answer: nil
+    }
+  end
+
+  defp set_description(:remote, other, sdp, state) when other in [:offer, :pranswer] do
+    %{state | pending_remote_desc: {other, sdp}}
+  end
 
   defp notify(pid, msg), do: send(pid, {:ex_webrtc, self(), msg})
 end
