@@ -197,13 +197,10 @@ defmodule ExWebRTC.PeerConnection do
     {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
     {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
 
-    answer = %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
-
     answer =
-      case ExSDP.get_attribute(remote_offer, :ice_options) do
-        {:ice_options, "trickle"} = attr -> ExSDP.add_attribute(answer, attr)
-        _other -> answer
-      end
+      %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
+      # we only support trickle ICE, so non-trickle offers should be rejected earlier
+      |> ExSDP.add_attribute({:ice_options, "trickle"})
 
     config =
       [
