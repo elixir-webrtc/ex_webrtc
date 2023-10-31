@@ -127,16 +127,18 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_call({:create_offer, options}, _from, state)
-      when state.signaling_state in [:stable, :have_local_offer, :have_remote_pranswer] do
+  def handle_call({:create_offer, _options}, _from, %{signaling_state: ss} = state)
+      when ss not in [:stable, :have_local_offer] do
+    {:reply, {:error, :invalid_state}, state}
+  end
+
+  @impl true
+  def handle_call({:create_offer, options}, _from, state) do
     # TODO: handle subsequent offers
 
     if Keyword.get(options, :ice_restart, false) do
-      ICEAgent.restart(state.ice_agent)
+      :ok = ICEAgent.restart(state.ice_agent)
     end
-
-    # we need to asign unique mid values for the transceivers
-    # in this case internal counter is used
 
     next_mid = find_next_mid(state)
     transceivers = assign_mids(state.transceivers, next_mid)
@@ -146,6 +148,7 @@ defmodule ExWebRTC.PeerConnection do
 
     offer =
       %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
+      # we support trickle ICE only
       |> ExSDP.add_attribute({:ice_options, "trickle"})
 
     config =
@@ -160,7 +163,7 @@ defmodule ExWebRTC.PeerConnection do
 
     mlines =
       Enum.map(transceivers, fn transceiver ->
-        RTPTransceiver.to_mline(transceiver, config)
+        SDPUtils.to_offer_mline(transceiver, config)
       end)
 
     mids =
@@ -179,19 +182,21 @@ defmodule ExWebRTC.PeerConnection do
 
     sdp = to_string(offer)
     desc = %SessionDescription{type: :offer, sdp: sdp}
-    state = %{state | last_offer: sdp}
 
+    # NOTICE: we assign mids in create_offer (not in apply_local_description)
+    # this is fine as long as we not allow for SDP munging
+    state = %{state | last_offer: sdp, transceivers: transceivers}
     {:reply, {:ok, desc}, state}
   end
 
   @impl true
-  def handle_call({:create_offer, _options}, _from, state) do
+  def handle_call({:create_answer, _options}, _from, %{signaling_state: ss} = state)
+      when ss not in [:have_remote_offer, :have_local_pranswer] do
     {:reply, {:error, :invalid_state}, state}
   end
 
   @impl true
-  def handle_call({:create_answer, _options}, _from, state)
-      when state.signaling_state in [:have_remote_offer, :have_local_pranswer] do
+  def handle_call({:create_answer, _options}, _from, state) do
     {:offer, remote_offer} = state.pending_remote_desc
 
     {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
@@ -240,11 +245,6 @@ defmodule ExWebRTC.PeerConnection do
     state = %{state | last_answer: sdp}
 
     {:reply, {:ok, desc}, state}
-  end
-
-  @impl true
-  def handle_call({:create_answer, _options}, _from, state) do
-    {:reply, {:error, :invalid_state}, state}
   end
 
   @impl true
@@ -404,14 +404,9 @@ defmodule ExWebRTC.PeerConnection do
     {:ok, %{state | transceivers: new_transceivers}}
   end
 
-  defp update_local_transceivers(:offer, transceivers, sdp) do
-    sdp.media
-    |> Enum.zip(transceivers)
-    |> Enum.map(fn {mline, transceiver} ->
-      {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
-      # TODO: check if mid from mline == mid from transceiver
-      %{transceiver | mid: mid}
-    end)
+  defp update_local_transceivers(:offer, transceivers, _sdp) do
+    # TODO: at the moment, we assign mids in create_offer
+    transceivers
   end
 
   defp update_local_transceivers(:answer, transceivers, _sdp) do
@@ -461,22 +456,19 @@ defmodule ExWebRTC.PeerConnection do
     end)
   end
 
-  defp assign_mids(transceivers, next_mid, acc \\ [])
-  defp assign_mids([], _next_mid, acc), do: Enum.reverse(acc)
+  defp assign_mids(transceivers, next_mid) do
+    {new_transceivers, _next_mid} =
+      Enum.map_reduce(transceivers, next_mid, fn
+        %{mid: nil} = t, nm -> {%{t | mid: to_string(nm)}, nm + 1}
+        other, nm -> {other, nm}
+      end)
 
-  defp assign_mids([transceiver | rest], next_mid, acc) when is_nil(transceiver.mid) do
-    transceiver = %RTPTransceiver{transceiver | mid: Integer.to_string(next_mid)}
-    assign_mids(rest, next_mid + 1, [transceiver | acc])
-  end
-
-  defp assign_mids([transceiver | rest], next_mid, acc) do
-    assign_mids(rest, next_mid, [transceiver | acc])
+    new_transceivers
   end
 
   defp find_next_mid(state) do
     # next mid must be unique, it's acomplished by looking for values
     # greater than any mid in remote description or our own transceivers
-    # should we keep track of next_mid in the state?
     crd_mids =
       if is_nil(state.current_remote_desc) do
         []

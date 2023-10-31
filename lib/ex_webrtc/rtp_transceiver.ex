@@ -55,45 +55,6 @@ defmodule ExWebRTC.RTPTransceiver do
     end
   end
 
-  def to_mline(transceiver, config) do
-    pt = Enum.map(transceiver.codecs, fn codec -> codec.payload_type end)
-
-    media_formats =
-      Enum.flat_map(transceiver.codecs, fn codec ->
-        [_type, encoding] = String.split(codec.mime_type, "/")
-
-        rtp_mapping = %ExSDP.Attribute.RTPMapping{
-          clock_rate: codec.clock_rate,
-          encoding: encoding,
-          params: codec.channels,
-          payload_type: codec.payload_type
-        }
-
-        [rtp_mapping, codec.sdp_fmtp_line, codec.rtcp_fbs]
-      end)
-
-    attributes =
-      if(Keyword.get(config, :rtcp, false), do: [{"rtcp", "9 IN IP4 0.0.0.0"}], else: []) ++
-        [
-          transceiver.direction,
-          {:mid, transceiver.mid},
-          {:ice_ufrag, Keyword.fetch!(config, :ice_ufrag)},
-          {:ice_pwd, Keyword.fetch!(config, :ice_pwd)},
-          {:ice_options, Keyword.fetch!(config, :ice_options)},
-          {:fingerprint, Keyword.fetch!(config, :fingerprint)},
-          {:setup, Keyword.fetch!(config, :setup)},
-          :rtcp_mux
-        ]
-
-    %ExSDP.Media{
-      ExSDP.Media.new(transceiver.kind, 9, "UDP/TLS/RTP/SAVPF", pt)
-      | # mline must be followed by a cline, which must contain
-        # the default value "IN IP4 0.0.0.0" (as there are no candidates yet)
-        connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
-    }
-    |> ExSDP.Media.add_attributes(attributes ++ media_formats)
-  end
-
   defp update(transceiver, mline) do
     codecs = get_codecs(mline)
     hdr_exts = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.Extmap)
