@@ -102,6 +102,20 @@ defmodule ExWebRTC.PeerConnectionTest do
     refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
   end
 
+  test "offer/answer exchange" do
+    {:ok, pc1} = PeerConnection.start_link()
+    {:ok, _} = PeerConnection.add_transceiver(pc1, :audio)
+    {:ok, offer} = PeerConnection.create_offer(pc1)
+    :ok = PeerConnection.set_local_description(pc1, offer)
+
+    {:ok, pc2} = PeerConnection.start_link()
+    :ok = PeerConnection.set_remote_description(pc2, offer)
+    {:ok, answer} = PeerConnection.create_answer(pc2)
+    :ok = PeerConnection.set_local_description(pc2, answer)
+
+    :ok = PeerConnection.set_remote_description(pc1, answer)
+  end
+
   describe "set_remote_description/2" do
     test "MID" do
       {:ok, pc} = PeerConnection.start_link()
