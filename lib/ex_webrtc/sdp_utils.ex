@@ -46,7 +46,6 @@ defmodule ExWebRTC.SDPUtils do
     |> ExSDP.Media.add_attributes(attributes ++ media_formats)
   end
 
-  # TODO: refactor
   def to_offer_mline(transceiver, config) do
     pt = Enum.map(transceiver.codecs, fn codec -> codec.payload_type end)
 
