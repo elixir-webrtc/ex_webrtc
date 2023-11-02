@@ -37,9 +37,10 @@ defmodule ExWebRTC.PeerConnection do
                 :pending_remote_desc,
                 :ice_agent,
                 :ice_state,
-                :dtls_client,
                 :dtls_buffered_packets,
+                dtls_client: nil,
                 dtls_finished: false,
+                initiate_dtls: false,
                 transceivers: [],
                 signaling_state: :stable,
                 last_offer: nil,
@@ -114,13 +115,11 @@ defmodule ExWebRTC.PeerConnection do
       |> Enum.filter(&String.starts_with?(&1, "stun:"))
 
     {:ok, ice_agent} = ICEAgent.start_link(:controlled, stun_servers: stun_servers)
-    {:ok, dtls_client} = ExDTLS.start_link(client_mode: false, dtls_srtp: true)
 
     state = %__MODULE__{
       owner: owner,
       config: config,
-      ice_agent: ice_agent,
-      dtls_client: dtls_client
+      ice_agent: ice_agent
     }
 
     {:ok, state}
@@ -144,6 +143,12 @@ defmodule ExWebRTC.PeerConnection do
     transceivers = assign_mids(state.transceivers, next_mid)
 
     {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
+
+    # TODO this will fail on subsequent calls
+    # or when answer contains setup: passive
+    {:ok, dtls_client} = ExDTLS.start_link(client_mode: false, dtls_srtp: true)
+    state = %__MODULE__{state | dtls_client: dtls_client}
+
     {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
 
     offer =
@@ -200,6 +205,10 @@ defmodule ExWebRTC.PeerConnection do
     {:offer, remote_offer} = state.pending_remote_desc
 
     {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
+    # TODO this will fail on subsequent calls
+    {:ok, dtls_client} = ExDTLS.start_link(client_mode: true, dtls_srtp: true)
+    state = %__MODULE__{state | dtls_client: dtls_client}
+
     {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
 
     answer =
@@ -322,6 +331,14 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:ex_ice, _from, :connected}, state) do
+    state =
+      if state.initiate_dtls do
+        start_dtls_handshake(state)
+        %__MODULE__{state | initiate_dtls: false}
+      else
+        state
+      end
+
     if state.dtls_buffered_packets do
       Logger.debug("Sending buffered DTLS packets")
       ICEAgent.send_data(state.ice_agent, state.dtls_buffered_packets)
@@ -401,6 +418,14 @@ defmodule ExWebRTC.PeerConnection do
     new_transceivers = update_local_transceivers(type, state.transceivers, sdp)
     state = set_description(:local, type, sdp, state)
 
+    state =
+      if type == :answer do
+        {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
+        start_dtls(setup, state)
+      else
+        state
+      end
+
     {:ok, %{state | transceivers: new_transceivers}}
   end
 
@@ -437,6 +462,14 @@ defmodule ExWebRTC.PeerConnection do
 
       state = set_description(:remote, type, sdp, state)
 
+      state =
+        if type == :answer do
+          {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
+          start_dtls(setup, state)
+        else
+          state
+        end
+
       {:ok, %{state | transceivers: new_transceivers}}
     else
       error -> error
@@ -464,6 +497,24 @@ defmodule ExWebRTC.PeerConnection do
       end)
 
     new_transceivers
+  end
+
+  defp start_dtls(:active, %{ice_state: :connected} = state) do
+    start_dtls_handshake(state)
+    state
+  end
+
+  defp start_dtls(:active, state) do
+    %__MODULE__{state | initiate_dtls: true}
+  end
+
+  defp start_dtls(_setup, state) do
+    state
+  end
+
+  defp start_dtls_handshake(state) do
+    {:ok, packets} = ExDTLS.do_handshake(state.dtls_client)
+    :ok = ICEAgent.send_data(state.ice_agent, packets)
   end
 
   defp find_next_mid(state) do

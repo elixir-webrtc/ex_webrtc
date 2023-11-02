@@ -96,6 +96,7 @@ defmodule Peer do
     offer = %SessionDescription{type: :offer, sdp: sdp}
     :ok = PeerConnection.set_remote_description(state.peer_connection, offer)
     {:ok, answer} = PeerConnection.create_answer(state.peer_connection)
+    :ok = PeerConnection.set_local_description(state.peer_connection, answer)
     msg = %{"type" => "answer", "sdp" => answer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
   end
