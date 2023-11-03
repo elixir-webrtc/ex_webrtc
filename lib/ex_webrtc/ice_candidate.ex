@@ -1,5 +1,7 @@
 defmodule ExWebRTC.IceCandidate do
-  @moduledoc false
+  @moduledoc """
+  ICE candidate
+  """
 
   # not exacly the same as W3 IceCandidate
   @type t() :: %__MODULE__{

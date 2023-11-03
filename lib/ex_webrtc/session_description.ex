@@ -1,5 +1,7 @@
 defmodule ExWebRTC.SessionDescription do
-  @moduledoc false
+  @moduledoc """
+  SessionDescription
+  """
 
   @type description_type() ::
           :answer
