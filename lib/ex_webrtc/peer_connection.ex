@@ -9,6 +9,7 @@ defmodule ExWebRTC.PeerConnection do
   alias ExICE.ICEAgent
 
   alias ExWebRTC.{
+    DTLSTransport,
     IceCandidate,
     MediaStreamTrack,
     RTPTransceiver,
@@ -37,10 +38,7 @@ defmodule ExWebRTC.PeerConnection do
                 :pending_remote_desc,
                 :ice_agent,
                 :ice_state,
-                :dtls_buffered_packets,
-                dtls_client: nil,
-                dtls_finished: false,
-                initiate_dtls: false,
+                :dtls_transport,
                 transceivers: [],
                 signaling_state: :stable,
                 last_offer: nil,
@@ -115,11 +113,13 @@ defmodule ExWebRTC.PeerConnection do
       |> Enum.filter(&String.starts_with?(&1, "stun:"))
 
     {:ok, ice_agent} = ICEAgent.start_link(:controlled, stun_servers: stun_servers)
+    dtls_transport = DTLSTransport.new(ice_agent)
 
     state = %__MODULE__{
       owner: owner,
       config: config,
-      ice_agent: ice_agent
+      ice_agent: ice_agent,
+      dtls_transport: dtls_transport
     }
 
     {:ok, state}
@@ -144,13 +144,6 @@ defmodule ExWebRTC.PeerConnection do
 
     {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
 
-    # TODO this will fail on subsequent calls
-    # or when answer contains setup: passive
-    {:ok, dtls_client} = ExDTLS.start_link(client_mode: false, dtls_srtp: true)
-    state = %__MODULE__{state | dtls_client: dtls_client}
-
-    {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
-
     offer =
       %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
       # we support trickle ICE only
@@ -161,7 +154,7 @@ defmodule ExWebRTC.PeerConnection do
         ice_ufrag: ice_ufrag,
         ice_pwd: ice_pwd,
         ice_options: "trickle",
-        fingerprint: {:sha256, Utils.hex_dump(dtls_fingerprint)},
+        fingerprint: {:sha256, Utils.hex_dump(state.dtls_transport.fingerprint)},
         setup: :actpass,
         rtcp: true
       ]
@@ -205,11 +198,6 @@ defmodule ExWebRTC.PeerConnection do
     {:offer, remote_offer} = state.pending_remote_desc
 
     {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
-    # TODO this will fail on subsequent calls
-    {:ok, dtls_client} = ExDTLS.start_link(client_mode: true, dtls_srtp: true)
-    state = %__MODULE__{state | dtls_client: dtls_client}
-
-    {:ok, dtls_fingerprint} = ExDTLS.get_cert_fingerprint(state.dtls_client)
 
     answer =
       %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
@@ -221,7 +209,7 @@ defmodule ExWebRTC.PeerConnection do
         ice_ufrag: ice_ufrag,
         ice_pwd: ice_pwd,
         ice_options: "trickle",
-        fingerprint: {:sha256, Utils.hex_dump(dtls_fingerprint)},
+        fingerprint: {:sha256, Utils.hex_dump(state.dtls_transport.fingerprint)},
         setup: :active
       ]
 
@@ -331,20 +319,8 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:ex_ice, _from, :connected}, state) do
-    state =
-      if state.initiate_dtls do
-        start_dtls_handshake(state)
-        %__MODULE__{state | initiate_dtls: false}
-      else
-        state
-      end
-
-    if state.dtls_buffered_packets do
-      Logger.debug("Sending buffered DTLS packets")
-      ICEAgent.send_data(state.ice_agent, state.dtls_buffered_packets)
-    end
-
-    {:noreply, %__MODULE__{state | ice_state: :connected, dtls_buffered_packets: nil}}
+    dtls = DTLSTransport.update_ice_state(state.dtls_transport, :connected)
+    {:noreply, %__MODULE__{state | dtls_transport: dtls, ice_state: :connected}}
   end
 
   @impl true
@@ -362,50 +338,16 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:ex_ice, _from, {:data, data}}, %{dtls_finished: false} = state) do
-    case ExDTLS.process(state.dtls_client, data) do
-      {:handshake_packets, packets} when state.ice_state in [:connected, :completed] ->
-        :ok = ICEAgent.send_data(state.ice_agent, packets)
-        {:noreply, state}
-
-      {:handshake_packets, packets} ->
-        Logger.debug("""
-        Generated local DTLS packets but ICE is not in the connected or completed state yet.
-        We will send those packets once ICE is ready.
-        """)
-
-        {:noreply, %__MODULE__{state | dtls_buffered_packets: packets}}
-
-      {:handshake_finished, _keying_material, packets} ->
-        Logger.debug("DTLS handshake finished")
-        ICEAgent.send_data(state.ice_agent, packets)
-        {:noreply, %__MODULE__{state | dtls_finished: true}}
-
-      {:handshake_finished, _keying_material} ->
-        Logger.debug("DTLS handshake finished")
-        {:noreply, %__MODULE__{state | dtls_finished: true}}
-
-      :handshake_want_read ->
-        {:noreply, state}
-    end
+  def handle_info({:ex_ice, _from, {:data, data}}, state)
+      when not state.dtls_transport.finished do
+    dtls = DTLSTransport.process_data(state.dtls_transport, data)
+    {:noreply, %__MODULE__{state | dtls_transport: dtls}}
   end
 
   @impl true
-  def handle_info({:ex_dtls, _from, {:retransmit, packets}}, state)
-      when state.ice_state in [:connected, :completed] do
-    ICEAgent.send_data(state.ice_agent, packets)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(
-        {:ex_dtls, _from, {:retransmit, packets}},
-        %{dtls_buffered_packets: packets} = state
-      ) do
-    # we got DTLS packets from the other side but
-    # we haven't established ICE connection yet so
-    # packets to retransmit have to be the same as dtls_buffered_packets
-    {:noreply, state}
+  def handle_info({:ex_dtls, _from, msg}, state) do
+    dtls = DTLSTransport.handle_info(state.dtls_transport, msg)
+    {:noreply, %__MODULE__{state | dtls_transport: dtls}}
   end
 
   @impl true
@@ -418,15 +360,15 @@ defmodule ExWebRTC.PeerConnection do
     new_transceivers = update_local_transceivers(type, state.transceivers, sdp)
     state = set_description(:local, type, sdp, state)
 
-    state =
+    dtls =
       if type == :answer do
         {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
-        start_dtls(setup, state)
+        DTLSTransport.start(state.dtls_transport, setup)
       else
-        state
+        state.dtls_transport
       end
 
-    {:ok, %{state | transceivers: new_transceivers}}
+    {:ok, %{state | transceivers: new_transceivers, dtls_transport: dtls}}
   end
 
   defp update_local_transceivers(:offer, transceivers, _sdp) do
@@ -462,15 +404,22 @@ defmodule ExWebRTC.PeerConnection do
 
       state = set_description(:remote, type, sdp, state)
 
-      state =
+      dtls =
         if type == :answer do
           {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
-          start_dtls(setup, state)
+
+          setup =
+            case setup do
+              :active -> :passive
+              :passive -> :active
+            end
+
+          DTLSTransport.start(state.dtls_transport, setup)
         else
-          state
+          state.dtls_transport
         end
 
-      {:ok, %{state | transceivers: new_transceivers}}
+      {:ok, %{state | transceivers: new_transceivers, dtls_transport: dtls}}
     else
       error -> error
     end
@@ -497,24 +446,6 @@ defmodule ExWebRTC.PeerConnection do
       end)
 
     new_transceivers
-  end
-
-  defp start_dtls(:active, %{ice_state: :connected} = state) do
-    start_dtls_handshake(state)
-    state
-  end
-
-  defp start_dtls(:active, state) do
-    %__MODULE__{state | initiate_dtls: true}
-  end
-
-  defp start_dtls(_setup, state) do
-    state
-  end
-
-  defp start_dtls_handshake(state) do
-    {:ok, packets} = ExDTLS.do_handshake(state.dtls_client)
-    :ok = ICEAgent.send_data(state.ice_agent, packets)
   end
 
   defp find_next_mid(state) do
