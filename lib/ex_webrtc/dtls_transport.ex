@@ -46,7 +46,7 @@ defmodule ExWebRTC.DTLSTransport do
     %__MODULE__{dtls | client: client}
   end
 
-  def start(%{ice_state: ice_state} = dtls, :active) do
+  def start(dtls, :active) do
     {:ok, client} =
       ExDTLS.start_link(
         client_mode: true,
@@ -55,22 +55,15 @@ defmodule ExWebRTC.DTLSTransport do
         cert: dtls.cert
       )
 
-    dtls = %__MODULE__{dtls | client: client}
-
-    case ice_state do
-      state when state in [:active, :connected] ->
-        start_handshake(dtls)
-        dtls
-
-      _other ->
-        %__MODULE__{dtls | should_start: true}
-    end
+    # we assume that ICE in not in connected state yet
+    %__MODULE__{dtls | client: client, should_start: true}
   end
 
   def update_ice_state(dtls, :connected) do
     dtls =
       if dtls.should_start do
-        start_handshake(dtls)
+        {:ok, packets} = ExDTLS.do_handshake(dtls.client)
+        :ok = ICEAgent.send_data(dtls.ice_agent, packets)
         %__MODULE__{dtls | should_start: false}
       else
         dtls
@@ -131,10 +124,5 @@ defmodule ExWebRTC.DTLSTransport do
       :handshake_want_read ->
         dtls
     end
-  end
-
-  defp start_handshake(dtls) do
-    {:ok, packets} = ExDTLS.do_handshake(dtls.client)
-    :ok = ICEAgent.send_data(dtls.ice_agent, packets)
   end
 end
