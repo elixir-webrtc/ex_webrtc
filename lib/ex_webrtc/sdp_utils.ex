@@ -1,90 +1,6 @@
 defmodule ExWebRTC.SDPUtils do
   @moduledoc false
 
-  alias ExWebRTC.RTPTransceiver
-
-  @spec get_answer_mline(ExSDP.Media.t(), RTPTransceiver.t(), Keyword.t()) :: ExSDP.Media.t()
-  def get_answer_mline(mline, transceiver, config) do
-    # TODO: we need to filter the media formats according to our capabilities
-    media_formats =
-      Enum.filter(mline.attributes, fn
-        %ExSDP.Attribute.RTPMapping{} -> true
-        %ExSDP.Attribute.FMTP{} -> true
-        _other -> false
-      end)
-
-    payload_types =
-      Enum.flat_map(media_formats, fn
-        %ExSDP.Attribute.RTPMapping{payload_type: pt} -> [pt]
-        _other -> []
-      end)
-
-    offered_direction = ExSDP.Media.get_attribute(mline, :direction)
-    direction = get_direction(offered_direction, transceiver.direction)
-
-    attributes =
-      [
-        direction,
-        {:mid, transceiver.mid},
-        {:ice_ufrag, Keyword.fetch!(config, :ice_ufrag)},
-        {:ice_pwd, Keyword.fetch!(config, :ice_pwd)},
-        {:ice_options, Keyword.fetch!(config, :ice_options)},
-        {:fingerprint, Keyword.fetch!(config, :fingerprint)},
-        {:setup, Keyword.fetch!(config, :setup)},
-        # TODO: probably should fail if the offer doesn't contain rtcp-mux
-        # as we don't support non-muxed streams
-        :rtcp_mux
-      ]
-
-    # TODO: validation of some the stuff in remote SDP
-    %ExSDP.Media{
-      ExSDP.Media.new(mline.type, 9, mline.protocol, payload_types)
-      | # mline must be followed by a cline, which must contain
-        # the default value "IN IP4 0.0.0.0" (as there are no candidates yet)
-        connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
-    }
-    |> ExSDP.Media.add_attributes(attributes ++ media_formats)
-  end
-
-  def to_offer_mline(transceiver, config) do
-    pt = Enum.map(transceiver.codecs, fn codec -> codec.payload_type end)
-
-    media_formats =
-      Enum.flat_map(transceiver.codecs, fn codec ->
-        [_type, encoding] = String.split(codec.mime_type, "/")
-
-        rtp_mapping = %ExSDP.Attribute.RTPMapping{
-          clock_rate: codec.clock_rate,
-          encoding: encoding,
-          params: codec.channels,
-          payload_type: codec.payload_type
-        }
-
-        [rtp_mapping, codec.sdp_fmtp_line, codec.rtcp_fbs]
-      end)
-
-    attributes =
-      if(Keyword.get(config, :rtcp, false), do: [{"rtcp", "9 IN IP4 0.0.0.0"}], else: []) ++
-        [
-          transceiver.direction,
-          {:mid, transceiver.mid},
-          {:ice_ufrag, Keyword.fetch!(config, :ice_ufrag)},
-          {:ice_pwd, Keyword.fetch!(config, :ice_pwd)},
-          {:ice_options, Keyword.fetch!(config, :ice_options)},
-          {:fingerprint, Keyword.fetch!(config, :fingerprint)},
-          {:setup, Keyword.fetch!(config, :setup)},
-          :rtcp_mux
-        ]
-
-    %ExSDP.Media{
-      ExSDP.Media.new(transceiver.kind, 9, "UDP/TLS/RTP/SAVPF", pt)
-      | # mline must be followed by a cline, which must contain
-        # the default value "IN IP4 0.0.0.0" (as there are no candidates yet)
-        connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
-    }
-    |> ExSDP.Media.add_attributes(attributes ++ media_formats)
-  end
-
   @spec get_media_direction(ExSDP.Media.t()) ::
           :sendrecv | :sendonly | :recvonly | :inactive | nil
   def get_media_direction(media) do
@@ -229,14 +145,4 @@ defmodule ExWebRTC.SDPUtils do
       _ -> {:error, :conflicting_ice_credentials}
     end
   end
-
-  # RFC 3264 (6.1) + RFC 8829 (5.3.1)
-  # AFAIK one of the cases should always match
-  # bc we won't assign/create an inactive transceiver to i.e. sendonly mline
-  # also neither of the arguments should ever be :stopped
-  defp get_direction(_, :inactive), do: :inactive
-  defp get_direction(:sendonly, t) when t in [:sendrecv, :recvonly], do: :recvonly
-  defp get_direction(:recvonly, t) when t in [:sendrecv, :sendonly], do: :sendonly
-  defp get_direction(o, other) when o in [:sendrecv, nil], do: other
-  defp get_direction(:inactive, _), do: :inactive
 end
