@@ -1,5 +1,7 @@
 defmodule ExWebRTC.PeerConnection do
-  @moduledoc false
+  @moduledoc """
+  PeerConnection
+  """
 
   use GenServer
 
@@ -46,12 +48,15 @@ defmodule ExWebRTC.PeerConnection do
               ]
 
   #### API ####
-
-  def start_link(configuration \\ []) do
+  @spec start_link(Configuration.options()) :: GenServer.on_start()
+  def start_link(options \\ []) do
+    configuration = Configuration.from_options!(options)
     GenServer.start_link(__MODULE__, {self(), configuration})
   end
 
-  def start(configuration \\ []) do
+  @spec start(Configuration.options()) :: GenServer.on_start()
+  def start(options \\ []) do
+    configuration = Configuration.from_options!(options)
     GenServer.start(__MODULE__, {self(), configuration})
   end
 
@@ -103,16 +108,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def init({owner, config}) do
-    config = struct(Configuration, config)
-    :ok = Configuration.check_support(config)
-
-    # ATM, ExICE does not support relay via TURN
-    stun_servers =
-      config.ice_servers
-      |> Enum.flat_map(&if(is_list(&1.urls), do: &1.urls, else: [&1.urls]))
-      |> Enum.filter(&String.starts_with?(&1, "stun:"))
-
-    {:ok, ice_agent} = ICEAgent.start_link(:controlled, stun_servers: stun_servers)
+    {:ok, ice_agent} = ICEAgent.start_link(:controlled, stun_servers: config.ice_servers)
     dtls_transport = DTLSTransport.new(ice_agent)
 
     state = %__MODULE__{
@@ -425,8 +421,6 @@ defmodule ExWebRTC.PeerConnection do
         end
 
       {:ok, %{state | transceivers: new_transceivers, dtls_transport: dtls}}
-    else
-      error -> error
     end
   end
 
