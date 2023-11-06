@@ -14,8 +14,7 @@ defmodule ExWebRTC.DTLSTransport do
     :pkey,
     :fingerprint,
     :mode,
-    finished: false,
-    should_start: false
+    finished: false
   ]
 
   def new(ice_agent) do
@@ -43,7 +42,7 @@ defmodule ExWebRTC.DTLSTransport do
         cert: dtls.cert
       )
 
-    %__MODULE__{dtls | client: client}
+    %__MODULE__{dtls | client: client, mode: :passive}
   end
 
   def start(dtls, :active) do
@@ -56,23 +55,19 @@ defmodule ExWebRTC.DTLSTransport do
       )
 
     # we assume that ICE in not in connected state yet
-    %__MODULE__{dtls | client: client, should_start: true}
+    %__MODULE__{dtls | client: client, mode: :active}
   end
 
   def update_ice_state(dtls, :connected) do
-    dtls =
-      if dtls.should_start do
-        {:ok, packets} = ExDTLS.do_handshake(dtls.client)
-        :ok = ICEAgent.send_data(dtls.ice_agent, packets)
-        %__MODULE__{dtls | should_start: false}
-      else
-        dtls
-      end
+    if dtls.mode == :active do
+      {:ok, packets} = ExDTLS.do_handshake(dtls.client)
+      :ok = ICEAgent.send_data(dtls.ice_agent, packets)
+    end
 
     dtls =
       if dtls.buffered_packets do
         Logger.debug("Sending buffered DTLS packets")
-        ICEAgent.send_data(dtls.ice_agent, dtls.buffered_packets)
+        :ok = ICEAgent.send_data(dtls.ice_agent, dtls.buffered_packets)
         %__MODULE__{dtls | buffered_packets: nil}
       else
         dtls
