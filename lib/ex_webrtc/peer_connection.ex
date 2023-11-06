@@ -343,10 +343,19 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:ex_ice, _from, {:data, data}}, state)
-      when not state.dtls_transport.finished do
-    dtls = DTLSTransport.process_data(state.dtls_transport, data)
-    {:noreply, %__MODULE__{state | dtls_transport: dtls}}
+  def handle_info({:ex_ice, _from, {:data, data}}, state) do
+    case DTLSTransport.process_data(state.dtls_transport, data) do
+      {:ok, dtls} ->
+        {:noreply, %__MODULE__{state | dtls_transport: dtls}}
+
+      {:ok, dtls, payload} ->
+        notify(state.owner, {:data, payload})
+        {:noreply, %__MODULE__{state | dtls_transport: dtls}}
+
+      {:error, reason} ->
+        Logger.warning("Unable to process data, reason: #{inspect(reason)}")
+        {:noreply, state}
+    end
   end
 
   @impl true

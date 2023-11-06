@@ -48,6 +48,7 @@ defmodule ExWebRTC.MixProject do
       {:ex_sdp, "~> 0.13"},
       {:ex_ice, "~> 0.1"},
       {:ex_dtls, "~> 0.13"},
+      {:ex_libsrtp, "~> 0.6"},
 
       # dev/test
       {:excoveralls, "~> 0.14", only: [:dev, :test], runtime: false},

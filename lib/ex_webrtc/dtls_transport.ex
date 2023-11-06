@@ -14,6 +14,7 @@ defmodule ExWebRTC.DTLSTransport do
     :pkey,
     :fingerprint,
     :mode,
+    :srtp,
     finished: false
   ]
 
@@ -25,11 +26,14 @@ defmodule ExWebRTC.DTLSTransport do
     {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(cert_client)
     :ok = ExDTLS.stop(cert_client)
 
+    srtp = ExLibSRTP.new()
+
     %__MODULE__{
       ice_agent: ice_agent,
       cert: cert,
       pkey: pkey,
-      fingerprint: fingerprint
+      fingerprint: fingerprint,
+      srtp: srtp
     }
   end
 
@@ -93,11 +97,11 @@ defmodule ExWebRTC.DTLSTransport do
     dtls
   end
 
-  def process_data(dtls, data) do
+  def process_data(dtls, <<f, _::binary>> = data) when f in 20..63 and not dtls.finished do
     case ExDTLS.process(dtls.client, data) do
       {:handshake_packets, packets} when dtls.ice_state in [:connected, :completed] ->
         :ok = ICEAgent.send_data(dtls.ice_agent, packets)
-        dtls
+        {:ok, dtls}
 
       {:handshake_packets, packets} ->
         Logger.debug("""
@@ -105,19 +109,55 @@ defmodule ExWebRTC.DTLSTransport do
         We will send those packets once ICE is ready.
         """)
 
-        %__MODULE__{dtls | buffered_packets: packets}
+        {:ok, %__MODULE__{dtls | buffered_packets: packets}}
 
-      {:handshake_finished, _keying_material, packets} ->
+      {:handshake_finished, keying_material, packets} ->
         Logger.debug("DTLS handshake finished")
         ICEAgent.send_data(dtls.ice_agent, packets)
-        %__MODULE__{dtls | finished: true}
+        dtls = setup_srtp(dtls, keying_material)
+        {:ok, %__MODULE__{dtls | finished: true}}
 
-      {:handshake_finished, _keying_material} ->
+      {:handshake_finished, keying_material} ->
         Logger.debug("DTLS handshake finished")
-        %__MODULE__{dtls | finished: true}
+        dtls = setup_srtp(dtls, keying_material)
+        {:ok, %__MODULE__{dtls | finished: true}}
 
       :handshake_want_read ->
-        dtls
+        {:ok, dtls}
     end
+  end
+
+  def process_data(dtls, <<f, _::binary>> = data) when f in 128..191 and dtls.finished do
+    case ExLibSRTP.unprotect(dtls.srtp, data) do
+      {:ok, payload} ->
+        {:ok, dtls, payload}
+
+      {:error, reason} = err when reason in [:reply_old, :reply_fail] ->
+        err
+
+      {:error, reason} ->
+        raise "Couldn't unprotect SRTP packet, reason: #{inspect(reason)}"
+    end
+  end
+
+  def process_data(_dtls, _data) do
+    {:error, :invalid_data}
+  end
+
+  defp setup_srtp(dtls, keying_material) do
+    {_local_material, remote_material, profile} = keying_material
+
+    {:ok, crypto_profile} =
+      ExLibSRTP.Policy.crypto_profile_from_dtls_srtp_protection_profile(profile)
+
+    policy = %ExLibSRTP.Policy{
+      ssrc: :any_inbound,
+      key: remote_material,
+      rtp: crypto_profile,
+      rtcp: crypto_profile
+    }
+
+    :ok = ExLibSRTP.add_stream(dtls.srtp, policy)
+    dtls
   end
 end
