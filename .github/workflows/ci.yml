@@ -16,6 +16,7 @@ jobs:
         with:
           otp-version: ${{matrix.otp}}
           elixir-version: ${{matrix.elixir}}
+      - run: sudo apt install -y libsrtp2-dev
       - run: mix deps.get
       - run: mix credo
       - run: mix dialyzer
@@ -37,6 +38,7 @@ jobs:
         with:
           otp-version: ${{matrix.otp}}
           elixir-version: ${{matrix.elixir}}
+      - run: sudo apt install -y libsrtp2-dev
       - run: mix deps.get
       - run: mix coveralls.json
       - uses: codecov/codecov-action@v3
