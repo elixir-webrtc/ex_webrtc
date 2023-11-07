@@ -114,6 +114,7 @@ defmodule ExWebRTC.DTLSTransport do
       {:handshake_finished, keying_material, packets} ->
         Logger.debug("DTLS handshake finished")
         ICEAgent.send_data(dtls.ice_agent, packets)
+        # TODO: validate fingerprint
         dtls = setup_srtp(dtls, keying_material)
         {:ok, %__MODULE__{dtls | finished: true}}
 
@@ -132,11 +133,8 @@ defmodule ExWebRTC.DTLSTransport do
       {:ok, payload} ->
         {:ok, dtls, payload}
 
-      {:error, reason} = err when reason in [:reply_old, :reply_fail] ->
+      {:error, _reason} = err ->
         err
-
-      {:error, reason} ->
-        raise "Couldn't unprotect SRTP packet, reason: #{inspect(reason)}"
     end
   end
 

@@ -353,7 +353,7 @@ defmodule ExWebRTC.PeerConnection do
         {:noreply, %__MODULE__{state | dtls_transport: dtls}}
 
       {:error, reason} ->
-        Logger.warning("Unable to process data, reason: #{inspect(reason)}")
+        Logger.error("Unable to process data, reason: #{inspect(reason)}")
         {:noreply, state}
     end
   end
