@@ -1,6 +1,8 @@
 defmodule ExWebRTC.SDPUtils do
   @moduledoc false
 
+  alias ExRTP.Packet.Extension.SourceDescription
+
   @spec get_media_direction(ExSDP.Media.t()) ::
           :sendrecv | :sendonly | :recvonly | :inactive | nil
   def get_media_direction(media) do
@@ -97,6 +99,36 @@ defmodule ExWebRTC.SDPUtils do
           error -> error
         end
     end
+  end
+
+  def get_extensions(sdp) do
+    # we assume that, if extension is present in multiple mlines, the IDs are the same (RFC 8285)
+    sdp.media
+    |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, :extmap))
+    |> Enum.flat_map(fn
+      %{id: id, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"} -> [{id, {SourceDescription, :mid}}]
+      # TODO: handle other types of extensions
+      _ -> []
+    end)
+    |> Map.new()
+  end
+
+  def get_payload_types(sdp) do
+    # if payload type is used in more than 1 mline, it cannot be used to identify the mline
+    # thus, it is not placed in the returned map
+    sdp.media
+    |> Enum.flat_map(fn mline ->
+      {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+      encodings = ExSDP.Media.get_attributes(mline, :rtpmap)
+
+      Enum.map(encodings, &{&1.payload_type, mid})
+    end)
+    |> Enum.reduce(%{}, fn
+      {pt, _mid}, acc when is_map_key(acc, pt) -> Map.put(acc, pt, nil)
+      {pt, mid}, acc -> Map.put(acc, pt, mid)
+    end)
+    |> Enum.reject(fn {_, v} -> is_nil(v) end)
+    |> Map.new()
   end
 
   defp do_get_ice_credentials(sdp_or_mline) do
