@@ -49,8 +49,8 @@ defmodule ExWebRTC.MixProject do
       {:ex_ice, "~> 0.1"},
       {:ex_dtls, "~> 0.13"},
       {:ex_libsrtp, "~> 0.6"},
-      {:ex_rtp, git: "https://github.com/elixir-webrtc/ex_rtp.git"},
-      {:ex_rtcp, git: "https://github.com/elixir-webrtc/ex_rtcp.git"},
+      {:ex_rtp, "~> 0.2"},
+      {:ex_rtcp, "~> 0.1"},
 
       # dev/test
       {:excoveralls, "~> 0.14", only: [:dev, :test], runtime: false},
