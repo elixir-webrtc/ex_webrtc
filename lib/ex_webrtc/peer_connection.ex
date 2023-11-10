@@ -383,7 +383,7 @@ defmodule ExWebRTC.PeerConnection do
     demuxer = %{
       state.demuxer
       | extensions: SDPUtils.get_extensions(sdp),
-        payload_types: SDPUtils.get_payload_types(sdp)
+        pt_to_mid: SDPUtils.get_payload_types(sdp)
     }
 
     dtls =

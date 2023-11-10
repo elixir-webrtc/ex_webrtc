@@ -1,5 +1,5 @@
 defmodule ExWebRTC.PeerConnection.ConfigurationTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   alias ExWebRTC.{PeerConnection, RTPCodecParameters, RTPTransceiver, SessionDescription}
 
