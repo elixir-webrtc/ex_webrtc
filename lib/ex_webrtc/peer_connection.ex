@@ -95,13 +95,15 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, :get_transceivers)
   end
 
-  @spec add_transceiver(
-          peer_connection(),
-          RTPTransceiver.kind() | MediaStreamTrack.t(),
-          transceiver_options()
-        ) :: {:ok, RTPTransceiver.t()} | {:error, :TODO}
-  def add_transceiver(peer_connection, track_or_kind, options \\ []) do
-    GenServer.call(peer_connection, {:add_transceiver, track_or_kind, options})
+  @spec add_transceiver(peer_connection(), RTPTransceiver.kind(), transceiver_options()) ::
+          {:ok, RTPTransceiver.t()} | {:error, :TODO}
+  def add_transceiver(peer_connection, kind, options \\ []) do
+    GenServer.call(peer_connection, {:add_transceiver, kind, options})
+  end
+
+  @spec close(peer_connection()) :: :ok
+  def close(peer_connection) do
+    GenServer.stop(peer_connection)
   end
 
   #### CALLBACKS ####
@@ -145,7 +147,7 @@ defmodule ExWebRTC.PeerConnection do
       # we support trickle ICE only
       |> ExSDP.add_attribute({:ice_options, "trickle"})
 
-    config =
+    opts =
       [
         ice_ufrag: ice_ufrag,
         ice_pwd: ice_pwd,
@@ -155,10 +157,7 @@ defmodule ExWebRTC.PeerConnection do
         rtcp: true
       ]
 
-    mlines =
-      Enum.map(transceivers, fn transceiver ->
-        SDPUtils.to_offer_mline(transceiver, config)
-      end)
+    mlines = Enum.map(transceivers, &RTPTransceiver.to_offer_mline(&1, opts))
 
     mids =
       Enum.map(mlines, fn mline ->
@@ -200,7 +199,7 @@ defmodule ExWebRTC.PeerConnection do
       # we only support trickle ICE, so non-trickle offers should be rejected earlier
       |> ExSDP.add_attribute({:ice_options, "trickle"})
 
-    config =
+    opts =
       [
         ice_ufrag: ice_ufrag,
         ice_pwd: ice_pwd,
@@ -214,7 +213,7 @@ defmodule ExWebRTC.PeerConnection do
       Enum.map(remote_offer.media, fn mline ->
         {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
         {_ix, transceiver} = RTPTransceiver.find_by_mid(state.transceivers, mid)
-        SDPUtils.get_answer_mline(mline, transceiver, config)
+        RTPTransceiver.to_answer_mline(transceiver, mline, opts)
       end)
 
     mids =
@@ -299,21 +298,24 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_call({:add_transceiver, :audio, options}, _from, state) do
-    # TODO: proper implementation, change the :audio above to track_or_kind
+  def handle_call({:add_transceiver, kind, options}, _from, state)
+      when kind in [:audio, :video] do
     direction = Keyword.get(options, :direction, :sendrcv)
 
-    # hardcoded audio codec
-    codecs = [
-      %ExWebRTC.RTPCodecParameters{
-        payload_type: 111,
-        mime_type: "audio/opus",
-        clock_rate: 48_000,
-        channels: 2
-      }
-    ]
+    {rtp_hdr_exts, codecs} =
+      case kind do
+        :audio -> {state.config.audio_rtp_hdr_exts, state.config.audio_codecs}
+        :video -> {state.config.video_rtp_hdr_exts, state.config.video_codecs}
+      end
 
-    transceiver = %RTPTransceiver{mid: nil, direction: direction, kind: :audio, codecs: codecs}
+    transceiver = %RTPTransceiver{
+      mid: nil,
+      direction: direction,
+      kind: kind,
+      codecs: codecs,
+      rtp_hdr_exts: rtp_hdr_exts
+    }
+
     transceivers = List.insert_at(state.transceivers, -1, transceiver)
     {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
   end
@@ -395,7 +397,8 @@ defmodule ExWebRTC.PeerConnection do
     with :ok <- SDPUtils.ensure_mid(sdp),
          :ok <- SDPUtils.ensure_bundle(sdp),
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
-         {:ok, new_transceivers} <- update_remote_transceivers(state.transceivers, sdp) do
+         {:ok, new_transceivers} <-
+           update_remote_transceivers(state.transceivers, sdp, state.config) do
       :ok = ICEAgent.set_remote_credentials(state.ice_agent, ice_ufrag, ice_pwd)
       :ok = ICEAgent.gather_candidates(state.ice_agent)
 
@@ -433,11 +436,11 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  defp update_remote_transceivers(transceivers, sdp) do
+  defp update_remote_transceivers(transceivers, sdp, config) do
     Enum.reduce_while(sdp.media, {:ok, transceivers}, fn mline, {:ok, transceivers} ->
       case ExSDP.Media.get_attribute(mline, :mid) do
         {:mid, mid} ->
-          transceivers = RTPTransceiver.update_or_create(transceivers, mid, mline)
+          transceivers = RTPTransceiver.update_or_create(transceivers, mid, mline, config)
           {:cont, {:ok, transceivers}}
 
         _other ->

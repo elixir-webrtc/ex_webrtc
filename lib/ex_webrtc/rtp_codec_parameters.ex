@@ -3,6 +3,15 @@ defmodule ExWebRTC.RTPCodecParameters do
   RTPCodecParameters
   """
 
+  @type t() :: %__MODULE__{
+          payload_type: non_neg_integer(),
+          mime_type: binary(),
+          clock_rate: non_neg_integer(),
+          channels: non_neg_integer() | nil,
+          sdp_fmtp_line: ExSDP.Attribute.FMTP.t() | nil,
+          rtcp_fbs: [ExSDP.Attribute.RTCPFeedback.t()]
+        }
+
   defstruct [:payload_type, :mime_type, :clock_rate, :channels, :sdp_fmtp_line, :rtcp_fbs]
 
   def new(type, rtp_mapping, fmtp, rtcp_fbs) do
