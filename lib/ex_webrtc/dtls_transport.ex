@@ -7,8 +7,28 @@ defmodule ExWebRTC.DTLSTransport do
 
   alias ExICE.ICEAgent
 
+  @type dtls_transport() :: GenServer.server()
+
+  @doc false
+  @spec start_link(ExICE.ICEAgent.opts(), GenServer.server()) :: GenServer.on_start()
+  def start_link(ice_config, peer_connection \\ self()) do
+    GenServer.start_link(__MODULE__, [ice_config, peer_connection])
+  end
+
+  @doc false
+  @spec send_data(dtls_transport(), binary()) :: :ok
+  def send_data(dtls_transport, data) do
+    GenServer.cast(dtls_transport, {:send_data, data})
+  end
+
+  @doc false
+  @spec start_dtls(dtls_transport(), :active | :passive) :: :ok | {:error, :already_started}
+  def start_dtls(dtls_transport, mode) do
+    GenServer.call(dtls_transport, {:start_dtls, mode})
+  end
+
   @impl true
-  def init([peer_connection, ice_agent]) do
+  def init([ice_config, peer_connection]) do
     # temporary hack to generate certs
     {:ok, cert_client} = ExDTLS.start_link(client_mode: true, dtls_srtp: true)
     {:ok, cert} = ExDTLS.get_cert(cert_client)
@@ -16,6 +36,7 @@ defmodule ExWebRTC.DTLSTransport do
     {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(cert_client)
     :ok = ExDTLS.stop(cert_client)
 
+    {:ok, ice_agent} = ICEAgent.start_link(:controlled, ice_config)
     srtp = ExLibSRTP.new()
 
     state = %{
@@ -33,32 +54,37 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_cast({:send_data, data}, %{dtls_state: :connected, ice_state: ice_state} = state)
+  def handle_cast({:send_data, _data}, %{dtls_state: :connected, ice_state: ice_state} = state)
       when ice_state in [:connected, :completed] do
-    # TODO encrypt
+    # TODO encrypt and send
 
-    {:reply, :ok, state}
+    {:noreply, state}
   end
 
   @impl true
-  def handle_cast({:send_data, data}, state) do
-    {:reply, {:error, :unable_to_send}, state}
+  def handle_cast({:send_data, _data}, state) do
+    # TODO: maybe this should be a call?
+    Logger.error(
+      "Attempted to send data when DTLS handshake was not finished or ICE Transport is unavailable"
+    )
+
+    {:noreply, state}
   end
 
   @impl true
-  def handle_call({:start, _mode}, %{client: _client} = state) do
+  def handle_call({:start_dtls, _mode}, _from, %{client: _client} = state) do
     # is there a case when mode will change and new handshake will be needed?
     {:reply, {:error, :already_started}, state}
   end
 
   @impl true
-  def handle_call({:start, mode}, state) when mode in [:active, :passive] do
+  def handle_call({:start_dtls, mode}, _from, state) when mode in [:active, :passive] do
     {:ok, client} =
       ExDTLS.start_link(
         client_mode: mode == :active,
         dtls_srtp: true,
-        pkey: dtls.pkey,
-        cert: dtls.cert
+        pkey: state.pkey,
+        cert: state.cert
       )
 
     {:reply, :ok, %{state | client: client, mode: mode}}
@@ -71,8 +97,15 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_info({:ex_ice, _from, msg}, state) do
+  def handle_info({:ex_ice, _from, msg} = ice_msg, state) do
     state = handle_ice(msg, state)
+
+    # forward everything, except for data, to peer connection process
+    case msg do
+      {:data, _data} -> :ok
+      _other -> send(state.peer_connection, ice_msg)
+    end
+
     {:noreply, state}
   end
 
@@ -109,29 +142,30 @@ defmodule ExWebRTC.DTLSTransport do
 
   defp handle_ice({:data, <<f, _rest::binary>> = data}, %{dtls_state: :connected} = state)
        when f in 128..191 do
-    case ExLibSRTP.unprotect(dtls.srtp, data) do
+    case ExLibSRTP.unprotect(state.srtp, data) do
       {:ok, payload} ->
+        # TODO: temporarily, everything goes to peer connection process
         send(state.peer_connection, {:rtp_data, payload})
 
-      {:error, _reason} = err ->
-        Logger.warn("Failed to decrypt SRTP, reason: #{inspect(reason)}")
+      {:error, reason} ->
+        Logger.warning("Failed to decrypt SRTP, reason: #{inspect(reason)}")
     end
 
     state
   end
 
   defp handle_ice({:data, _data}, state) do
-    Logger.warn("Received RTP/RTCP packets, but DTLS handshake hasn't been finished yet")
+    Logger.warning("Received RTP/RTCP packets, but DTLS handshake hasn't been finished yet")
     state
   end
 
   # I hope ExICE will be refactord so new state is a tuple
-  def handle_ice(new_state, %{dtls_state: :new} = state)
-      when new_state in [:connected, :completed] do
+  defp handle_ice(new_state, %{dtls_state: :new} = state)
+       when new_state in [:connected, :completed] do
     state =
-      if dtls.mode == :active do
-        {:ok, packets} = ExDTLS.do_handshake(dtls.client)
-        :ok = ICEAgent.send_data(dtls.ice_agent, packets)
+      if state.mode == :active do
+        {:ok, packets} = ExDTLS.do_handshake(state.client)
+        :ok = ICEAgent.send_data(state.ice_agent, packets)
         %{state | dtls_state: :connecting}
       else
         state
@@ -140,34 +174,34 @@ defmodule ExWebRTC.DTLSTransport do
     %{state | ice_state: new_state}
   end
 
-  def handle_ice(new_state, state)
-      when new_state in [:connected, :completed] do
+  defp handle_ice(new_state, state)
+       when new_state in [:connected, :completed] do
     if state.buffered_packets do
       Logger.debug("Sending buffered DTLS packets")
-      :ok = ICEAgent.send_data(dtls.ice_agent, dtls.buffered_packets)
+      :ok = ICEAgent.send_data(state.ice_agent, state.buffered_packets)
       %{state | buffered_packets: nil}
     else
       state
     end
   end
 
-  def handle_ice(new_state, state) when is_atom(new_state) do
+  defp handle_ice(new_state, state) when is_atom(new_state) do
     %{state | ice_state: new_state}
   end
 
-  def handel_ice(_msg, state), do: state
+  defp handle_ice(_msg, state), do: state
 
-  def handle_dtls({:retransmit, packets}, %{ice_state: ice_state} = state)
-      when ice_state in [:connected, :completed] do
+  defp handle_dtls({:retransmit, packets}, %{ice_state: ice_state} = state)
+       when ice_state in [:connected, :completed] do
     ICEAgent.send_data(state.ice_agent, packets)
     state
   end
 
-  def handle_dtls({:retransmit, packets}, %{buffered_packets: packets} = state) do
+  defp handle_dtls({:retransmit, packets}, %{buffered_packets: packets} = state) do
     # we got DTLS packets from the other side but
     # we haven't established ICE connection yet so
     # packets to retransmit have to be the same as dtls_buffered_packets
-    dtls
+    state
   end
 
   defp setup_srtp(state, keying_material) do
