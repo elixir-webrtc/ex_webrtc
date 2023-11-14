@@ -30,7 +30,7 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
 
   # RFC 8843, 9.2
   defp match_to_mid(demuxer, %Packet{ssrc: ssrc} = packet) do
-    demuxer = update_mapping(demuxer, packet)
+    demuxer = update_ssrc_mapping(demuxer, packet)
 
     case Map.get(demuxer.ssrc_to_mid, ssrc) do
       {last_mid, _last_sn} -> {:ok, demuxer, last_mid}
@@ -38,7 +38,7 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
     end
   end
 
-  defp update_mapping(demuxer, %Packet{ssrc: ssrc, sequence_number: sn} = packet) do
+  defp update_ssrc_mapping(demuxer, %Packet{ssrc: ssrc, sequence_number: sn} = packet) do
     mid =
       packet.extensions
       |> Enum.find_value(fn %Extension{id: id} = ext ->
