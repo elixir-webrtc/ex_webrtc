@@ -101,6 +101,7 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
+  @spec get_extensions(ExSDP.t()) :: %{non_neg_integer() => {module(), atom()}}
   def get_extensions(sdp) do
     # we assume that, if extension is present in multiple mlines, the IDs are the same (RFC 8285)
     sdp.media
@@ -113,6 +114,7 @@ defmodule ExWebRTC.SDPUtils do
     |> Map.new()
   end
 
+  @spec get_payload_types(ExSDP.t()) :: %{non_neg_integer() => binary()}
   def get_payload_types(sdp) do
     # if payload type is used in more than 1 mline, it cannot be used to identify the mline
     # thus, it is not placed in the returned map

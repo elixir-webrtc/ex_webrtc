@@ -348,7 +348,7 @@ defmodule ExWebRTC.PeerConnection do
         {:noreply, %__MODULE__{state | dtls_transport: dtls}}
 
       {:ok, dtls, decoded_data} ->
-        case Demuxer.process_data(state.demuxer, decoded_data) do
+        case Demuxer.demux(state.demuxer, decoded_data) do
           {:ok, demuxer, mid, packet} ->
             notify(state.owner, {:data, {mid, packet}})
             {:noreply, %__MODULE__{state | dtls_transport: dtls, demuxer: demuxer}}
