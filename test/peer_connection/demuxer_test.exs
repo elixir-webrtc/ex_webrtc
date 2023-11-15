@@ -7,12 +7,11 @@ defmodule ExWebRTC.PeerConnection.DemuxerTest do
 
   @mid "1"
 
-  @sequence_number 500
   @payload_type 111
   @ssrc 333_333
   @deserialized_packet %Packet{
     payload_type: @payload_type,
-    sequence_number: @sequence_number,
+    sequence_number: 5,
     timestamp: 0,
     ssrc: @ssrc,
     payload: <<>>
@@ -26,49 +25,35 @@ defmodule ExWebRTC.PeerConnection.DemuxerTest do
   @demuxer %Demuxer{extensions: %{15 => {Extension.SourceDescription, :mid}}}
 
   test "ssrc already mapped, without extension" do
-    seq_num = 1
-    demuxer = %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => {@mid, seq_num}}}
+    demuxer = %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => @mid}}
 
     assert {:ok, new_demuxer, @mid, _packet} = Demuxer.demux(demuxer, @packet)
-    assert new_demuxer == %Demuxer{demuxer | ssrc_to_mid: %{@ssrc => {@mid, seq_num}}}
+    assert new_demuxer == %Demuxer{demuxer | ssrc_to_mid: %{@ssrc => @mid}}
   end
 
-  test "ssrc already mapped, with extension with the same mid and bigger sequence number" do
-    seq_num = 1
-    demuxer = %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => {@mid, seq_num}}}
+  test "ssrc already mapped, with extension with the same mid" do
+    demuxer = %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => @mid}}
 
     assert {:ok, new_demuxer, @mid, _packet} = Demuxer.demux(demuxer, @packet_mid)
-    assert new_demuxer == %Demuxer{demuxer | ssrc_to_mid: %{@ssrc => {@mid, seq_num}}}
+    assert new_demuxer == %Demuxer{demuxer | ssrc_to_mid: %{@ssrc => @mid}}
   end
 
-  test "ssrc already mapped, with extension with new mid and smaller sequence number" do
-    seq_num = 600
-    mid = "2"
-    demuxer = %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => {mid, seq_num}}}
-
-    assert {:ok, new_demuxer, ^mid, _packet} = Demuxer.demux(demuxer, @packet_mid)
-    assert new_demuxer == %Demuxer{demuxer | ssrc_to_mid: %{@ssrc => {mid, seq_num}}}
-  end
-
-  test "ssrc already mapped, with extension with new mid and bigger sequence number" do
-    seq_num = 1
-    mid = "2"
-    demuxer = %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => {mid, seq_num}}}
+  test "ssrc already mapped, with extension with different mid" do
+    demuxer = %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => "other"}}
 
     assert_raise(RuntimeError, fn -> Demuxer.demux(demuxer, @packet_mid) end)
   end
 
   test "ssrc not mapped, with extension" do
     assert {:ok, new_demuxer, @mid, _packet} = Demuxer.demux(@demuxer, @packet_mid)
-    assert new_demuxer == %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => {@mid, @sequence_number}}}
+    assert new_demuxer == %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => @mid}}
   end
 
   test "ssrc not mapped, without extension, with unique payload type" do
-    mid = "2"
-    demuxer = %Demuxer{@demuxer | pt_to_mid: %{@payload_type => mid}}
+    demuxer = %Demuxer{@demuxer | pt_to_mid: %{@payload_type => @mid}}
 
-    assert {:ok, new_demuxer, ^mid, _packet} = Demuxer.demux(demuxer, @packet)
-    assert new_demuxer == %Demuxer{demuxer | ssrc_to_mid: %{@ssrc => {mid, @sequence_number}}}
+    assert {:ok, new_demuxer, @mid, _packet} = Demuxer.demux(demuxer, @packet)
+    assert new_demuxer == %Demuxer{demuxer | ssrc_to_mid: %{@ssrc => @mid}}
   end
 
   test "unmatchable ssrc" do
