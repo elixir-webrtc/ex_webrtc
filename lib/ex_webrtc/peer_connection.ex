@@ -7,7 +7,7 @@ defmodule ExWebRTC.PeerConnection do
 
   require Logger
 
-  alias __MODULE__.Configuration
+  alias __MODULE__.{Configuration, Demuxer}
   alias ExICE.ICEAgent
 
   alias ExWebRTC.{
@@ -41,6 +41,7 @@ defmodule ExWebRTC.PeerConnection do
                 :ice_agent,
                 :ice_state,
                 :dtls_transport,
+                demuxer: %Demuxer{},
                 transceivers: [],
                 signaling_state: :stable,
                 last_offer: nil,
@@ -346,9 +347,16 @@ defmodule ExWebRTC.PeerConnection do
       {:ok, dtls} ->
         {:noreply, %__MODULE__{state | dtls_transport: dtls}}
 
-      {:ok, dtls, payload} ->
-        notify(state.owner, {:data, payload})
-        {:noreply, %__MODULE__{state | dtls_transport: dtls}}
+      {:ok, dtls, decoded_data} ->
+        case Demuxer.demux(state.demuxer, decoded_data) do
+          {:ok, demuxer, mid, packet} ->
+            notify(state.owner, {:data, {mid, packet}})
+            {:noreply, %__MODULE__{state | dtls_transport: dtls, demuxer: demuxer}}
+
+          {:error, reason} ->
+            Logger.error("Unable to decode/demux RTP, reason: #{inspect(reason)}")
+            {:noreply, %__MODULE__{state | dtls_transport: dtls}}
+        end
 
       {:error, reason} ->
         Logger.error("Unable to process data, reason: #{inspect(reason)}")
@@ -372,6 +380,12 @@ defmodule ExWebRTC.PeerConnection do
     new_transceivers = update_local_transceivers(type, state.transceivers, sdp)
     state = set_description(:local, type, sdp, state)
 
+    demuxer = %{
+      state.demuxer
+      | extensions: SDPUtils.get_extensions(sdp),
+        pt_to_mid: SDPUtils.get_payload_types(sdp)
+    }
+
     dtls =
       if type == :answer do
         {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
@@ -380,7 +394,7 @@ defmodule ExWebRTC.PeerConnection do
         state.dtls_transport
       end
 
-    {:ok, %{state | transceivers: new_transceivers, dtls_transport: dtls}}
+    {:ok, %{state | transceivers: new_transceivers, dtls_transport: dtls, demuxer: demuxer}}
   end
 
   defp update_local_transceivers(:offer, transceivers, _sdp) do
