@@ -111,8 +111,9 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def init({owner, config}) do
-    {:ok, ice_agent} = ICEAgent.start_link(:controlled, stun_servers: config.ice_servers)
-    dtls_transport = DTLSTransport.new(ice_agent)
+    ice_config = [stun_servers: config.ice_servers]
+    {:ok, dtls_transport} = DTLSTransport.start_link(ice_config)
+    ice_agent = DTLSTransport.get_ice_agent(dtls_transport)
 
     state = %__MODULE__{
       owner: owner,
@@ -148,12 +149,14 @@ defmodule ExWebRTC.PeerConnection do
       # we support trickle ICE only
       |> ExSDP.add_attribute({:ice_options, "trickle"})
 
+    fingerprint = DTLSTransport.get_fingerprint(state.dtls_transport)
+
     opts =
       [
         ice_ufrag: ice_ufrag,
         ice_pwd: ice_pwd,
         ice_options: "trickle",
-        fingerprint: {:sha256, Utils.hex_dump(state.dtls_transport.fingerprint)},
+        fingerprint: {:sha256, Utils.hex_dump(fingerprint)},
         setup: :actpass,
         rtcp: true
       ]
@@ -200,12 +203,14 @@ defmodule ExWebRTC.PeerConnection do
       # we only support trickle ICE, so non-trickle offers should be rejected earlier
       |> ExSDP.add_attribute({:ice_options, "trickle"})
 
+    fingerprint = DTLSTransport.get_fingerprint(state.dtls_transport)
+
     opts =
       [
         ice_ufrag: ice_ufrag,
         ice_pwd: ice_pwd,
         ice_options: "trickle",
-        fingerprint: {:sha256, Utils.hex_dump(state.dtls_transport.fingerprint)},
+        fingerprint: {:sha256, Utils.hex_dump(fingerprint)},
         setup: :active
       ]
 
@@ -323,8 +328,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:ex_ice, _from, :connected}, state) do
-    dtls = DTLSTransport.update_ice_state(state.dtls_transport, :connected)
-    {:noreply, %__MODULE__{state | dtls_transport: dtls, ice_state: :connected}}
+    {:noreply, %__MODULE__{state | ice_state: :connected}}
   end
 
   @impl true
@@ -342,32 +346,16 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:ex_ice, _from, {:data, data}}, state) do
-    case DTLSTransport.process_data(state.dtls_transport, data) do
-      {:ok, dtls} ->
-        {:noreply, %__MODULE__{state | dtls_transport: dtls}}
-
-      {:ok, dtls, decoded_data} ->
-        case Demuxer.demux(state.demuxer, decoded_data) do
-          {:ok, demuxer, mid, packet} ->
-            notify(state.owner, {:data, {mid, packet}})
-            {:noreply, %__MODULE__{state | dtls_transport: dtls, demuxer: demuxer}}
-
-          {:error, reason} ->
-            Logger.error("Unable to decode/demux RTP, reason: #{inspect(reason)}")
-            {:noreply, %__MODULE__{state | dtls_transport: dtls}}
-        end
+  def handle_info({:rtp_data, data}, state) do
+    case Demuxer.demux(state.demuxer, data) do
+      {:ok, demuxer, mid, packet} ->
+        notify(state.owner, {:data, {mid, packet}})
+        {:noreply, %__MODULE__{state | demuxer: demuxer}}
 
       {:error, reason} ->
-        Logger.error("Unable to process data, reason: #{inspect(reason)}")
+        Logger.error("Unable to demux RTP, reason: #{inspect(reason)}")
         {:noreply, state}
     end
-  end
-
-  @impl true
-  def handle_info({:ex_dtls, _from, msg}, state) do
-    dtls = DTLSTransport.handle_info(state.dtls_transport, msg)
-    {:noreply, %__MODULE__{state | dtls_transport: dtls}}
   end
 
   @impl true
@@ -380,7 +368,7 @@ defmodule ExWebRTC.PeerConnection do
     new_transceivers = update_local_transceivers(type, state.transceivers, sdp)
     state = set_description(:local, type, sdp, state)
 
-    demuxer = %{
+    demuxer = %Demuxer{
       state.demuxer
       | extensions: SDPUtils.get_extensions(sdp),
         pt_to_mid: SDPUtils.get_payload_types(sdp)
@@ -389,7 +377,7 @@ defmodule ExWebRTC.PeerConnection do
     dtls =
       if type == :answer do
         {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
-        DTLSTransport.start(state.dtls_transport, setup)
+        :ok = DTLSTransport.start_dtls(state.dtls_transport, setup)
       else
         state.dtls_transport
       end
@@ -441,7 +429,7 @@ defmodule ExWebRTC.PeerConnection do
               :passive -> :active
             end
 
-          DTLSTransport.start(state.dtls_transport, setup)
+          :ok = DTLSTransport.start_dtls(state.dtls_transport, setup)
         else
           state.dtls_transport
         end

@@ -1,5 +1,7 @@
 defmodule ExWebRTC.DTLSTransport do
-  @moduledoc false
+  @moduledoc """
+  DTLSTransport
+  """
 
   use GenServer
 
@@ -16,15 +18,27 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @doc false
-  @spec send_data(dtls_transport(), binary()) :: :ok
-  def send_data(dtls_transport, data) do
-    GenServer.cast(dtls_transport, {:send_data, data})
+  @spec get_ice_agent(dtls_transport()) :: GenServer.server()
+  def get_ice_agent(dtls_transport) do
+    GenServer.call(dtls_transport, :get_ice_agent)
+  end
+
+  @doc false
+  @spec get_fingerprint(dtls_transport()) :: binary()
+  def get_fingerprint(dtls_transport) do
+    GenServer.call(dtls_transport, :get_fingerprint)
   end
 
   @doc false
   @spec start_dtls(dtls_transport(), :active | :passive) :: :ok | {:error, :already_started}
   def start_dtls(dtls_transport, mode) do
     GenServer.call(dtls_transport, {:start_dtls, mode})
+  end
+
+  @doc false
+  @spec send_data(dtls_transport(), binary()) :: :ok
+  def send_data(dtls_transport, data) do
+    GenServer.cast(dtls_transport, {:send_data, data})
   end
 
   @impl true
@@ -42,6 +56,7 @@ defmodule ExWebRTC.DTLSTransport do
     state = %{
       peer_connection: peer_connection,
       ice_agent: ice_agent,
+      ice_state: nil,
       buffered_packets: nil,
       cert: cert,
       pkey: pkey,
@@ -54,21 +69,13 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_cast({:send_data, _data}, %{dtls_state: :connected, ice_state: ice_state} = state)
-      when ice_state in [:connected, :completed] do
-    # TODO encrypt and send
-
-    {:noreply, state}
+  def handle_call(:get_ice_agent, _from, state) do
+    {:reply, state.ice_agent, state}
   end
 
   @impl true
-  def handle_cast({:send_data, _data}, state) do
-    # TODO: maybe this should be a call?
-    Logger.error(
-      "Attempted to send data when DTLS handshake was not finished or ICE Transport is unavailable"
-    )
-
-    {:noreply, state}
+  def handle_call(:get_fingerprint, _from, state) do
+    {:reply, state.fingerprint, state}
   end
 
   @impl true
@@ -87,7 +94,29 @@ defmodule ExWebRTC.DTLSTransport do
         cert: state.cert
       )
 
-    {:reply, :ok, %{state | client: client, mode: mode}}
+    state =
+      state
+      |> Map.put(:client, client)
+      |> Map.put(:mode, mode)
+
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_cast({:send_data, _data}, %{dtls_state: :connected, ice_state: ice_state} = state)
+      when ice_state in [:connected, :completed] do
+    # TODO
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:send_data, _data}, state) do
+    # TODO: maybe this should be a call?
+    Logger.error(
+      "Attempted to send data when DTLS handshake was not finished or ICE Transport is unavailable"
+    )
+
+    {:noreply, state}
   end
 
   @impl true
@@ -179,7 +208,7 @@ defmodule ExWebRTC.DTLSTransport do
     if state.buffered_packets do
       Logger.debug("Sending buffered DTLS packets")
       :ok = ICEAgent.send_data(state.ice_agent, state.buffered_packets)
-      %{state | buffered_packets: nil}
+      %{state | ice_state: new_state, buffered_packets: nil}
     else
       state
     end
