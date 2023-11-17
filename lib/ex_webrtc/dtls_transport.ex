@@ -13,8 +13,8 @@ defmodule ExWebRTC.DTLSTransport do
 
   @doc false
   @spec start_link(ExICE.ICEAgent.opts(), GenServer.server()) :: GenServer.on_start()
-  def start_link(ice_config, peer_connection \\ self()) do
-    GenServer.start_link(__MODULE__, [ice_config, peer_connection])
+  def start_link(ice_config, ice_module \\ ICEAgent) do
+    GenServer.start_link(__MODULE__, [ice_config, ice_module, self()])
   end
 
   @doc false
@@ -42,18 +42,18 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def init([ice_config, peer_connection]) do
+  def init([ice_config, ice_module, owner]) do
     # temporary hack to generate certs
     dtls = ExDTLS.init(client_mode: true, dtls_srtp: true)
     cert = ExDTLS.get_cert(dtls)
     pkey = ExDTLS.get_pkey(dtls)
     fingerprint = ExDTLS.get_cert_fingerprint(dtls)
 
-    {:ok, ice_agent} = ICEAgent.start_link(:controlled, ice_config)
+    {:ok, ice_agent} = ice_module.start_link(:controlled, ice_config)
     srtp = ExLibSRTP.new()
 
     state = %{
-      peer_connection: peer_connection,
+      owner: owner,
       ice_agent: ice_agent,
       ice_state: nil,
       buffered_packets: nil,
@@ -146,7 +146,7 @@ defmodule ExWebRTC.DTLSTransport do
     # forward everything, except for data, to peer connection process
     case msg do
       {:data, _data} -> :ok
-      _other -> send(state.peer_connection, ice_msg)
+      _other -> send(state.owner, ice_msg)
     end
 
     {:noreply, state}
@@ -196,7 +196,7 @@ defmodule ExWebRTC.DTLSTransport do
     case ExLibSRTP.unprotect(state.srtp, data) do
       {:ok, payload} ->
         # TODO: temporarily, everything goes to peer connection process
-        send(state.peer_connection, {:rtp_data, payload})
+        send(state.owner, {:rtp_data, payload})
 
       {:error, reason} ->
         Logger.warning("Failed to decrypt SRTP, reason: #{inspect(reason)}")
