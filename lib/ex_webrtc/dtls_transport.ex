@@ -62,7 +62,9 @@ defmodule ExWebRTC.DTLSTransport do
       pkey: pkey,
       fingerprint: fingerprint,
       srtp: srtp,
-      dtls_state: :new
+      dtls_state: :new,
+      client: nil,
+      mode: nil
     }
 
     {:ok, state}
@@ -79,13 +81,8 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_call({:start_dtls, _mode}, _from, %{client: _client} = state) do
-    # is there a case when mode will change and new handshake will be needed?
-    {:reply, {:error, :already_started}, state}
-  end
-
-  @impl true
-  def handle_call({:start_dtls, mode}, _from, state) when mode in [:active, :passive] do
+  def handle_call({:start_dtls, mode}, _from, %{client: nil} = state)
+      when mode in [:active, :passive] do
     {:ok, client} =
       ExDTLS.start_link(
         client_mode: mode == :active,
@@ -94,12 +91,14 @@ defmodule ExWebRTC.DTLSTransport do
         cert: state.cert
       )
 
-    state =
-      state
-      |> Map.put(:client, client)
-      |> Map.put(:mode, mode)
-
+    state = %{state | client: client, mode: mode}
     {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_call({:start_dtls, _mode}, _from, state) do
+    # is there a case when mode will change and new handshake will be needed?
+    {:reply, {:error, :already_started}, state}
   end
 
   @impl true
@@ -111,7 +110,6 @@ defmodule ExWebRTC.DTLSTransport do
 
   @impl true
   def handle_cast({:send_data, _data}, state) do
-    # TODO: maybe this should be a call?
     Logger.error(
       "Attempted to send data when DTLS handshake was not finished or ICE Transport is unavailable"
     )
@@ -184,7 +182,10 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   defp handle_ice({:data, _data}, state) do
-    Logger.warning("Received RTP/RTCP packets, but DTLS handshake hasn't been finished yet")
+    Logger.warning(
+      "Received RTP/RTCP packets, but DTLS handshake hasn't been finished yet. Ignoring."
+    )
+
     state
   end
 
