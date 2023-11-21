@@ -14,6 +14,7 @@ defmodule ExWebRTC.PeerConnection do
     DTLSTransport,
     IceCandidate,
     MediaStreamTrack,
+    RTPCodecParameters,
     RTPTransceiver,
     SDPUtils,
     SessionDescription,
@@ -91,13 +92,15 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, {:add_ice_candidate, candidate})
   end
 
-  @spec get_transceivers(peer_connection()) :: [RTPTransceiver.t()]
+  @spec get_transceivers(peer_connection()) :: [
+          {mid :: String.t(), RTPTransceiver.rtp_transceiver()}
+        ]
   def get_transceivers(peer_connection) do
     GenServer.call(peer_connection, :get_transceivers)
   end
 
   @spec add_transceiver(peer_connection(), RTPTransceiver.kind(), transceiver_options()) ::
-          {:ok, RTPTransceiver.t()} | {:error, :TODO}
+          {:ok, RTPTransceiver.rtp_transceiver()} | {:error, :TODO}
   def add_transceiver(peer_connection, kind, options \\ []) do
     GenServer.call(peer_connection, {:add_transceiver, kind, options})
   end
@@ -161,7 +164,7 @@ defmodule ExWebRTC.PeerConnection do
         rtcp: true
       ]
 
-    mlines = Enum.map(transceivers, &RTPTransceiver.to_offer_mline(&1, opts))
+    mlines = Enum.map(transceivers, fn {_, t} -> SDPUtils.to_offer_mline(t, opts) end)
 
     mids =
       Enum.map(mlines, fn mline ->
@@ -218,8 +221,8 @@ defmodule ExWebRTC.PeerConnection do
     mlines =
       Enum.map(remote_offer.media, fn mline ->
         {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
-        {_ix, transceiver} = RTPTransceiver.find_by_mid(state.transceivers, mid)
-        RTPTransceiver.to_answer_mline(transceiver, mline, opts)
+        {_, transceiver} = Enum.find(state.transceivers, fn {m, _} -> m == mid end)
+        SDPUtils.to_answer_mline(transceiver, mline, opts)
       end)
 
     mids =
@@ -314,15 +317,16 @@ defmodule ExWebRTC.PeerConnection do
         :video -> {state.config.video_rtp_hdr_exts, state.config.video_codecs}
       end
 
-    transceiver = %RTPTransceiver{
+    props = %{
       mid: nil,
       direction: direction,
-      kind: kind,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts
     }
 
-    transceivers = List.insert_at(state.transceivers, -1, transceiver)
+    {:ok, transceiver} = RTPTransceiver.start_link(kind, props)
+
+    transceivers = state.transceivers ++ [{nil, transceiver}]
     {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
   end
 
@@ -408,7 +412,7 @@ defmodule ExWebRTC.PeerConnection do
         new_transceivers
         # only take new transceivers that can receive tracks
         |> Enum.filter(fn tr ->
-          RTPTransceiver.find_by_mid(state.transceivers, tr.mid) == nil and
+          Enum.all?(state.transceivers, fn {m, _} -> tr.mid != m end) and
             tr.direction in [:recvonly, :sendrecv]
         end)
         |> Enum.map(fn tr -> MediaStreamTrack.from_transceiver(tr) end)
@@ -442,7 +446,7 @@ defmodule ExWebRTC.PeerConnection do
     Enum.reduce_while(sdp.media, {:ok, transceivers}, fn mline, {:ok, transceivers} ->
       case ExSDP.Media.get_attribute(mline, :mid) do
         {:mid, mid} ->
-          transceivers = RTPTransceiver.update_or_create(transceivers, mid, mline, config)
+          transceivers = update_or_create_transceiver(transceivers, mid, mline, config)
           {:cont, {:ok, transceivers}}
 
         _other ->
@@ -451,11 +455,63 @@ defmodule ExWebRTC.PeerConnection do
     end)
   end
 
+  # searches for transceiver for a given mline
+  # if it exists, updates its configuration
+  # if it doesn't exist, creats a new one
+  # returns list of updated transceivers
+  defp update_or_create_transceiver(transceivers, mid, mline, config) do
+    codecs = get_codecs(mline, config)
+    rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
+    props = %{codecs: codecs, rtp_hdr_exts: rtp_hdr_exts}
+
+    Enum.find(transceivers, fn {m, _} -> m == mid end)
+    |> case do
+      {_, tr} ->
+        :ok = RTPTransceiver.update_properties(tr, props)
+        transceivers
+
+      nil ->
+        props = Map.merge(props, %{mid: mid, direction: :recvonly})
+        {:ok, tr} = RTPTransceiver.start_link(mline.type, props)
+        transceivers ++ [{mid, tr}]
+    end
+  end
+
+  defp get_codecs(mline, config) do
+    rtp_mappings = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.RTPMapping)
+    fmtps = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.FMTP)
+    all_rtcp_fbs = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.RTCPFeedback)
+
+    rtp_mappings
+    |> Stream.map(fn rtp_mapping ->
+      fmtp = Enum.find(fmtps, &(&1.pt == rtp_mapping.payload_type))
+
+      rtcp_fbs =
+        all_rtcp_fbs
+        |> Stream.filter(&(&1.pt == rtp_mapping.payload_type))
+        |> Enum.filter(&Configuration.is_supported_rtcp_fb(config, &1))
+
+      RTPCodecParameters.new(mline.type, rtp_mapping, fmtp, rtcp_fbs)
+    end)
+    |> Enum.filter(fn codec -> Configuration.is_supported_codec(config, codec) end)
+  end
+
+  defp get_rtp_hdr_extensions(mline, config) do
+    mline
+    |> ExSDP.Media.get_attributes(ExSDP.Attribute.Extmap)
+    |> Enum.filter(&Configuration.is_supported_rtp_hdr_extension(config, &1, mline.type))
+  end
+
   defp assign_mids(transceivers, next_mid) do
     {new_transceivers, _next_mid} =
       Enum.map_reduce(transceivers, next_mid, fn
-        %{mid: nil} = t, nm -> {%{t | mid: to_string(nm)}, nm + 1}
-        other, nm -> {other, nm}
+        {nil, tr}, nm ->
+          mid = to_string(nm)
+          :ok = RTPTransceiver.update_properties(tr, %{mid: mid})
+          {{mid, tr}, nm + 1}
+
+        other, nm ->
+          {other, nm}
       end)
 
     new_transceivers
@@ -476,7 +532,7 @@ defmodule ExWebRTC.PeerConnection do
       end
 
     tsc_mids =
-      for %RTPTransceiver{mid: mid} when mid != nil <- state.transceivers,
+      for {mid, _transceiver} when mid != nil <- state.transceivers,
           {mid, ""} <- Integer.parse(mid) do
         mid
       end

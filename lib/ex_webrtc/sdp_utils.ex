@@ -2,6 +2,7 @@ defmodule ExWebRTC.SDPUtils do
   @moduledoc false
 
   alias ExRTP.Packet.Extension.SourceDescription
+  alias ExWebRTC.RTPTransceiver
 
   @spec get_media_direction(ExSDP.Media.t()) ::
           :sendrecv | :sendonly | :recvonly | :inactive | nil
@@ -133,6 +134,79 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.reject(fn {_, v} -> is_nil(v) end)
     |> Map.new()
   end
+
+  @spec to_answer_mline(RTPTransceiver.rtp_transceiver(), ExSDP.Media.t(), Keyword.t()) ::
+          ExSDP.Media.t()
+  def to_answer_mline(transceiver, mline, opts) do
+    {kind, props} = RTPTransceiver.get_properties(transceiver)
+
+    if props.codecs == [] do
+      # reject mline and skip further processing
+      # see RFC 8299 sec. 5.3.1 and RFC 3264 sec. 6
+      %ExSDP.Media{mline | port: 0}
+    else
+      offered_direction = ExSDP.Media.get_attribute(mline, :direction)
+      direction = get_direction(offered_direction, props.direction)
+      opts = Keyword.put(opts, :direction, direction)
+      to_mline(kind, props, opts)
+    end
+  end
+
+  @spec to_offer_mline(RTPTransceiver.rtp_transceiver(), Keyword.t()) ::
+          ExSDP.Media.t()
+  def to_offer_mline(transceiver, opts) do
+    {kind, props} = RTPTransceiver.get_properties(transceiver)
+    to_mline(kind, props, opts)
+  end
+
+  defp to_mline(kind, props, opts) do
+    pt = Enum.map(props.codecs, fn codec -> codec.payload_type end)
+
+    media_formats =
+      Enum.flat_map(props.codecs, fn codec ->
+        [_type, encoding] = String.split(codec.mime_type, "/")
+
+        rtp_mapping = %ExSDP.Attribute.RTPMapping{
+          clock_rate: codec.clock_rate,
+          encoding: encoding,
+          params: codec.channels,
+          payload_type: codec.payload_type
+        }
+
+        [rtp_mapping, codec.sdp_fmtp_line, codec.rtcp_fbs]
+      end)
+
+    attributes =
+      if(Keyword.get(opts, :rtcp, false), do: [{"rtcp", "9 IN IP4 0.0.0.0"}], else: []) ++
+        [
+          Keyword.get(opts, :direction, props.direction),
+          {:mid, props.mid},
+          {:ice_ufrag, Keyword.fetch!(opts, :ice_ufrag)},
+          {:ice_pwd, Keyword.fetch!(opts, :ice_pwd)},
+          {:ice_options, Keyword.fetch!(opts, :ice_options)},
+          {:fingerprint, Keyword.fetch!(opts, :fingerprint)},
+          {:setup, Keyword.fetch!(opts, :setup)},
+          :rtcp_mux
+        ] ++ props.rtp_hdr_exts
+
+    %ExSDP.Media{
+      ExSDP.Media.new(kind, 9, "UDP/TLS/RTP/SAVPF", pt)
+      | # mline must be followed by a cline, which must contain
+        # the default value "IN IP4 0.0.0.0" (as there are no candidates yet)
+        connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
+    }
+    |> ExSDP.Media.add_attributes(attributes ++ media_formats)
+  end
+
+  # RFC 3264 (6.1) + RFC 8829 (5.3.1)
+  # AFAIK one of the cases should always match
+  # bc we won't assign/create an inactive transceiver to i.e. sendonly mline
+  # also neither of the arguments should ever be :stopped
+  defp get_direction(_, :inactive), do: :inactive
+  defp get_direction(:sendonly, t) when t in [:sendrecv, :recvonly], do: :recvonly
+  defp get_direction(:recvonly, t) when t in [:sendrecv, :sendonly], do: :sendonly
+  defp get_direction(o, other) when o in [:sendrecv, nil], do: other
+  defp get_direction(:inactive, _), do: :inactive
 
   defp do_get_ice_credentials(sdp_or_mline) do
     get_attr =
