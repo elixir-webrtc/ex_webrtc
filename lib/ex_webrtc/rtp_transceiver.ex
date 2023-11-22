@@ -40,15 +40,15 @@ defmodule ExWebRTC.RTPTransceiver do
 
   @impl true
   def init([kind, props]) do
-    state = %{props | kind: kind, receiver: nil, sender: nil}
+    state = Map.merge(props, %{kind: kind, receiver: nil, sender: nil})
 
     {:ok, state}
   end
 
   @impl true
   def handle_call(:get_properties, _from, state) do
-    properties = Map.take(state, [:mid, :direction, :kind, :rtp_hrd_exts, :codecs])
-    {:reply, properties, state}
+    properties = Map.take(state, [:mid, :direction, :rtp_hdr_exts, :codecs])
+    {:reply, {state.kind, properties}, state}
   end
 
   @impl true
