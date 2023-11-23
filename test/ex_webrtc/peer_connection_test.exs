@@ -42,6 +42,96 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = PeerConnection.set_remote_description(pc1, answer)
   end
 
+  test "connection state change" do
+    {:ok, pc1} = PeerConnection.start_link()
+    assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :new}}
+    {:ok, _} = PeerConnection.add_transceiver(pc1, :audio)
+    {:ok, offer} = PeerConnection.create_offer(pc1)
+    :ok = PeerConnection.set_local_description(pc1, offer)
+
+    {:ok, pc2} = PeerConnection.start_link()
+    assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :new}}
+    :ok = PeerConnection.set_remote_description(pc2, offer)
+    {:ok, answer} = PeerConnection.create_answer(pc2)
+    :ok = PeerConnection.set_local_description(pc2, answer)
+
+    :ok = PeerConnection.set_remote_description(pc1, answer)
+
+    assert :ok ==
+             check_connection_state_change(
+               pc1,
+               pc2,
+               %{
+                 connecting_recv: false,
+                 connected_recv: false
+               },
+               %{
+                 connecting_recv: false,
+                 connected_recv: false
+               }
+             )
+  end
+
+  defp check_connection_state_change(
+         _pc1,
+         _pc2,
+         %{
+           connecting_recv: true,
+           connected_recv: true
+         },
+         %{
+           connecting_recv: true,
+           connected_recv: true
+         }
+       ),
+       do: :ok
+
+  defp check_connection_state_change(pc1, pc2, pc1_states, pc2_states) do
+    receive do
+      {:ex_webrtc, ^pc1, {:ice_candidate, cand}} ->
+        :ok = PeerConnection.add_ice_candidate(pc2, cand)
+        check_connection_state_change(pc1, pc2, pc1_states, pc2_states)
+
+      {:ex_webrtc, ^pc2, {:ice_candidate, cand}} ->
+        :ok = PeerConnection.add_ice_candidate(pc1, cand)
+        check_connection_state_change(pc1, pc2, pc1_states, pc2_states)
+
+      {:ex_webrtc, ^pc1, {:connection_state_change, :connecting}}
+      when pc1_states.connecting_recv == false and pc1_states.connected_recv == false ->
+        check_connection_state_change(pc1, pc2, %{pc1_states | connecting_recv: true}, pc2_states)
+
+      {:ex_webrtc, ^pc1, {:connection_state_change, :connecting}} = msg ->
+        raise "Unexpectedly received: #{inspect(msg)}, when pc_states is: #{inspect(pc1_states)}"
+
+      {:ex_webrtc, ^pc2, {:connection_state_change, :connecting}}
+      when pc2_states.connecting_recv == false and pc2_states.connected_recv == false ->
+        check_connection_state_change(pc1, pc2, pc1_states, %{pc2_states | connecting_recv: true})
+
+      {:ex_webrtc, ^pc2, {:connection_state_change, :connecting}} = msg ->
+        raise "Unexpectedly received: #{inspect(msg)}, when pc_states is: #{inspect(pc2_states)}"
+
+      {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}
+      when pc1_states.connecting_recv == true and pc1_states.connected_recv == false ->
+        check_connection_state_change(pc1, pc2, %{pc1_states | connected_recv: true}, pc2_states)
+
+      {:ex_webrtc, ^pc1, {:connection_state_change, :connected}} = msg ->
+        raise "Unexpectedly received: #{inspect(msg)}, when pc_states is: #{inspect(pc1_states)}"
+
+      {:ex_webrtc, ^pc2, {:connection_state_change, :connected}}
+      when pc2_states.connecting_recv == true and pc2_states.connected_recv == false ->
+        check_connection_state_change(pc1, pc2, pc1_states, %{pc2_states | connected_recv: true})
+
+      {:ex_webrtc, ^pc2, {:connection_state_change, :connected}} = msg ->
+        raise "Unexpectedly received: #{inspect(msg)}, when pc_states is: #{inspect(pc2_states)}"
+
+      {:ex_webrtc, ^pc1, {:connection_state_change, _state}} = msg ->
+        raise "Unexpectedly received: #{inspect(msg)}, when pc_states is: #{inspect(pc1_states)}"
+
+      {:ex_webrtc, ^pc2, {:connection_state_change, _state}} = msg ->
+        raise "Unexpectedly received: #{inspect(msg)}, when pc_states is: #{inspect(pc2_states)}"
+    end
+  end
+
   describe "set_remote_description/2" do
     test "MID" do
       {:ok, pc} = PeerConnection.start_link()

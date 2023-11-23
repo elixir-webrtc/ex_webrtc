@@ -37,6 +37,7 @@ defmodule ExWebRTC.DTLSTransportTest do
 
   setup do
     assert {:ok, dtls} = DTLSTransport.start_link([tester: self()], FakeICEAgent)
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :new}}
     ice = DTLSTransport.get_ice_agent(dtls)
     assert is_pid(ice)
 
@@ -111,6 +112,8 @@ defmodule ExWebRTC.DTLSTransportTest do
     FakeICEAgent.send_dtls(ice, :connected)
 
     assert :ok = check_handshake(dtls, ice, remote_dtls)
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
   end
 
   test "finishes handshake in passive mode", %{dtls: dtls, ice: ice} do
@@ -122,6 +125,8 @@ defmodule ExWebRTC.DTLSTransportTest do
     FakeICEAgent.send_dtls(ice, {:data, packets})
 
     assert :ok == check_handshake(dtls, ice, remote_dtls)
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
   end
 
   defp check_handshake(dtls, ice, remote_dtls) do
