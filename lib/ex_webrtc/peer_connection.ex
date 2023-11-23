@@ -31,6 +31,20 @@ defmodule ExWebRTC.PeerConnection do
           streams: [:TODO]
         ]
 
+  @typedoc """
+  Messages sent by the ExWebRTC.
+  """
+  @type signal() :: {:ex_webrtc, pid(), connection_state_change()}
+
+  @type connection_state_change() :: {:connectionstatechange, connection_state()}
+
+  @typedoc """
+  Possible PeerConnection states.
+
+  For the exact meaning, refer to the [WebRTC W3C, section 4.3.3](https://www.w3.org/TR/webrtc/#rtcpeerconnectionstate-enum)
+  """
+  @type connection_state() :: :closed | :failed | :disconnected | :new | :connecting | :connected
+
   @enforce_keys [:config, :owner]
   defstruct @enforce_keys ++
               [
@@ -39,11 +53,13 @@ defmodule ExWebRTC.PeerConnection do
                 :current_remote_desc,
                 :pending_remote_desc,
                 :ice_agent,
-                :ice_state,
                 :dtls_transport,
                 demuxer: %Demuxer{},
                 transceivers: [],
+                ice_state: nil,
+                dtls_state: nil,
                 signaling_state: :stable,
+                conn_state: :new,
                 last_offer: nil,
                 last_answer: nil
               ]
@@ -121,6 +137,8 @@ defmodule ExWebRTC.PeerConnection do
       ice_agent: ice_agent,
       dtls_transport: dtls_transport
     }
+
+    notify(state.owner, {:connectionstatechange, :new})
 
     {:ok, state}
   end
@@ -327,8 +345,11 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:ex_ice, _from, :connected}, state) do
-    {:noreply, %__MODULE__{state | ice_state: :connected}}
+  def handle_info({:ex_ice, _from, msg}, state)
+      when msg in [:checking, :connected, :completed, :failed] do
+    next_conn_state = next_conn_state(msg, state.dtls_state)
+    state = update_conn_state(state, next_conn_state)
+    {:noreply, %__MODULE__{state | ice_state: msg}}
   end
 
   @impl true
@@ -346,7 +367,14 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:rtp_data, data}, state) do
+  def handle_info({:dtls_transport, _pid, {:statechange, new_dtls_state}}, state) do
+    next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
+    state = update_conn_state(state, next_conn_state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:dtls_transport, _pid, {:rtp_data, data}}, state) do
     case Demuxer.demux(state.demuxer, data) do
       {:ok, demuxer, mid, packet} ->
         notify(state.owner, {:data, {mid, packet}})
@@ -513,6 +541,31 @@ defmodule ExWebRTC.PeerConnection do
 
   defp maybe_next_state(:have_remote_pranswer, :remote, :answer), do: {:ok, :stable}
   defp maybe_next_state(:have_remote_pranswer, _, _), do: {:error, :invalid_transition}
+
+  # TODO support :disconnected state - our ICE doesn't provide disconnected state for now
+  # TODO support :closed state
+  defp next_conn_state(ice_state, dtls_state)
+
+  defp next_conn_state(ice_state, dtls_state)
+       when ice_state in [:new, :checking] and dtls_state in [:new, :connecting],
+       do: :connecting
+
+  defp next_conn_state(ice_state, dtls_state)
+       when ice_state in [:connected, :completed] and dtls_state in [:connected],
+       do: :connected
+
+  defp next_conn_state(ice_state, dtls_state) when ice_state == :failed or dtls_state == :failed,
+    do: :failed
+
+  defp next_conn_state(ice_state, dtls_state) when ice_state == :new and dtls_state == :new,
+    do: :new
+
+  defp update_conn_state(%{conn_state: conn_state} = state, conn_state), do: state
+
+  defp update_conn_state(state, new_conn_state) do
+    notify(state.owner, {:connectionstatechange, new_conn_state})
+    %{state | conn_state: new_conn_state}
+  end
 
   defp set_description(:local, :answer, sdp, state) do
     # NOTICE: internaly, we don't create SessionDescription
