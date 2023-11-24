@@ -118,6 +118,12 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
+  def handle_cast({:send_rtp, _data}, state) do
+    Logger.warning("Attemped to send RTP before DTLS handshake has been finished")
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_cast({:send_rtcp, _data}, state) do
     # TODO: implement
     {:noreply, state}

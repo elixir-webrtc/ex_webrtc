@@ -387,7 +387,6 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info(msg, state) do
     Logger.info("OTHER MSG #{inspect(msg)}")
-
     {:noreply, state}
   end
 
@@ -450,6 +449,8 @@ defmodule ExWebRTC.PeerConnection do
       :ok = ICEAgent.set_remote_credentials(state.ice_agent, ice_ufrag, ice_pwd)
       :ok = ICEAgent.gather_candidates(state.ice_agent)
 
+      # TODO: this needs a look
+
       new_remote_tracks =
         new_transceivers
         # only take new transceivers that can receive tracks
@@ -462,9 +463,6 @@ defmodule ExWebRTC.PeerConnection do
       for track <- new_remote_tracks do
         notify(state.owner, {:track, track})
       end
-
-      tracks_map = Map.new(new_remote_tracks, &{&1.id, &1})
-      state = %{state | tracks: Map.merge(state.tracks, tracks_map)}
 
       state = set_description(:remote, type, sdp, state)
 
