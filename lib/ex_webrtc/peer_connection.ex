@@ -15,6 +15,8 @@ defmodule ExWebRTC.PeerConnection do
     IceCandidate,
     MediaStreamTrack,
     RTPTransceiver,
+    RTPReceiver,
+    RTPSender,
     SDPUtils,
     SessionDescription,
     Utils
@@ -96,7 +98,11 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, :get_transceivers)
   end
 
-  @spec add_transceiver(peer_connection(), RTPTransceiver.kind(), transceiver_options()) ::
+  @spec add_transceiver(
+          peer_connection(),
+          RTPTransceiver.kind() | MediaStreamTrack.t(),
+          transceiver_options()
+        ) ::
           {:ok, RTPTransceiver.t()} | {:error, :TODO}
   def add_transceiver(peer_connection, kind, options \\ []) do
     GenServer.call(peer_connection, {:add_transceiver, kind, options})
@@ -105,6 +111,11 @@ defmodule ExWebRTC.PeerConnection do
   @spec close(peer_connection()) :: :ok
   def close(peer_connection) do
     GenServer.stop(peer_connection)
+  end
+
+  @spec send_rtp(peer_connection(), String.t(), ExRTP.Packet.t()) :: :ok
+  def send_rtp(peer_connection, mid, packet) do
+    GenServer.cast(peer_connection, {:send_rtp, mid, packet})
   end
 
   #### CALLBACKS ####
@@ -306,24 +317,39 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:add_transceiver, kind, options}, _from, state)
       when kind in [:audio, :video] do
-    direction = Keyword.get(options, :direction, :sendrcv)
+    transceiver = new_transceiver(kind, nil, options, state.config)
+    transceivers = state.transceivers ++ [transceiver]
 
-    {rtp_hdr_exts, codecs} =
-      case kind do
-        :audio -> {state.config.audio_rtp_hdr_exts, state.config.audio_codecs}
-        :video -> {state.config.video_rtp_hdr_exts, state.config.video_codecs}
-      end
-
-    transceiver = %RTPTransceiver{
-      mid: nil,
-      direction: direction,
-      kind: kind,
-      codecs: codecs,
-      rtp_hdr_exts: rtp_hdr_exts
-    }
-
-    transceivers = List.insert_at(state.transceivers, -1, transceiver)
     {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
+  end
+
+  @impl true
+  def handle_call({:add_transceiver, %MediaStreamTrack{} = track, options}, _from, state) do
+    transceiver = new_transceiver(track.kind, track, options, state.config)
+    transceivers = state.transceivers ++ [transceiver]
+
+    {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
+  end
+
+  @impl true
+  def handle_cast({:send_rtp, mid, packet}, state) do
+    # TODO: this is very temporary
+    id =
+      Enum.find_value(state.demuxer.extensions, fn
+        {ext_id, {ExRTP.Packet.Extension.SourceDescription, :mid}} -> ext_id
+        _ -> nil
+      end)
+
+    mid_ext =
+      %ExRTP.Packet.Extension.SourceDescription{text: mid}
+      |> ExRTP.Packet.Extension.SourceDescription.to_raw(id)
+
+    packet
+    |> ExRTP.Packet.set_extension(:two_byte, [mid_ext])
+    |> ExRTP.Packet.encode()
+    |> then(&DTLSTransport.send_rtp(state.dtls_transport, &1))
+
+    {:noreply, state}
   end
 
   @impl true
@@ -346,10 +372,10 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:rtp_data, data}, state) do
+  def handle_info({:rtp, data}, state) do
     case Demuxer.demux(state.demuxer, data) do
       {:ok, demuxer, mid, packet} ->
-        notify(state.owner, {:data, {mid, packet}})
+        notify(state.owner, {:rtp, mid, packet})
         {:noreply, %__MODULE__{state | demuxer: demuxer}}
 
       {:error, reason} ->
@@ -361,7 +387,30 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info(msg, state) do
     Logger.info("OTHER MSG #{inspect(msg)}")
+
     {:noreply, state}
+  end
+
+  defp new_transceiver(kind, sender_track, options, config) do
+    direction = Keyword.get(options, :direction, :sendrcv)
+
+    {rtp_hdr_exts, codecs} =
+      case kind do
+        :audio -> {config.audio_rtp_hdr_exts, config.audio_codecs}
+        :video -> {config.video_rtp_hdr_exts, config.video_codecs}
+      end
+
+    track = MediaStreamTrack.new(kind)
+
+    %RTPTransceiver{
+      mid: nil,
+      direction: direction,
+      kind: kind,
+      codecs: codecs,
+      rtp_hdr_exts: rtp_hdr_exts,
+      receiver: %RTPReceiver{track: track},
+      sender: %RTPSender{track: sender_track}
+    }
   end
 
   defp apply_local_description(type, sdp, state) do
@@ -374,15 +423,12 @@ defmodule ExWebRTC.PeerConnection do
         pt_to_mid: SDPUtils.get_payload_types(sdp)
     }
 
-    dtls =
-      if type == :answer do
-        {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
-        :ok = DTLSTransport.start_dtls(state.dtls_transport, setup)
-      else
-        state.dtls_transport
-      end
+    if type == :answer do
+      {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
+      DTLSTransport.start_dtls(state.dtls_transport, setup)
+    end
 
-    {:ok, %{state | transceivers: new_transceivers, dtls_transport: dtls, demuxer: demuxer}}
+    {:ok, %{state | transceivers: new_transceivers, demuxer: demuxer}}
   end
 
   defp update_local_transceivers(:offer, transceivers, _sdp) do
@@ -411,30 +457,30 @@ defmodule ExWebRTC.PeerConnection do
           RTPTransceiver.find_by_mid(state.transceivers, tr.mid) == nil and
             tr.direction in [:recvonly, :sendrecv]
         end)
-        |> Enum.map(fn tr -> MediaStreamTrack.from_transceiver(tr) end)
+        |> Enum.map(fn tr -> MediaStreamTrack.new(tr.kind) end)
 
       for track <- new_remote_tracks do
         notify(state.owner, {:track, track})
       end
 
+      tracks_map = Map.new(new_remote_tracks, &{&1.id, &1})
+      state = %{state | tracks: Map.merge(state.tracks, tracks_map)}
+
       state = set_description(:remote, type, sdp, state)
 
-      dtls =
-        if type == :answer do
-          {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
+      if type == :answer do
+        {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
 
-          setup =
-            case setup do
-              :active -> :passive
-              :passive -> :active
-            end
+        setup =
+          case setup do
+            :active -> :passive
+            :passive -> :active
+          end
 
-          :ok = DTLSTransport.start_dtls(state.dtls_transport, setup)
-        else
-          state.dtls_transport
-        end
+        DTLSTransport.start_dtls(state.dtls_transport, setup)
+      end
 
-      {:ok, %{state | transceivers: new_transceivers, dtls_transport: dtls}}
+      {:ok, %{state | transceivers: new_transceivers}}
     end
   end
 
@@ -464,24 +510,34 @@ defmodule ExWebRTC.PeerConnection do
   defp find_next_mid(state) do
     # next mid must be unique, it's acomplished by looking for values
     # greater than any mid in remote description or our own transceivers
-    crd_mids =
-      if is_nil(state.current_remote_desc) do
-        []
-      else
-        for mline <- state.current_remote_desc.media,
-            {:mid, mid} <- ExSDP.Media.get_attribute(mline, :mid),
-            {mid, ""} <- Integer.parse(mid) do
-          mid
-        end
-      end
-
-    tsc_mids =
-      for %RTPTransceiver{mid: mid} when mid != nil <- state.transceivers,
-          {mid, ""} <- Integer.parse(mid) do
-        mid
-      end
+    crd_mids = get_desc_mids(state.current_remote_desc)
+    tsc_mids = get_transceiver_mids(state.transceivers)
 
     Enum.max(crd_mids ++ tsc_mids, &>=/2, fn -> -1 end) + 1
+  end
+
+  defp get_desc_mids(nil), do: []
+
+  defp get_desc_mids({_, remote_desc}) do
+    Enum.flat_map(remote_desc.media, fn mline ->
+      with {:mid, mid} <- ExSDP.Media.get_attribute(mline, :mid),
+           {mid, ""} <- Integer.parse(mid) do
+        [mid]
+      else
+        _ -> []
+      end
+    end)
+  end
+
+  defp get_transceiver_mids(transceivers) do
+    Enum.flat_map(transceivers, fn transceiver ->
+      with mid when mid != nil <- transceiver.mid,
+           {mid, ""} <- Integer.parse(mid) do
+        [mid]
+      else
+        _ -> []
+      end
+    end)
   end
 
   defp check_desc_altered(:offer, sdp, %{last_offer: offer}) when sdp == offer, do: :ok

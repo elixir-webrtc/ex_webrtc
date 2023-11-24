@@ -5,15 +5,14 @@ defmodule ExWebRTC.MediaStreamTrack do
 
   @type t() :: %__MODULE__{
           kind: :audio | :video,
-          id: integer(),
-          mid: String.t()
+          id: integer()
         }
 
   @enforce_keys [:id, :kind]
-  defstruct @enforce_keys ++ [:mid]
+  defstruct @enforce_keys
 
-  def from_transceiver(tr) do
-    %__MODULE__{kind: tr.kind, id: generate_id(), mid: tr.mid}
+  def new(kind) do
+    %__MODULE__{kind: kind, id: generate_id()}
   end
 
   defp generate_id() do

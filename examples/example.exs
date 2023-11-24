@@ -15,12 +15,12 @@ defmodule Peer do
     %{urls: "stun:stun.l.google.com:19302"}
   ]
 
-  def start_link(mode \\ :passive) do
-    GenServer.start_link(__MODULE__, mode)
+  def start_link() do
+    GenServer.start_link(__MODULE__, nil)
   end
 
   @impl true
-  def init(mode) do
+  def init(_) do
     {:ok, conn} = :gun.open({127, 0, 0, 1}, 4000)
     {:ok, _protocol} = :gun.await_up(conn)
     :gun.ws_upgrade(conn, "/websocket")
@@ -32,16 +32,7 @@ defmodule Peer do
 
         {:ok, pc} = PeerConnection.start_link(ice_servers: @ice_servers)
 
-        if mode == :active do
-          {:ok, _transceiver} = PeerConnection.add_transceiver(pc, :audio)
-          {:ok, offer} = PeerConnection.create_offer(pc)
-          :ok = PeerConnection.set_local_description(pc, offer)
-          msg = %{"type" => "offer", "sdp" => offer.sdp}
-          :gun.ws_send(conn, stream, {:text, Jason.encode!(msg)})
-          Logger.info("Send SDP offer: #{offer.sdp}")
-        end
-
-        {:ok, %{conn: conn, stream: stream, peer_connection: pc, mode: mode}}
+        {:ok, %{conn: conn, stream: stream, peer_connection: pc}}
 
       other ->
         Logger.error("Couldn't connect to the signalling server: #{inspect(other)}")
@@ -79,9 +70,7 @@ defmodule Peer do
 
   @impl true
   def handle_info({:ex_webrtc, _pid, msg}, state) do
-    Logger.info("Received ExWebRTC message: #{inspect(msg)}")
     handle_webrtc_message(msg, state)
-
     {:noreply, state}
   end
 
@@ -91,17 +80,24 @@ defmodule Peer do
     {:noreply, state}
   end
 
-  defp handle_ws_message(%{"type" => "offer", "sdp" => sdp}, %{mode: :passive} = state) do
+  defp handle_ws_message(%{"type" => "offer", "sdp" => sdp}, %{peer_connection: pc} = state) do
     Logger.info("Received SDP offer: #{inspect(sdp)}")
     offer = %SessionDescription{type: :offer, sdp: sdp}
-    :ok = PeerConnection.set_remote_description(state.peer_connection, offer)
-    {:ok, answer} = PeerConnection.create_answer(state.peer_connection)
-    :ok = PeerConnection.set_local_description(state.peer_connection, answer)
+    :ok = PeerConnection.set_remote_description(pc, offer)
+    {:ok, answer} = PeerConnection.create_answer(pc)
+    :ok = PeerConnection.set_local_description(pc, answer)
     msg = %{"type" => "answer", "sdp" => answer.sdp}
+    :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
+
+    track = ExWebRTC.MediaStreamTrack.new(:video)
+    {:ok, transceiver} = PeerConnection.add_transceiver(pc, track)
+    {:ok, offer} = PeerConnection.create_offer(pc)
+    :ok = PeerConnection.set_local_description(pc, offer)
+    msg = %{"type" => "offer", "sdp" => offer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
   end
 
-  defp handle_ws_message(%{"type" => "answer", "sdp" => sdp}, %{mode: :active} = state) do
+  defp handle_ws_message(%{"type" => "answer", "sdp" => sdp}, state) do
     Logger.info("Received SDP answer: #{inspect(sdp)}")
     answer = %SessionDescription{type: :answer, sdp: sdp}
     :ok = PeerConnection.set_remote_description(state.peer_connection, answer)
@@ -136,13 +132,17 @@ defmodule Peer do
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
   end
 
+  defp handle_webrtc_message({:rtp, mid, packet}, state) do
+    Logger.info("Received RTP: #{inspect(packet)}")
+    PeerConnection.send_rtp(state.peer_connection, "1", packet)
+  end
+
   defp handle_webrtc_message(msg, _state) do
     Logger.warning("Received unknown ex_webrtc message: #{inspect(msg)}")
   end
 end
 
-mode = :active
-{:ok, pid} = Peer.start_link(mode)
+{:ok, pid} = Peer.start_link()
 ref = Process.monitor(pid)
 
 receive do

@@ -13,7 +13,14 @@ const start_connection = async (ws) => {
   pc.oniceconnectionstatechange = _ => console.log("ICE connection state changed:", pc.iceConnectionState);
   pc.onicegatheringstatechange = _ => console.log("ICE gathering state changed:", pc.iceGatheringState);
   pc.onsignalingstatechange = _ => console.log("Signaling state changed:", pc.signalingState);
-  pc.ontrack = event => console.log("New track:", event);
+  pc.ontrack = event => {
+    const videoPlayer = document.createElement("video");
+    videoPlayer.srcObject = event.streams[0];
+    videoPlayer.onloadedmetadata = () => {
+      videoPlayer.play();
+    };
+    document.body.appendChild(videoPlayer);
+  };
   pc.onicecandidate = event => {
     console.log("New local ICE candidate:", event.candidate);
 
@@ -22,7 +29,7 @@ const start_connection = async (ws) => {
     }
   };
   
-  const localStream = await navigator.mediaDevices.getUserMedia({audio: true});
+  const localStream = await navigator.mediaDevices.getUserMedia({video: true});
   for (const track of localStream.getTracks()) {
     pc.addTrack(track, localStream);
   }
@@ -48,15 +55,11 @@ const start_connection = async (ws) => {
     }
   };
 
-  if (mode === "active") {
-    const desc = await pc.createOffer();
-    console.log("Generated SDP offer:", desc);
-    await pc.setLocalDescription(desc);
-    ws.send(JSON.stringify(desc))
-  }
+  const desc = await pc.createOffer();
+  console.log("Generated SDP offer:", desc);
+  await pc.setLocalDescription(desc);
+  ws.send(JSON.stringify(desc))
 };
-
-const mode = "passive"
 
 const ws = new WebSocket("ws://127.0.0.1:4000/websocket");
 ws.onclose = event => console.log("WebSocket was closed", event);
