@@ -45,16 +45,16 @@ defmodule ExWebRTC.MixProject do
 
   defp deps do
     [
-      {:ex_sdp, "~> 0.13"},
-      {:ex_ice, "~> 0.1"},
-      {:ex_dtls, "~> 0.14"},
-      {:ex_libsrtp, "~> 0.6"},
-      {:ex_rtp, "~> 0.2"},
-      {:ex_rtcp, "~> 0.1"},
+      {:ex_sdp, "~> 0.13.0"},
+      {:ex_ice, "~> 0.2.0"},
+      {:ex_dtls, "~> 0.14.0"},
+      {:ex_libsrtp, "~> 0.6.0"},
+      {:ex_rtp, "~> 0.2.0"},
+      {:ex_rtcp, "~> 0.1.0"},
 
       # dev/test
-      {:excoveralls, "~> 0.14", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.30", only: :dev, runtime: false},
+      {:excoveralls, "~> 0.17.0", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.30.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]

@@ -347,10 +347,9 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:ex_ice, _from, msg}, state)
-      when msg in [:checking, :connected, :completed, :failed] do
-    state = %__MODULE__{state | ice_state: msg}
-    next_conn_state = next_conn_state(msg, state.dtls_state)
+  def handle_info({:ex_ice, _from, {:connection_state_change, new_ice_state}}, state) do
+    state = %__MODULE__{state | ice_state: new_ice_state}
+    next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
     state = update_conn_state(state, next_conn_state)
     {:noreply, state}
   end

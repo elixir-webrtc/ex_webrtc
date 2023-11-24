@@ -234,10 +234,9 @@ defmodule ExWebRTC.DTLSTransport do
     state
   end
 
-  # I hope ExICE will be refactord so new state is a tuple
-  defp handle_ice(new_state, %{dtls_state: :new} = state)
-       when new_state in [:connected, :completed] do
-    state = %{state | ice_state: new_state}
+  defp handle_ice({:connection_state_change, new_ice_state}, %{dtls_state: :new} = state)
+       when new_ice_state in [:connected, :completed] do
+    state = %{state | ice_state: new_ice_state}
 
     if state.mode == :active do
       {packets, timeout} = ExDTLS.do_handshake(state.dtls)
@@ -249,19 +248,19 @@ defmodule ExWebRTC.DTLSTransport do
     end
   end
 
-  defp handle_ice(new_state, state)
-       when new_state in [:connected, :completed] do
+  defp handle_ice({:connection_state_change, new_ice_state}, state)
+       when new_ice_state in [:connected, :completed] do
     if state.buffered_packets do
       Logger.debug("Sending buffered DTLS packets")
       :ok = ICEAgent.send_data(state.ice_agent, state.buffered_packets)
-      %{state | ice_state: new_state, buffered_packets: nil}
+      %{state | ice_state: new_ice_state, buffered_packets: nil}
     else
       state
     end
   end
 
-  defp handle_ice(new_state, state) when is_atom(new_state) do
-    %{state | ice_state: new_state}
+  defp handle_ice({:connection_state_change, new_ice_state}, state) do
+    %{state | ice_state: new_ice_state}
   end
 
   defp handle_ice(_msg, state), do: state
