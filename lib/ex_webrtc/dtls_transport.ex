@@ -8,6 +8,7 @@ defmodule ExWebRTC.DTLSTransport do
   require Logger
 
   alias ExICE.ICEAgent
+  alias ExWebRTC.Utils
 
   @type dtls_transport() :: GenServer.server()
 
@@ -48,9 +49,10 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @doc false
-  @spec start_dtls(dtls_transport(), :active | :passive) :: :ok | {:error, :already_started}
-  def start_dtls(dtls_transport, mode) do
-    GenServer.call(dtls_transport, {:start_dtls, mode})
+  @spec start_dtls(dtls_transport(), :active | :passive, binary()) ::
+          :ok | {:error, :already_started}
+  def start_dtls(dtls_transport, mode, peer_fingerprint) do
+    GenServer.call(dtls_transport, {:start_dtls, mode, peer_fingerprint})
   end
 
   @doc false
@@ -61,11 +63,8 @@ defmodule ExWebRTC.DTLSTransport do
 
   @impl true
   def init([ice_config, ice_module, owner]) do
-    # temporary hack to generate certs
-    dtls = ExDTLS.init(client_mode: true, dtls_srtp: true)
-    cert = ExDTLS.get_cert(dtls)
-    pkey = ExDTLS.get_pkey(dtls)
-    fingerprint = ExDTLS.get_cert_fingerprint(dtls)
+    {pkey, cert} = ExDTLS.generate_key_cert()
+    fingerprint = ExDTLS.get_cert_fingerprint(cert)
 
     {:ok, ice_agent} = ice_module.start_link(:controlled, ice_config)
     srtp = ExLibSRTP.new()
@@ -78,6 +77,8 @@ defmodule ExWebRTC.DTLSTransport do
       cert: cert,
       pkey: pkey,
       fingerprint: fingerprint,
+      # sha256 hex dump
+      peer_fingerprint: nil,
       srtp: srtp,
       dtls_state: :new,
       dtls: nil,
@@ -100,22 +101,25 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_call({:start_dtls, mode}, _from, %{dtls: nil} = state)
+  def handle_call({:start_dtls, mode, peer_fingerprint}, _from, %{dtls: nil} = state)
       when mode in [:active, :passive] do
+    ex_dtls_mode = if mode == :active, do: :client, else: :server
+
     dtls =
       ExDTLS.init(
-        client_mode: mode == :active,
+        mode: ex_dtls_mode,
         dtls_srtp: true,
         pkey: state.pkey,
-        cert: state.cert
+        cert: state.cert,
+        verify_peer: true
       )
 
-    state = %{state | dtls: dtls, mode: mode}
+    state = %{state | dtls: dtls, mode: mode, peer_fingerprint: peer_fingerprint}
     {:reply, :ok, state}
   end
 
   @impl true
-  def handle_call({:start_dtls, _mode}, _from, state) do
+  def handle_call({:start_dtls, _mode, _peer_fingerprint}, _from, state) do
     # is there a case when mode will change and new handshake will be needed?
     {:reply, {:error, :already_started}, state}
   end
@@ -198,9 +202,20 @@ defmodule ExWebRTC.DTLSTransport do
       {:handshake_finished, _, remote_keying_material, profile, packets} ->
         Logger.debug("DTLS handshake finished")
         ICEAgent.send_data(state.ice_agent, packets)
-        # TODO: validate fingerprint
-        state = setup_srtp(state, remote_keying_material, profile)
-        update_dtls_state(state, :connected)
+
+        peer_fingerprint =
+          state.dtls
+          |> ExDTLS.get_peer_cert()
+          |> ExDTLS.get_cert_fingerprint()
+          |> Utils.hex_dump()
+
+        if peer_fingerprint == state.peer_fingerprint do
+          state = setup_srtp(state, remote_keying_material, profile)
+          update_dtls_state(state, :connected)
+        else
+          Logger.debug("Non-matching peer cert fingerprint.")
+          update_dtls_state(state, :failed)
+        end
 
       {:handshake_finished, _, remote_keying_material, profile} ->
         Logger.debug("DTLS handshake finished")
@@ -283,6 +298,7 @@ defmodule ExWebRTC.DTLSTransport do
   defp update_dtls_state(%{dtls_state: dtls_state} = state, dtls_state), do: state
 
   defp update_dtls_state(state, new_dtls_state) do
+    Logger.debug("Changing DTLS state: #{state.dtls_state} -> #{new_dtls_state}")
     notify(state.owner, {:state_change, new_dtls_state})
     %{state | dtls_state: new_dtls_state}
   end
