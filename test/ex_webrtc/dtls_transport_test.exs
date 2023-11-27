@@ -37,6 +37,7 @@ defmodule ExWebRTC.DTLSTransportTest do
 
   setup do
     assert {:ok, dtls} = DTLSTransport.start_link([tester: self()], FakeICEAgent)
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :new}}
     ice = DTLSTransport.get_ice_agent(dtls)
     assert is_pid(ice)
 
@@ -67,7 +68,7 @@ defmodule ExWebRTC.DTLSTransportTest do
   test "initiates DTLS handshake when in active mode", %{dtls: dtls, ice: ice} do
     :ok = DTLSTransport.start_dtls(dtls, :active)
 
-    FakeICEAgent.send_dtls(ice, :connected)
+    FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
     assert_receive {:fake_ice, packets}
     assert is_binary(packets)
@@ -76,7 +77,7 @@ defmodule ExWebRTC.DTLSTransportTest do
   test "won't initiate DTLS handshake when in passive mode", %{dtls: dtls, ice: ice} do
     :ok = DTLSTransport.start_dtls(dtls, :passive)
 
-    FakeICEAgent.send_dtls(ice, :connected)
+    FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
     refute_receive({:fake_ice, _msg})
   end
@@ -84,7 +85,7 @@ defmodule ExWebRTC.DTLSTransportTest do
   test "will retransmit after initiating handshake", %{dtls: dtls, ice: ice} do
     :ok = DTLSTransport.start_dtls(dtls, :active)
 
-    FakeICEAgent.send_dtls(ice, :connected)
+    FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
     assert_receive {:fake_ice, _packets}
     assert_receive {:fake_ice, _retransmited}, 1100
@@ -99,7 +100,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     FakeICEAgent.send_dtls(ice, {:data, packets})
     refute_receive {:fake_ice, _packets}
 
-    FakeICEAgent.send_dtls(ice, :connected)
+    FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
     assert_receive {:fake_ice, packets}
     assert is_binary(packets)
   end
@@ -108,20 +109,24 @@ defmodule ExWebRTC.DTLSTransportTest do
     :ok = DTLSTransport.start_dtls(dtls, :active)
     remote_dtls = ExDTLS.init(client_mode: false, dtls_srtp: true)
 
-    FakeICEAgent.send_dtls(ice, :connected)
+    FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
     assert :ok = check_handshake(dtls, ice, remote_dtls)
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
   end
 
   test "finishes handshake in passive mode", %{dtls: dtls, ice: ice} do
     :ok = DTLSTransport.start_dtls(dtls, :passive)
-    FakeICEAgent.send_dtls(ice, :connected)
+    FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
     remote_dtls = ExDTLS.init(client_mode: true, dtls_srtp: true)
     {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
     FakeICEAgent.send_dtls(ice, {:data, packets})
 
     assert :ok == check_handshake(dtls, ice, remote_dtls)
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
   end
 
   defp check_handshake(dtls, ice, remote_dtls) do

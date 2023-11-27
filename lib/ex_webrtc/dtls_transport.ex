@@ -11,6 +11,24 @@ defmodule ExWebRTC.DTLSTransport do
 
   @type dtls_transport() :: GenServer.server()
 
+  # Messages sent by the DTLSTransport
+  @typedoc false
+  @type signal() :: {:dtls_transport, pid(), state_change() | rtp_data()}
+
+  # Message sent when DTLSTransport changes its state
+  @typedoc false
+  @type state_change() :: {:state_change, dtls_state()}
+
+  # Message sent when a new RTP packet arrives.
+  # Packet is decrypted.
+  @typedoc false
+  @type rtp_data() :: {:rtp_data, binary()}
+
+  # Possible DTLSTransport states.
+  # For the exact meaning, refer to the [WebRTC W3C, sec. 5.5.1](https://www.w3.org/TR/webrtc/#rtcdtlstransportstate-enum)
+  @typedoc false
+  @type dtls_state() :: :new | :connecting | :connected | :closed | :failed
+
   @doc false
   @spec start_link(ExICE.ICEAgent.opts(), GenServer.server()) :: GenServer.on_start()
   def start_link(ice_config, ice_module \\ ICEAgent) do
@@ -65,6 +83,8 @@ defmodule ExWebRTC.DTLSTransport do
       dtls: nil,
       mode: nil
     }
+
+    notify(state.owner, {:state_change, :new})
 
     {:ok, state}
   end
@@ -163,7 +183,7 @@ defmodule ExWebRTC.DTLSTransport do
       {:handshake_packets, packets, timeout} when state.ice_state in [:connected, :completed] ->
         :ok = ICEAgent.send_data(state.ice_agent, packets)
         Process.send_after(self(), :dtls_timeout, timeout)
-        %{state | dtls_state: :connecting}
+        update_dtls_state(state, :connecting)
 
       {:handshake_packets, packets, timeout} ->
         Logger.debug("""
@@ -172,19 +192,20 @@ defmodule ExWebRTC.DTLSTransport do
         """)
 
         Process.send_after(self(), :dtls_timeout, timeout)
-        %{state | dtls_state: :connecting, buffered_packets: packets}
+        state = %{state | buffered_packets: packets}
+        update_dtls_state(state, :connecting)
 
       {:handshake_finished, _, remote_keying_material, profile, packets} ->
         Logger.debug("DTLS handshake finished")
         ICEAgent.send_data(state.ice_agent, packets)
         # TODO: validate fingerprint
         state = setup_srtp(state, remote_keying_material, profile)
-        %{state | dtls_state: :connected}
+        update_dtls_state(state, :connected)
 
       {:handshake_finished, _, remote_keying_material, profile} ->
         Logger.debug("DTLS handshake finished")
         state = setup_srtp(state, remote_keying_material, profile)
-        %{state | dtls_state: :connected}
+        update_dtls_state(state, :connected)
 
       :handshake_want_read ->
         state
@@ -196,7 +217,7 @@ defmodule ExWebRTC.DTLSTransport do
     case ExLibSRTP.unprotect(state.srtp, data) do
       {:ok, payload} ->
         # TODO: temporarily, everything goes to peer connection process
-        send(state.owner, {:rtp_data, payload})
+        notify(state.owner, {:rtp_data, payload})
 
       {:error, reason} ->
         Logger.warning("Failed to decrypt SRTP, reason: #{inspect(reason)}")
@@ -213,35 +234,33 @@ defmodule ExWebRTC.DTLSTransport do
     state
   end
 
-  # I hope ExICE will be refactord so new state is a tuple
-  defp handle_ice(new_state, %{dtls_state: :new} = state)
-       when new_state in [:connected, :completed] do
-    state =
-      if state.mode == :active do
-        {packets, timeout} = ExDTLS.do_handshake(state.dtls)
-        Process.send_after(self(), :dtls_timeout, timeout)
-        :ok = ICEAgent.send_data(state.ice_agent, packets)
-        %{state | dtls_state: :connecting}
-      else
-        state
-      end
+  defp handle_ice({:connection_state_change, new_ice_state}, %{dtls_state: :new} = state)
+       when new_ice_state in [:connected, :completed] do
+    state = %{state | ice_state: new_ice_state}
 
-    %{state | ice_state: new_state}
-  end
-
-  defp handle_ice(new_state, state)
-       when new_state in [:connected, :completed] do
-    if state.buffered_packets do
-      Logger.debug("Sending buffered DTLS packets")
-      :ok = ICEAgent.send_data(state.ice_agent, state.buffered_packets)
-      %{state | ice_state: new_state, buffered_packets: nil}
+    if state.mode == :active do
+      {packets, timeout} = ExDTLS.do_handshake(state.dtls)
+      Process.send_after(self(), :dtls_timeout, timeout)
+      :ok = ICEAgent.send_data(state.ice_agent, packets)
+      update_dtls_state(state, :connecting)
     else
       state
     end
   end
 
-  defp handle_ice(new_state, state) when is_atom(new_state) do
-    %{state | ice_state: new_state}
+  defp handle_ice({:connection_state_change, new_ice_state}, state)
+       when new_ice_state in [:connected, :completed] do
+    if state.buffered_packets do
+      Logger.debug("Sending buffered DTLS packets")
+      :ok = ICEAgent.send_data(state.ice_agent, state.buffered_packets)
+      %{state | ice_state: new_ice_state, buffered_packets: nil}
+    else
+      state
+    end
+  end
+
+  defp handle_ice({:connection_state_change, new_ice_state}, state) do
+    %{state | ice_state: new_ice_state}
   end
 
   defp handle_ice(_msg, state), do: state
@@ -260,4 +279,13 @@ defmodule ExWebRTC.DTLSTransport do
     :ok = ExLibSRTP.add_stream(state.srtp, policy)
     state
   end
+
+  defp update_dtls_state(%{dtls_state: dtls_state} = state, dtls_state), do: state
+
+  defp update_dtls_state(state, new_dtls_state) do
+    notify(state.owner, {:state_change, new_dtls_state})
+    %{state | dtls_state: new_dtls_state}
+  end
+
+  defp notify(dst, msg), do: send(dst, {:dtls_transport, self(), msg})
 end
