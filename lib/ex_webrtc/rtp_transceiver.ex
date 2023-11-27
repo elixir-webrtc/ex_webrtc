@@ -20,8 +20,8 @@ defmodule ExWebRTC.RTPTransceiver do
           kind: kind(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()],
-          receiver: nil,
-          sender: nil
+          receiver: RTPReceiver.t(),
+          sender: RTPSender.t()
         }
 
   @enforce_keys [:mid, :direction, :kind]

@@ -114,8 +114,8 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @spec send_rtp(peer_connection(), String.t(), ExRTP.Packet.t()) :: :ok
-  def send_rtp(peer_connection, mid, packet) do
-    GenServer.cast(peer_connection, {:send_rtp, mid, packet})
+  def send_rtp(peer_connection, track_id, packet) do
+    GenServer.cast(peer_connection, {:send_rtp, track_id, packet})
   end
 
   #### CALLBACKS ####
@@ -332,22 +332,37 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_cast({:send_rtp, mid, packet}, state) do
-    # TODO: this is very temporary
-    id =
+  def handle_cast({:send_rtp, track_id, packet}, state) do
+    sdes_id =
       Enum.find_value(state.demuxer.extensions, fn
         {ext_id, {ExRTP.Packet.Extension.SourceDescription, :mid}} -> ext_id
         _ -> nil
       end)
 
-    mid_ext =
-      %ExRTP.Packet.Extension.SourceDescription{text: mid}
-      |> ExRTP.Packet.Extension.SourceDescription.to_raw(id)
+    # TODO: iterating over transceivers is not optimal
+    # but this is, most likely, going to be refactored anyways
+    maybe_transceiver =
+      Enum.find(state.transceivers, fn
+        %{sender: %{track: %{id: id}}} -> id == track_id
+        _ -> false
+      end)
 
-    packet
-    |> ExRTP.Packet.set_extension(:two_byte, [mid_ext])
-    |> ExRTP.Packet.encode()
-    |> then(&DTLSTransport.send_rtp(state.dtls_transport, &1))
+    case maybe_transceiver do
+      %RTPTransceiver{mid: mid} ->
+        mid_ext =
+          %ExRTP.Packet.Extension.SourceDescription{text: mid}
+          |> ExRTP.Packet.Extension.SourceDescription.to_raw(sdes_id)
+
+        packet
+        |> ExRTP.Packet.set_extension(:two_byte, [mid_ext])
+        |> ExRTP.Packet.encode()
+        |> then(&DTLSTransport.send_rtp(state.dtls_transport, &1))
+
+      nil ->
+        Logger.warning(
+          "Attempted to send packet to track with unrecognized id: #{inspect(track_id)}"
+        )
+    end
 
     {:noreply, state}
   end
@@ -373,10 +388,15 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:rtp, data}, state) do
-    case Demuxer.demux(state.demuxer, data) do
-      {:ok, demuxer, mid, packet} ->
-        notify(state.owner, {:rtp, mid, packet})
-        {:noreply, %__MODULE__{state | demuxer: demuxer}}
+    with {:ok, demuxer, mid, packet} <- Demuxer.demux(state.demuxer, data),
+         %RTPTransceiver{} = t <- Enum.find(state.transceivers, &(&1.mid == mid)) do
+      track_id = t.receiver.track.id
+      notify(state.owner, {:rtp, track_id, packet})
+      {:noreply, %__MODULE__{state | demuxer: demuxer}}
+    else
+      nil ->
+        Logger.warning("Received RTP with unrecognized MID: #{inspect(data)}")
+        {:noreply, state}
 
       {:error, reason} ->
         Logger.error("Unable to demux RTP, reason: #{inspect(reason)}")
@@ -458,7 +478,7 @@ defmodule ExWebRTC.PeerConnection do
           RTPTransceiver.find_by_mid(state.transceivers, tr.mid) == nil and
             tr.direction in [:recvonly, :sendrecv]
         end)
-        |> Enum.map(fn tr -> MediaStreamTrack.new(tr.kind) end)
+        |> Enum.map(fn tr -> tr.receiver.track end)
 
       for track <- new_remote_tracks do
         notify(state.owner, {:track, track})

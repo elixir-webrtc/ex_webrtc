@@ -32,7 +32,7 @@ defmodule Peer do
 
         {:ok, pc} = PeerConnection.start_link(ice_servers: @ice_servers)
 
-        {:ok, %{conn: conn, stream: stream, peer_connection: pc, other_mid: nil}}
+        {:ok, %{conn: conn, stream: stream, peer_connection: pc, track_id: nil}}
 
       other ->
         Logger.error("Couldn't connect to the signalling server: #{inspect(other)}")
@@ -97,9 +97,7 @@ defmodule Peer do
     msg = %{"type" => "offer", "sdp" => offer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
-    [_, %RTPTransceiver{mid: mid}] = PeerConnection.get_transceivers(pc)
-
-    %{state | other_mid: mid}
+    %{state | track_id: track.id}
   end
 
   defp handle_ws_message(%{"type" => "answer", "sdp" => sdp}, state) do
@@ -141,13 +139,13 @@ defmodule Peer do
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
   end
 
-  defp handle_webrtc_message({:rtp, _mid, _packet}, %{other_mid: nil}) do
+  defp handle_webrtc_message({:rtp, _mid, _packet}, %{track_id: nil}) do
     Logger.warning("Received RTP, but out transceiver has not beed created")
   end
 
   defp handle_webrtc_message({:rtp, _mid, packet}, state) do
     Logger.info("Received RTP: #{inspect(packet)}")
-    PeerConnection.send_rtp(state.peer_connection, state.other_mid, packet)
+    PeerConnection.send_rtp(state.peer_connection, state.track_id, packet)
   end
 
   defp handle_webrtc_message(msg, _state) do

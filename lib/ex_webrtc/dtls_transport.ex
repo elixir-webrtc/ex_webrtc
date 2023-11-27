@@ -172,6 +172,7 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   defp handle_ice({:data, <<f, _rest::binary>> = data}, state) when f in 20..64 do
+    # TODO: handle {:connection_closed, _}
     case ExDTLS.handle_data(state.dtls, data) do
       {:handshake_packets, packets, timeout} when state.ice_state in [:connected, :completed] ->
         :ok = ICEAgent.send_data(state.ice_agent, packets)
