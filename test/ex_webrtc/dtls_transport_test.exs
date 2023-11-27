@@ -88,7 +88,9 @@ defmodule ExWebRTC.DTLSTransportTest do
     FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
     assert_receive {:fake_ice, _packets}
-    assert_receive {:fake_ice, _retransmited}, 1100
+
+    assert_receive {:fake_ice, _retransmited},
+                   1000 + ExUnit.configuration()[:assert_receive_timeout]
   end
 
   test "will buffer packets and send when connected", %{dtls: dtls, ice: ice} do
