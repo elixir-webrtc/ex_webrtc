@@ -553,16 +553,18 @@ defmodule ExWebRTC.PeerConnection do
   defp next_conn_state(ice_state, dtls_state) when ice_state == :failed or dtls_state == :failed,
     do: :failed
 
-  defp next_conn_state(ice_state, dtls_state) when ice_state == :new and dtls_state == :new,
-    do: :new
+  defp next_conn_state(:failed, _dtls_state), do: :failed
+
+  defp next_conn_state(_ice_state, :failed), do: :failed
+
+  defp next_conn_state(:new, :new), do: :new
 
   defp next_conn_state(ice_state, dtls_state)
        when ice_state in [:new, :checking] or dtls_state in [:new, :connecting],
        do: :connecting
 
-  defp next_conn_state(ice_state, dtls_state)
-       when ice_state in [:connected, :completed] and dtls_state in [:connected],
-       do: :connected
+  defp next_conn_state(ice_state, :connected) when ice_state in [:connected, :completed],
+    do: :connected
 
   defp update_conn_state(%{conn_state: conn_state} = state, conn_state), do: state
 
