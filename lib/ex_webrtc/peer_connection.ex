@@ -361,13 +361,13 @@ defmodule ExWebRTC.PeerConnection do
 
     # TODO: iterating over transceivers is not optimal
     # but this is, most likely, going to be refactored anyways
-    maybe_transceiver =
+    transceiver =
       Enum.find(state.transceivers, fn
         %{sender: %{track: %{id: id}}} -> id == track_id
         _ -> false
       end)
 
-    case maybe_transceiver do
+    case transceiver do
       %RTPTransceiver{mid: mid} ->
         mid_ext =
           %ExRTP.Packet.Extension.SourceDescription{text: mid}
