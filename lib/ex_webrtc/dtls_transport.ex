@@ -213,12 +213,12 @@ defmodule ExWebRTC.DTLSTransport do
         Logger.debug("DTLS handshake finished")
         ICEAgent.send_data(state.ice_agent, packets)
         # TODO: validate fingerprint
-        state = setup_srtp(state, lkm, rkm, profile)
+        :ok = setup_srtp(state, lkm, rkm, profile)
         update_dtls_state(state, :connected)
 
       {:handshake_finished, lkm, rkm, profile} ->
         Logger.debug("DTLS handshake finished")
-        state = setup_srtp(state, lkm, rkm, profile)
+        :ok = setup_srtp(state, lkm, rkm, profile)
         update_dtls_state(state, :connected)
 
       :handshake_want_read ->
@@ -306,7 +306,7 @@ defmodule ExWebRTC.DTLSTransport do
 
     :ok = ExLibSRTP.add_stream(state.out_srtp, outbound_policy)
 
-    state
+    :ok
   end
 
   defp update_dtls_state(%{dtls_state: dtls_state} = state, dtls_state), do: state
