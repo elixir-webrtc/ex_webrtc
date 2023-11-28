@@ -11,6 +11,26 @@ defmodule ExWebRTC.SDPUtils do
     end)
   end
 
+  @spec delete_attribute(ExSDP.t() | ExSDP.Media.t(), module() | atom() | binary()) ::
+          ExSDP.t() | ExSDP.Media.t()
+  def delete_attribute(sdp_or_mline, key) do
+    delete_attributes(sdp_or_mline, [key])
+  end
+
+  @spec delete_attributes(ExSDP.t() | ExSDP.Media.t(), [module() | atom() | binary()]) ::
+          ExSDP.t() | ExSDP.Media.t()
+  def delete_attributes(sdp_or_mline, attributes) when is_list(attributes) do
+    new_attrs =
+      Enum.reject(sdp_or_mline.attributes, fn
+        %module{} -> module in attributes
+        {k, _v} -> k in attributes
+        # flag attributes
+        k -> k in attributes
+      end)
+
+    Map.put(sdp_or_mline, :attributes, new_attrs)
+  end
+
   @spec ensure_mid(ExSDP.t()) :: :ok | {:error, :missing_mid | :duplicated_mid}
   def ensure_mid(sdp) do
     sdp.media
@@ -101,6 +121,34 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
+  @spec get_cert_fingerprint(ExSDP.t()) ::
+          {:ok, {:fingerprint, {:sha256, binary()}}}
+          | {:error, :missing_cert_fingerprint | :conflicting_cert_fingerprints}
+  def get_cert_fingerprint(sdp) do
+    session_fingerprint = do_get_cert_fingerprint(sdp)
+    mline_fingerprints = Enum.map(sdp.media, fn mline -> do_get_cert_fingerprint(mline) end)
+
+    case {session_fingerprint, mline_fingerprints} do
+      {nil, []} ->
+        {:error, :missing_cert_fingerprint}
+
+      {session_fingerprint, []} ->
+        {:ok, session_fingerprint}
+
+      {nil, mline_fingerprints} ->
+        with :ok <- ensure_fingerprints_present(mline_fingerprints),
+             :ok <- ensure_fingerprints_unique(mline_fingerprints) do
+          {:ok, List.first(mline_fingerprints)}
+        end
+
+      {session_fingerprint, mline_fingerprints} ->
+        with :ok <- ensure_fingerprints_present(mline_fingerprints),
+             :ok <- ensure_fingerprints_unique([session_fingerprint | mline_fingerprints]) do
+          {:ok, session_fingerprint}
+        end
+    end
+  end
+
   @spec get_extensions(ExSDP.t()) ::
           %{(id :: non_neg_integer()) => extension :: module() | {SourceDescription, atom()}}
   def get_extensions(sdp) do
@@ -156,6 +204,16 @@ defmodule ExWebRTC.SDPUtils do
     {ice_ufrag, ice_pwd}
   end
 
+  defp do_get_cert_fingerprint(sdp_or_mline) do
+    get_attr =
+      case sdp_or_mline do
+        %ExSDP{} -> &ExSDP.get_attribute/2
+        %ExSDP.Media{} -> &ExSDP.Media.get_attribute/2
+      end
+
+    get_attr.(sdp_or_mline, :fingerprint)
+  end
+
   defp ensure_ice_credentials_present(creds) do
     creds
     |> Enum.find(fn {ice_ufrag, ice_pwd} -> ice_ufrag == nil or ice_pwd == nil end)
@@ -178,6 +236,21 @@ defmodule ExWebRTC.SDPUtils do
     case Enum.uniq(creds) do
       [_] -> :ok
       _ -> {:error, :conflicting_ice_credentials}
+    end
+  end
+
+  defp ensure_fingerprints_present(fingerprints) do
+    if Enum.all?(fingerprints, &(&1 != nil)) do
+      :ok
+    else
+      {:error, :missing_cert_fingerprint}
+    end
+  end
+
+  defp ensure_fingerprints_unique(fingerprints) do
+    case Enum.uniq(fingerprints) do
+      [_] -> :ok
+      _ -> {:error, :conflicting_cert_fingerprints}
     end
   end
 end

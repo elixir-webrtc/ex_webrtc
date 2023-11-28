@@ -1,7 +1,13 @@
 defmodule ExWebRTC.DTLSTransportTest do
   use ExUnit.Case, async: true
 
-  alias ExWebRTC.DTLSTransport
+  alias ExWebRTC.{DTLSTransport, Utils}
+
+  {_pkey, cert} = ExDTLS.generate_key_cert()
+
+  @fingerprint cert
+               |> ExDTLS.get_cert_fingerprint()
+               |> Utils.hex_dump()
 
   defmodule FakeICEAgent do
     use GenServer
@@ -61,12 +67,12 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   test "cannot start dtls more than once", %{dtls: dtls} do
-    assert :ok = DTLSTransport.start_dtls(dtls, :passive)
-    assert {:error, :already_started} = DTLSTransport.start_dtls(dtls, :passive)
+    assert :ok = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
+    assert {:error, :already_started} = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
   end
 
   test "initiates DTLS handshake when in active mode", %{dtls: dtls, ice: ice} do
-    :ok = DTLSTransport.start_dtls(dtls, :active)
+    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
 
     FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
@@ -75,7 +81,7 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   test "won't initiate DTLS handshake when in passive mode", %{dtls: dtls, ice: ice} do
-    :ok = DTLSTransport.start_dtls(dtls, :passive)
+    :ok = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
 
     FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
@@ -83,7 +89,7 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   test "will retransmit after initiating handshake", %{dtls: dtls, ice: ice} do
-    :ok = DTLSTransport.start_dtls(dtls, :active)
+    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
 
     FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
@@ -94,9 +100,9 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   test "will buffer packets and send when connected", %{dtls: dtls, ice: ice} do
-    :ok = DTLSTransport.start_dtls(dtls, :passive)
+    :ok = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
 
-    remote_dtls = ExDTLS.init(client_mode: true, dtls_srtp: true)
+    remote_dtls = ExDTLS.init(mode: :client, dtls_srtp: true)
     {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
 
     FakeICEAgent.send_dtls(ice, {:data, packets})
@@ -108,8 +114,8 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   test "finishes handshake in active mode", %{dtls: dtls, ice: ice} do
-    :ok = DTLSTransport.start_dtls(dtls, :active)
-    remote_dtls = ExDTLS.init(client_mode: false, dtls_srtp: true)
+    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
+    remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
 
     FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
@@ -119,11 +125,19 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   test "finishes handshake in passive mode", %{dtls: dtls, ice: ice} do
-    :ok = DTLSTransport.start_dtls(dtls, :passive)
+    remote_dtls = ExDTLS.init(mode: :client, dtls_srtp: true)
+
+    remote_fingerprint =
+      remote_dtls
+      |> ExDTLS.get_cert()
+      |> ExDTLS.get_cert_fingerprint()
+      |> Utils.hex_dump()
+
+    :ok = DTLSTransport.start_dtls(dtls, :passive, remote_fingerprint)
+
+    {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
     FakeICEAgent.send_dtls(ice, {:connection_state_change, :connected})
 
-    remote_dtls = ExDTLS.init(client_mode: true, dtls_srtp: true)
-    {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
     FakeICEAgent.send_dtls(ice, {:data, packets})
 
     assert :ok == check_handshake(dtls, ice, remote_dtls)
