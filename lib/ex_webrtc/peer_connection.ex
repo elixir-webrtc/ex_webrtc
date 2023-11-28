@@ -45,26 +45,6 @@ defmodule ExWebRTC.PeerConnection do
   """
   @type connection_state() :: :closed | :failed | :disconnected | :new | :connecting | :connected
 
-  @enforce_keys [:config, :owner]
-  defstruct @enforce_keys ++
-              [
-                :current_local_desc,
-                :pending_local_desc,
-                :current_remote_desc,
-                :pending_remote_desc,
-                :ice_agent,
-                :dtls_transport,
-                demuxer: %Demuxer{},
-                transceivers: [],
-                ice_state: nil,
-                dtls_state: nil,
-                signaling_state: :stable,
-                conn_state: :new,
-                last_offer: nil,
-                last_answer: nil,
-                peer_fingerprint: nil
-              ]
-
   #### API ####
   @spec start_link(Configuration.options()) :: GenServer.on_start()
   def start_link(options \\ []) do
@@ -132,13 +112,24 @@ defmodule ExWebRTC.PeerConnection do
     {:ok, dtls_transport} = DTLSTransport.start_link(ice_config)
     ice_agent = DTLSTransport.get_ice_agent(dtls_transport)
 
-    state = %__MODULE__{
+    state = %{
       owner: owner,
       config: config,
+      current_local_desc: nil,
+      pending_local_desc: nil,
+      current_remote_desc: nil,
+      pending_remote_desc: nil,
       ice_agent: ice_agent,
       dtls_transport: dtls_transport,
+      demuxer: %Demuxer{},
+      transceivers: [],
       ice_state: :new,
-      dtls_state: :new
+      dtls_state: :new,
+      signaling_state: :stable,
+      conn_state: :new,
+      last_offer: nil,
+      last_answer: nil,
+      peer_fingerprint: nil
     }
 
     notify(state.owner, {:connection_state_change, :new})
@@ -349,7 +340,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:ex_ice, _from, {:connection_state_change, new_ice_state}}, state) do
-    state = %__MODULE__{state | ice_state: new_ice_state}
+    state = %{state | ice_state: new_ice_state}
     next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
     state = update_conn_state(state, next_conn_state)
 
@@ -377,7 +368,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:dtls_transport, _pid, {:state_change, new_dtls_state}}, state) do
-    state = %__MODULE__{state | dtls_state: new_dtls_state}
+    state = %{state | dtls_state: new_dtls_state}
     next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
     state = update_conn_state(state, next_conn_state)
     {:noreply, state}
@@ -388,7 +379,7 @@ defmodule ExWebRTC.PeerConnection do
     case Demuxer.demux(state.demuxer, data) do
       {:ok, demuxer, mid, packet} ->
         notify(state.owner, {:data, {mid, packet}})
-        {:noreply, %__MODULE__{state | demuxer: demuxer}}
+        {:noreply, %{state | demuxer: demuxer}}
 
       {:error, reason} ->
         Logger.error("Unable to demux RTP, reason: #{inspect(reason)}")
