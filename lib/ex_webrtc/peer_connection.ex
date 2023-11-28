@@ -47,25 +47,6 @@ defmodule ExWebRTC.PeerConnection do
   """
   @type connection_state() :: :closed | :failed | :disconnected | :new | :connecting | :connected
 
-  @enforce_keys [:config, :owner]
-  defstruct @enforce_keys ++
-              [
-                :current_local_desc,
-                :pending_local_desc,
-                :current_remote_desc,
-                :pending_remote_desc,
-                :ice_agent,
-                :dtls_transport,
-                demuxer: %Demuxer{},
-                transceivers: [],
-                ice_state: nil,
-                dtls_state: nil,
-                signaling_state: :stable,
-                conn_state: :new,
-                last_offer: nil,
-                last_answer: nil
-              ]
-
   #### API ####
   @spec start_link(Configuration.options()) :: GenServer.on_start()
   def start_link(options \\ []) do
@@ -142,13 +123,24 @@ defmodule ExWebRTC.PeerConnection do
     {:ok, dtls_transport} = DTLSTransport.start_link(ice_config)
     ice_agent = DTLSTransport.get_ice_agent(dtls_transport)
 
-    state = %__MODULE__{
+    state = %{
       owner: owner,
       config: config,
+      current_local_desc: nil,
+      pending_local_desc: nil,
+      current_remote_desc: nil,
+      pending_remote_desc: nil,
       ice_agent: ice_agent,
       dtls_transport: dtls_transport,
+      demuxer: %Demuxer{},
+      transceivers: [],
       ice_state: :new,
-      dtls_state: :new
+      dtls_state: :new,
+      signaling_state: :stable,
+      conn_state: :new,
+      last_offer: nil,
+      last_answer: nil,
+      peer_fingerprint: nil
     }
 
     notify(state.owner, {:connection_state_change, :new})
@@ -291,7 +283,7 @@ defmodule ExWebRTC.PeerConnection do
              {:ok, state} <- apply_local_description(other_type, sdp, state) do
           {:reply, :ok, %{state | signaling_state: next_state}}
         else
-          error -> {:reply, error, state}
+          {:error, _reason} = error -> {:reply, error, state}
         end
     end
   end
@@ -310,7 +302,7 @@ defmodule ExWebRTC.PeerConnection do
              {:ok, state} <- apply_remote_description(other_type, sdp, state) do
           {:reply, :ok, %{state | signaling_state: next_state}}
         else
-          error -> {:reply, error, state}
+          {:error, _reason} = error -> {:reply, error, state}
         end
     end
   end
@@ -389,10 +381,16 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:ex_ice, _from, {:connection_state_change, new_ice_state}}, state) do
-    state = %__MODULE__{state | ice_state: new_ice_state}
+    state = %{state | ice_state: new_ice_state}
     next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
     state = update_conn_state(state, next_conn_state)
-    {:noreply, state}
+
+    if next_conn_state == :failed do
+      Logger.debug("Stopping PeerConnection")
+      {:stop, {:shutdown, :conn_state_failed}, state}
+    else
+      {:noreply, state}
+    end
   end
 
   @impl true
@@ -411,7 +409,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:dtls_transport, _pid, {:state_change, new_dtls_state}}, state) do
-    state = %__MODULE__{state | dtls_state: new_dtls_state}
+    state = %{state | dtls_state: new_dtls_state}
     next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
     state = update_conn_state(state, next_conn_state)
     {:noreply, state}
@@ -423,7 +421,7 @@ defmodule ExWebRTC.PeerConnection do
          %RTPTransceiver{} = t <- Enum.find(state.transceivers, &(&1.mid == mid)) do
       track_id = t.receiver.track.id
       notify(state.owner, {:rtp, track_id, packet})
-      {:noreply, %__MODULE__{state | demuxer: demuxer}}
+      {:noreply, %{state | demuxer: demuxer}}
     else
       nil ->
         Logger.warning("Received RTP with unrecognized MID: #{inspect(data)}")
@@ -475,7 +473,7 @@ defmodule ExWebRTC.PeerConnection do
 
     if type == :answer do
       {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
-      DTLSTransport.start_dtls(state.dtls_transport, setup)
+      DTLSTransport.start_dtls(state.dtls_transport, setup, state.peer_fingerprint)
     end
 
     {:ok, %{state | transceivers: new_transceivers, demuxer: demuxer}}
@@ -495,6 +493,7 @@ defmodule ExWebRTC.PeerConnection do
     with :ok <- SDPUtils.ensure_mid(sdp),
          :ok <- SDPUtils.ensure_bundle(sdp),
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
+         {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
          {:ok, new_transceivers} <-
            update_remote_transceivers(state.transceivers, sdp, state.config) do
       :ok = ICEAgent.set_remote_credentials(state.ice_agent, ice_ufrag, ice_pwd)
@@ -526,10 +525,21 @@ defmodule ExWebRTC.PeerConnection do
             :passive -> :active
           end
 
-        DTLSTransport.start_dtls(state.dtls_transport, setup)
+        DTLSTransport.start_dtls(state.dtls_transport, setup, peer_fingerprint)
       end
 
-      {:ok, %{state | transceivers: new_transceivers}}
+      {:ok,
+       %{
+         state
+         | transceivers: new_transceivers,
+           peer_fingerprint: peer_fingerprint
+       }}
+    else
+      {:ok, {:fingerprint, {_hash_function, _fingerprint}}} ->
+        {:error, :unsupported_cert_fingerprint_hash_function}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -643,6 +653,7 @@ defmodule ExWebRTC.PeerConnection do
   defp update_conn_state(%{conn_state: conn_state} = state, conn_state), do: state
 
   defp update_conn_state(state, new_conn_state) do
+    Logger.debug("Changing PeerConnection state: #{state.conn_state} -> #{new_conn_state}")
     notify(state.owner, {:connection_state_change, new_conn_state})
     %{state | conn_state: new_conn_state}
   end

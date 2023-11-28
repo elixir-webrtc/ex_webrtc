@@ -1,13 +1,29 @@
 defmodule ExWebRTC.PeerConnectionTest do
   use ExUnit.Case, async: true
 
-  alias ExWebRTC.{MediaStreamTrack, PeerConnection, SessionDescription}
+  alias ExWebRTC.{MediaStreamTrack, PeerConnection, SessionDescription, SDPUtils, Utils}
+
+  {_pkey, cert} = ExDTLS.generate_key_cert()
+
+  @fingerprint cert
+               |> ExDTLS.get_cert_fingerprint()
+               |> Utils.hex_dump()
 
   @audio_mline ExSDP.Media.new("audio", 9, "UDP/TLS/RTP/SAVPF", [108])
-               |> ExSDP.Media.add_attributes(mid: "0", ice_ufrag: "someufrag", ice_pwd: "somepwd")
+               |> ExSDP.Media.add_attributes(
+                 mid: "0",
+                 ice_ufrag: "someufrag",
+                 ice_pwd: "somepwd",
+                 fingerprint: {:sha256, @fingerprint}
+               )
 
   @video_mline ExSDP.Media.new("video", 9, "UDP/TLS/RTP/SAVPF", [96])
-               |> ExSDP.Media.add_attributes(mid: "1", ice_ufrag: "someufrag", ice_pwd: "somepwd")
+               |> ExSDP.Media.add_attributes(
+                 mid: "1",
+                 ice_ufrag: "someufrag",
+                 ice_pwd: "somepwd",
+                 fingerprint: {:sha256, @fingerprint}
+               )
 
   test "track notification" do
     {:ok, pc} = PeerConnection.start_link()
@@ -143,7 +159,7 @@ defmodule ExWebRTC.PeerConnectionTest do
       offer = %SessionDescription{type: :offer, sdp: sdp}
       assert {:error, :duplicated_mid} = PeerConnection.set_remote_description(pc, offer)
 
-      mline = ExSDP.Media.new("audio", 9, "UDP/TLS/RTP/SAVPF", [96])
+      mline = SDPUtils.delete_attribute(@audio_mline, :mid)
       sdp = ExSDP.add_media(raw_sdp, mline) |> to_string()
       offer = %SessionDescription{type: :offer, sdp: sdp}
       assert {:error, :missing_mid} = PeerConnection.set_remote_description(pc, offer)
@@ -172,6 +188,9 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       raw_sdp = ExSDP.new()
 
+      audio_mline = SDPUtils.delete_attributes(@audio_mline, [:ice_ufrag, :ice_pwd])
+      video_mline = SDPUtils.delete_attributes(@video_mline, [:ice_ufrag, :ice_pwd])
+
       [
         {{nil, nil}, {"someufrag", "somepwd"}, {"someufrag", "somepwd"}, :ok},
         {{"someufrag", "somepwd"}, {"someufrag", "somepwd"}, {nil, nil}, :ok},
@@ -185,14 +204,6 @@ defmodule ExWebRTC.PeerConnectionTest do
          {:error, :conflicting_ice_credentials}}
       ]
       |> Enum.each(fn {{s_ufrag, s_pwd}, {a_ufrag, a_pwd}, {v_ufrag, v_pwd}, expected_result} ->
-        audio_mline =
-          ExSDP.Media.new("audio", 9, "UDP/TLS/RTP/SAVPF", [108])
-          |> ExSDP.Media.add_attributes(mid: "0")
-
-        video_mline =
-          ExSDP.Media.new("video", 9, "UDP/TLS/RTP/SAVPF", [96])
-          |> ExSDP.Media.add_attributes(mid: "1")
-
         audio_mline =
           if a_ufrag do
             ExSDP.Media.add_attribute(audio_mline, {:ice_ufrag, a_ufrag})
@@ -234,6 +245,60 @@ defmodule ExWebRTC.PeerConnectionTest do
         sdp =
           if s_pwd do
             ExSDP.add_attribute(sdp, {:ice_pwd, s_pwd})
+          else
+            sdp
+          end
+
+        sdp =
+          sdp
+          |> ExSDP.add_media([audio_mline, video_mline])
+          |> to_string()
+
+        offer = %SessionDescription{type: :offer, sdp: sdp}
+
+        assert expected_result == PeerConnection.set_remote_description(pc, offer)
+      end)
+    end
+
+    test "cert fingerprint" do
+      {:ok, pc} = PeerConnection.start_link()
+      raw_sdp = ExSDP.new()
+
+      audio_mline = SDPUtils.delete_attribute(@audio_mline, :fingerprint)
+      video_mline = SDPUtils.delete_attribute(@video_mline, :fingerprint)
+
+      [
+        {{:sha256, @fingerprint}, {:sha256, @fingerprint}, {:sha256, @fingerprint}, :ok},
+        {nil, {:sha256, @fingerprint}, {:sha256, @fingerprint}, :ok},
+        {{:sha256, @fingerprint}, nil, {:sha256, @fingerprint},
+         {:error, :missing_cert_fingerprint}},
+        {nil, {:sha256, @fingerprint}, nil, {:error, :missing_cert_fingerprint}},
+        {nil, {:sha256, @fingerprint}, {:sha1, @fingerprint},
+         {:error, :conflicting_cert_fingerprints}},
+        {nil, {:sha1, @fingerprint}, {:sha1, @fingerprint},
+         {:error, :unsupported_cert_fingerprint_hash_function}}
+      ]
+      |> Enum.each(fn {s_fingerprint, a_fingerprint, v_fingerprint, expected_result} ->
+        audio_mline =
+          if a_fingerprint do
+            ExSDP.Media.add_attribute(audio_mline, {:fingerprint, a_fingerprint})
+          else
+            audio_mline
+          end
+
+        video_mline =
+          if v_fingerprint do
+            ExSDP.Media.add_attribute(video_mline, {:fingerprint, v_fingerprint})
+          else
+            video_mline
+          end
+
+        sdp =
+          ExSDP.add_attribute(raw_sdp, %ExSDP.Attribute.Group{semantics: "BUNDLE", mids: [0, 1]})
+
+        sdp =
+          if s_fingerprint do
+            ExSDP.add_attribute(sdp, {:fingerprint, s_fingerprint})
           else
             sdp
           end
