@@ -8,7 +8,6 @@ defmodule ExWebRTC.PeerConnection do
   require Logger
 
   alias __MODULE__.{Configuration, Demuxer}
-  alias ExICE.ICEAgent
 
   alias ExWebRTC.{
     DTLSTransport,
@@ -121,7 +120,7 @@ defmodule ExWebRTC.PeerConnection do
   def init({owner, config}) do
     ice_config = [stun_servers: config.ice_servers]
     {:ok, dtls_transport} = DTLSTransport.start_link(ice_config)
-    ice_agent = DTLSTransport.get_ice_agent(dtls_transport)
+    {ice_transport, ice_pid} = DTLSTransport.get_ice_transport(dtls_transport)
 
     state = %{
       owner: owner,
@@ -130,7 +129,8 @@ defmodule ExWebRTC.PeerConnection do
       pending_local_desc: nil,
       current_remote_desc: nil,
       pending_remote_desc: nil,
-      ice_agent: ice_agent,
+      ice_transport: ice_transport,
+      ice_pid: ice_pid,
       dtls_transport: dtls_transport,
       demuxer: %Demuxer{},
       transceivers: [],
@@ -159,13 +159,14 @@ defmodule ExWebRTC.PeerConnection do
     # TODO: handle subsequent offers
 
     if Keyword.get(options, :ice_restart, false) do
-      :ok = ICEAgent.restart(state.ice_agent)
+      :ok = state.ice_transport.restart(state.ice_pid)
     end
 
     next_mid = find_next_mid(state)
     transceivers = assign_mids(state.transceivers, next_mid)
 
-    {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
+    {:ok, ice_ufrag, ice_pwd} =
+      state.ice_transport.get_local_credentials(state.ice_pid)
 
     offer =
       %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
@@ -219,7 +220,8 @@ defmodule ExWebRTC.PeerConnection do
   def handle_call({:create_answer, _options}, _from, state) do
     {:offer, remote_offer} = state.pending_remote_desc
 
-    {:ok, ice_ufrag, ice_pwd} = ICEAgent.get_local_credentials(state.ice_agent)
+    {:ok, ice_ufrag, ice_pwd} =
+      state.ice_transport.get_local_credentials(state.ice_pid)
 
     answer =
       %ExSDP{ExSDP.new() | timing: %ExSDP.Timing{start_time: 0, stop_time: 0}}
@@ -315,7 +317,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:add_ice_candidate, candidate}, _from, state) do
     with "candidate:" <> attr <- candidate.candidate do
-      ICEAgent.add_remote_candidate(state.ice_agent, attr)
+      state.ice_transport.add_remote_candidate(state.ice_pid, attr)
     end
 
     {:reply, :ok, state}
@@ -496,8 +498,10 @@ defmodule ExWebRTC.PeerConnection do
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
          {:ok, new_transceivers} <-
            update_remote_transceivers(state.transceivers, sdp, state.config) do
-      :ok = ICEAgent.set_remote_credentials(state.ice_agent, ice_ufrag, ice_pwd)
-      :ok = ICEAgent.gather_candidates(state.ice_agent)
+      :ok =
+        state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
+
+      :ok = state.ice_transport.gather_candidates(state.ice_pid)
 
       # TODO: this needs a look
 
