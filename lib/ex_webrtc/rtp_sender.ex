@@ -1,6 +1,6 @@
-defmodule ExWebRTC.RTPReceiver do
+defmodule ExWebRTC.RTPSender do
   @moduledoc """
-  RTPReceiver
+  RTPSender
   """
 
   alias ExWebRTC.MediaStreamTrack

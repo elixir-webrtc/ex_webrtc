@@ -61,7 +61,7 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   test "cannot send data when handshake not finished", %{dtls: dtls} do
-    DTLSTransport.send_data(dtls, <<1, 2, 3>>)
+    DTLSTransport.send_rtp(dtls, <<1, 2, 3>>)
 
     refute_receive {:fake_ice, _data}
   end

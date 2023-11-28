@@ -56,9 +56,15 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @doc false
-  @spec send_data(dtls_transport(), binary()) :: :ok
-  def send_data(dtls_transport, data) do
-    GenServer.cast(dtls_transport, {:send_data, data})
+  @spec send_rtp(dtls_transport(), binary()) :: :ok
+  def send_rtp(dtls_transport, data) do
+    GenServer.cast(dtls_transport, {:send_rtp, data})
+  end
+
+  @doc false
+  @spec send_rtcp(dtls_transport(), binary()) :: :ok
+  def send_rtcp(dtls_transport, data) do
+    GenServer.cast(dtls_transport, {:send_rtcp, data})
   end
 
   @impl true
@@ -67,7 +73,6 @@ defmodule ExWebRTC.DTLSTransport do
     fingerprint = ExDTLS.get_cert_fingerprint(cert)
 
     {:ok, ice_agent} = ice_module.start_link(:controlled, ice_config)
-    srtp = ExLibSRTP.new()
 
     state = %{
       owner: owner,
@@ -77,9 +82,10 @@ defmodule ExWebRTC.DTLSTransport do
       cert: cert,
       pkey: pkey,
       fingerprint: fingerprint,
+      in_srtp: ExLibSRTP.new(),
+      out_srtp: ExLibSRTP.new(),
       # sha256 hex dump
       peer_fingerprint: nil,
-      srtp: srtp,
       dtls_state: :new,
       dtls: nil,
       mode: nil
@@ -125,18 +131,25 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_cast({:send_data, _data}, %{dtls_state: :connected, ice_state: ice_state} = state)
+  def handle_cast({:send_rtp, data}, %{dtls_state: :connected, ice_state: ice_state} = state)
       when ice_state in [:connected, :completed] do
-    # TODO
+    case ExLibSRTP.protect(state.out_srtp, data) do
+      {:ok, protected} -> ICEAgent.send_data(state.ice_agent, protected)
+      {:error, reason} -> Logger.error("Unable to protect RTP: #{inspect(reason)}")
+    end
+
     {:noreply, state}
   end
 
   @impl true
-  def handle_cast({:send_data, _data}, state) do
-    Logger.error(
-      "Attempted to send data when DTLS handshake was not finished or ICE Transport is unavailable"
-    )
+  def handle_cast({:send_rtp, _data}, state) do
+    Logger.warning("Attemped to send RTP before DTLS handshake has been finished. Ignoring.")
+    {:noreply, state}
+  end
 
+  @impl true
+  def handle_cast({:send_rtcp, _data}, state) do
+    # TODO: implement
     {:noreply, state}
   end
 
@@ -183,6 +196,7 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   defp handle_ice({:data, <<f, _rest::binary>> = data}, state) when f in 20..64 do
+    # TODO: handle {:connection_closed, _}
     case ExDTLS.handle_data(state.dtls, data) do
       {:handshake_packets, packets, timeout} when state.ice_state in [:connected, :completed] ->
         :ok = ICEAgent.send_data(state.ice_agent, packets)
@@ -199,7 +213,7 @@ defmodule ExWebRTC.DTLSTransport do
         state = %{state | buffered_packets: packets}
         update_dtls_state(state, :connecting)
 
-      {:handshake_finished, _, remote_keying_material, profile, packets} ->
+      {:handshake_finished, lkm, rkm, profile, packets} ->
         Logger.debug("DTLS handshake finished")
         ICEAgent.send_data(state.ice_agent, packets)
 
@@ -210,16 +224,16 @@ defmodule ExWebRTC.DTLSTransport do
           |> Utils.hex_dump()
 
         if peer_fingerprint == state.peer_fingerprint do
-          state = setup_srtp(state, remote_keying_material, profile)
+          :ok = setup_srtp(state, lkm, rkm, profile)
           update_dtls_state(state, :connected)
         else
           Logger.debug("Non-matching peer cert fingerprint.")
           update_dtls_state(state, :failed)
         end
 
-      {:handshake_finished, _, remote_keying_material, profile} ->
+      {:handshake_finished, lkm, rkm, profile} ->
         Logger.debug("DTLS handshake finished")
-        state = setup_srtp(state, remote_keying_material, profile)
+        :ok = setup_srtp(state, lkm, rkm, profile)
         update_dtls_state(state, :connected)
 
       :handshake_want_read ->
@@ -229,13 +243,18 @@ defmodule ExWebRTC.DTLSTransport do
 
   defp handle_ice({:data, <<f, _rest::binary>> = data}, %{dtls_state: :connected} = state)
        when f in 128..191 do
-    case ExLibSRTP.unprotect(state.srtp, data) do
+    {type, unprotect} =
+      case data do
+        <<_, s, _::binary>> when s in 192..223 -> {:rtcp, &ExLibSRTP.unprotect_rtcp/2}
+        _ -> {:rtp, &ExLibSRTP.unprotect/2}
+      end
+
+    case unprotect.(state.in_srtp, data) do
       {:ok, payload} ->
-        # TODO: temporarily, everything goes to peer connection process
-        notify(state.owner, {:rtp_data, payload})
+        notify(state.owner, {type, payload})
 
       {:error, reason} ->
-        Logger.warning("Failed to decrypt SRTP, reason: #{inspect(reason)}")
+        Logger.error("Failed to decrypt SRTP/SRTCP, reason: #{inspect(reason)}")
     end
 
     state
@@ -280,19 +299,29 @@ defmodule ExWebRTC.DTLSTransport do
 
   defp handle_ice(_msg, state), do: state
 
-  defp setup_srtp(state, remote_keying_material, profile) do
+  defp setup_srtp(state, local_keying_material, remote_keying_material, profile) do
     {:ok, crypto_profile} =
       ExLibSRTP.Policy.crypto_profile_from_dtls_srtp_protection_profile(profile)
 
-    policy = %ExLibSRTP.Policy{
+    inbound_policy = %ExLibSRTP.Policy{
       ssrc: :any_inbound,
       key: remote_keying_material,
       rtp: crypto_profile,
       rtcp: crypto_profile
     }
 
-    :ok = ExLibSRTP.add_stream(state.srtp, policy)
-    state
+    :ok = ExLibSRTP.add_stream(state.in_srtp, inbound_policy)
+
+    outbound_policy = %ExLibSRTP.Policy{
+      ssrc: :any_outbound,
+      key: local_keying_material,
+      rtp: crypto_profile,
+      rtcp: crypto_profile
+    }
+
+    :ok = ExLibSRTP.add_stream(state.out_srtp, outbound_policy)
+
+    :ok
   end
 
   defp update_dtls_state(%{dtls_state: dtls_state} = state, dtls_state), do: state

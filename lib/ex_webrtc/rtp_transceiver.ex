@@ -3,7 +3,13 @@ defmodule ExWebRTC.RTPTransceiver do
   RTPTransceiver
   """
 
-  alias ExWebRTC.{PeerConnection.Configuration, RTPCodecParameters, RTPReceiver}
+  alias ExWebRTC.{
+    PeerConnection.Configuration,
+    RTPCodecParameters,
+    RTPReceiver,
+    RTPSender,
+    MediaStreamTrack
+  }
 
   @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
   @type kind() :: :audio | :video
@@ -14,11 +20,13 @@ defmodule ExWebRTC.RTPTransceiver do
           kind: kind(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()],
-          rtp_receiver: nil
+          receiver: RTPReceiver.t(),
+          sender: RTPSender.t()
         }
 
   @enforce_keys [:mid, :direction, :kind]
-  defstruct @enforce_keys ++ [codecs: [], rtp_hdr_exts: [], rtp_receiver: %RTPReceiver{}]
+  defstruct @enforce_keys ++
+              [codecs: [], rtp_hdr_exts: [], receiver: %RTPReceiver{}, sender: %RTPSender{}]
 
   @doc false
   def find_by_mid(transceivers, mid) do
@@ -61,7 +69,8 @@ defmodule ExWebRTC.RTPTransceiver do
       nil ->
         codecs = get_codecs(mline, config)
         rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-        ssrc = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.SSRC)
+
+        track = MediaStreamTrack.new(mline.type)
 
         tr = %__MODULE__{
           mid: mid,
@@ -69,7 +78,7 @@ defmodule ExWebRTC.RTPTransceiver do
           kind: mline.type,
           codecs: codecs,
           rtp_hdr_exts: rtp_hdr_exts,
-          rtp_receiver: %RTPReceiver{ssrc: ssrc}
+          receiver: %RTPReceiver{track: track}
         }
 
         transceivers ++ [tr]
@@ -128,14 +137,12 @@ defmodule ExWebRTC.RTPTransceiver do
   defp update(transceiver, mline, config) do
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    ssrc = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.SSRC)
-    rtp_receiver = %RTPReceiver{ssrc: ssrc}
+    # TODO: potentially update tracks
 
     %__MODULE__{
       transceiver
       | codecs: codecs,
-        rtp_hdr_exts: rtp_hdr_exts,
-        rtp_receiver: rtp_receiver
+        rtp_hdr_exts: rtp_hdr_exts
     }
   end
 
