@@ -10,6 +10,7 @@ defmodule ExWebRTC.PeerConnection do
   alias __MODULE__.{Configuration, Demuxer}
 
   alias ExWebRTC.{
+    DefaultICETransport,
     DTLSTransport,
     IceCandidate,
     MediaStreamTrack,
@@ -118,9 +119,11 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def init({owner, config}) do
-    ice_config = [stun_servers: config.ice_servers]
-    {:ok, dtls_transport} = DTLSTransport.start_link(ice_config)
-    {ice_transport, ice_pid} = DTLSTransport.get_ice_transport(dtls_transport)
+    ice_config = [stun_servers: config.ice_servers, on_data: nil]
+    {:ok, ice_pid} = DefaultICETransport.start_link(:controlled, ice_config)
+    {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid)
+    # route data to the DTLSTransport
+    :ok = DefaultICETransport.on_data(ice_pid, dtls_transport)
 
     state = %{
       owner: owner,
@@ -129,7 +132,7 @@ defmodule ExWebRTC.PeerConnection do
       pending_local_desc: nil,
       current_remote_desc: nil,
       pending_remote_desc: nil,
-      ice_transport: ice_transport,
+      ice_transport: DefaultICETransport,
       ice_pid: ice_pid,
       dtls_transport: dtls_transport,
       demuxer: %Demuxer{},
@@ -386,6 +389,10 @@ defmodule ExWebRTC.PeerConnection do
     state = %{state | ice_state: new_ice_state}
     next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
     state = update_conn_state(state, next_conn_state)
+
+    if new_ice_state == :connected do
+      :ok = DTLSTransport.set_ice_connected(state.dtls_transport)
+    end
 
     if next_conn_state == :failed do
       Logger.debug("Stopping PeerConnection")

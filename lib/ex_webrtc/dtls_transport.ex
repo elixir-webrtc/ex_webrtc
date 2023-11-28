@@ -9,7 +9,7 @@ defmodule ExWebRTC.DTLSTransport do
 
   alias ExWebRTC.{DefaultICETransport, ICETransport, Utils}
 
-  @type dtls_transport() :: GenServer.server()
+  @type dtls_transport() :: pid()
 
   # Messages sent by the DTLSTransport
   @typedoc false
@@ -30,21 +30,21 @@ defmodule ExWebRTC.DTLSTransport do
   @type dtls_state() :: :new | :connecting | :connected | :closed | :failed
 
   @doc false
-  @spec start_link(ICETransport.t(), Keyword.t()) :: GenServer.on_start()
-  def start_link(ice_transport \\ DefaultICETransport, ice_config) do
+  @spec start_link(ICETransport.t(), pid()) :: GenServer.on_start()
+  def start_link(ice_transport \\ DefaultICETransport, ice_pid) do
     behaviour = ice_transport.__info__(:attributes)[:behaviour] || []
 
     unless ICETransport in behaviour do
       raise "DTLSTransport requires ice_transport to implement ExWebRTC.ICETransport beahviour."
     end
 
-    GenServer.start_link(__MODULE__, [ice_transport, ice_config, self()])
+    GenServer.start_link(__MODULE__, [ice_transport, ice_pid, self()])
   end
 
   @doc false
-  @spec get_ice_transport(dtls_transport()) :: {module(), pid()}
-  def get_ice_transport(dtls_transport) do
-    GenServer.call(dtls_transport, :get_ice_transport)
+  @spec set_ice_connected(dtls_transport()) :: :ok
+  def set_ice_connected(dtls_transport) do
+    GenServer.call(dtls_transport, :set_ice_connected)
   end
 
   @doc false
@@ -73,17 +73,15 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def init([ice_transport, ice_config, owner]) do
+  def init([ice_transport, ice_pid, owner]) do
     {pkey, cert} = ExDTLS.generate_key_cert()
     fingerprint = ExDTLS.get_cert_fingerprint(cert)
-
-    {:ok, ice_pid} = ice_transport.start_link(:controlled, ice_config)
 
     state = %{
       owner: owner,
       ice_transport: ice_transport,
       ice_pid: ice_pid,
-      ice_state: nil,
+      ice_connected: false,
       buffered_packets: nil,
       cert: cert,
       pkey: pkey,
@@ -103,8 +101,32 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_call(:get_ice_transport, _from, state) do
-    {:reply, {state.ice_transport, state.ice_pid}, state}
+  def handle_call(:set_ice_connected, _from, %{dtls_state: :new} = state) do
+    state = %{state | ice_connected: true}
+
+    if state.mode == :active do
+      {packets, timeout} = ExDTLS.do_handshake(state.dtls)
+      Process.send_after(self(), :dtls_timeout, timeout)
+      :ok = state.ice_transport.send_data(state.ice_pid, packets)
+      state = update_dtls_state(state, :connecting)
+      {:reply, :ok, state}
+    else
+      {:reply, :ok, state}
+    end
+  end
+
+  @impl true
+  def handle_call(:set_ice_connected, _from, state) do
+    state = %{state | ice_connected: true}
+
+    if state.buffered_packets do
+      Logger.debug("Sending buffered DTLS packets")
+      :ok = state.ice_transport.send_data(state.ice_pid, state.buffered_packets)
+      state = %{state | buffered_packets: nil}
+      {:reply, :ok, state}
+    else
+      {:reply, :ok, state}
+    end
   end
 
   @impl true
@@ -137,8 +159,7 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_cast({:send_rtp, data}, %{dtls_state: :connected, ice_state: ice_state} = state)
-      when ice_state in [:connected, :completed] do
+  def handle_cast({:send_rtp, data}, %{dtls_state: :connected, ice_connected: true} = state) do
     case ExLibSRTP.protect(state.out_srtp, data) do
       {:ok, protected} -> state.ice_transport.send_data(state.ice_pid, protected)
       {:error, reason} -> Logger.error("Unable to protect RTP: #{inspect(reason)}")
@@ -160,12 +181,9 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_info(
-        :dtls_timeout,
-        %{ice_state: ice_state, buffered_packets: buffered_packets} = state
-      ) do
+  def handle_info(:dtls_timeout, %{buffered_packets: buffered_packets} = state) do
     case ExDTLS.handle_timeout(state.dtls) do
-      {:retransmit, packets, timeout} when ice_state in [:connected, :completed] ->
+      {:retransmit, packets, timeout} when state.ice_connected ->
         state.ice_transport.send_data(state.ice_pid, packets)
         Process.send_after(self(), :dtls_timeout, timeout)
 
@@ -183,15 +201,8 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_info({:ex_ice, _from, msg} = ice_msg, state) do
-    state = handle_ice(msg, state)
-
-    # forward everything, except for data, to peer connection process
-    case msg do
-      {:data, _data} -> :ok
-      _other -> send(state.owner, ice_msg)
-    end
-
+  def handle_info({:ex_ice, _from, {:data, _data} = msg}, state) do
+    state = handle_ice_data(msg, state)
     {:noreply, state}
   end
 
@@ -201,17 +212,17 @@ defmodule ExWebRTC.DTLSTransport do
     {:noreply, state}
   end
 
-  defp handle_ice({:data, <<f, _rest::binary>> = data}, state) when f in 20..64 do
+  defp handle_ice_data({:data, <<f, _rest::binary>> = data}, state) when f in 20..64 do
     # TODO: handle {:connection_closed, _}
     case ExDTLS.handle_data(state.dtls, data) do
-      {:handshake_packets, packets, timeout} when state.ice_state in [:connected, :completed] ->
+      {:handshake_packets, packets, timeout} when state.ice_connected ->
         :ok = state.ice_transport.send_data(state.ice_pid, packets)
         Process.send_after(self(), :dtls_timeout, timeout)
         update_dtls_state(state, :connecting)
 
       {:handshake_packets, packets, timeout} ->
         Logger.debug("""
-        Generated local DTLS packets but ICE is not in the connected or completed state yet.
+        Generated local DTLS packets but ICE is not in the connected state yet.
         We will send those packets once ICE is ready.
         """)
 
@@ -247,7 +258,7 @@ defmodule ExWebRTC.DTLSTransport do
     end
   end
 
-  defp handle_ice({:data, <<f, _rest::binary>> = data}, %{dtls_state: :connected} = state)
+  defp handle_ice_data({:data, <<f, _rest::binary>> = data}, %{dtls_state: :connected} = state)
        when f in 128..191 do
     {type, unprotect} =
       case data do
@@ -266,44 +277,13 @@ defmodule ExWebRTC.DTLSTransport do
     state
   end
 
-  defp handle_ice({:data, _data}, state) do
+  defp handle_ice_data({:data, _data}, state) do
     Logger.warning(
       "Received RTP/RTCP packets, but DTLS handshake hasn't been finished yet. Ignoring."
     )
 
     state
   end
-
-  defp handle_ice({:connection_state_change, new_ice_state}, %{dtls_state: :new} = state)
-       when new_ice_state in [:connected, :completed] do
-    state = %{state | ice_state: new_ice_state}
-
-    if state.mode == :active do
-      {packets, timeout} = ExDTLS.do_handshake(state.dtls)
-      Process.send_after(self(), :dtls_timeout, timeout)
-      :ok = state.ice_transport.send_data(state.ice_pid, packets)
-      update_dtls_state(state, :connecting)
-    else
-      state
-    end
-  end
-
-  defp handle_ice({:connection_state_change, new_ice_state}, state)
-       when new_ice_state in [:connected, :completed] do
-    if state.buffered_packets do
-      Logger.debug("Sending buffered DTLS packets")
-      :ok = state.ice_transport.send_data(state.ice_pid, state.buffered_packets)
-      %{state | ice_state: new_ice_state, buffered_packets: nil}
-    else
-      state
-    end
-  end
-
-  defp handle_ice({:connection_state_change, new_ice_state}, state) do
-    %{state | ice_state: new_ice_state}
-  end
-
-  defp handle_ice(_msg, state), do: state
 
   defp setup_srtp(state, local_keying_material, remote_keying_material, profile) do
     {:ok, crypto_profile} =
