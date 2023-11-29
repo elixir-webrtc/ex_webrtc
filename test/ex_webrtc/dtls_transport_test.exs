@@ -15,7 +15,10 @@ defmodule ExWebRTC.DTLSTransportTest do
     use GenServer
 
     @impl true
-    def start_link(_mode, config), do: GenServer.start_link(__MODULE__, {self(), config})
+    def start_link(_mode, config), do: GenServer.start_link(__MODULE__, config)
+
+    @impl true
+    def on_data(ice_pid, dst_pid), do: GenServer.call(ice_pid, {:on_data, dst_pid})
 
     @impl true
     def send_data(ice_pid, data), do: GenServer.cast(ice_pid, {:send_data, data})
@@ -41,44 +44,40 @@ defmodule ExWebRTC.DTLSTransportTest do
     def send_dtls(ice_pid, data), do: GenServer.cast(ice_pid, {:send_dtls, data})
 
     @impl true
-    def init({dtls, tester: tester}),
-      do: {:ok, %{dtls: dtls, tester: tester}}
+    def init(tester: tester),
+      do: {:ok, %{on_data_dst: nil, tester: tester}}
+
+    @impl true
+    def handle_call({:on_data, dst_pid}, _from, state) do
+      {:reply, :ok, %{state | on_data_dst: dst_pid}}
+    end
 
     @impl true
     def handle_cast({:send_data, data}, state) do
-      send(state.tester, {:fake_ice, data})
+      send(state.tester, {:mock_ice, data})
       {:noreply, state}
     end
 
     @impl true
     def handle_cast({:send_dtls, data}, state) do
-      send(state.dtls, {:ex_ice, self(), data})
+      send(state.on_data_dst, {:ex_ice, self(), data})
       {:noreply, state}
     end
   end
 
   setup do
-    assert {:ok, dtls} = DTLSTransport.start_link(MockICETransport, tester: self())
+    {:ok, ice_pid} = MockICETransport.start_link(:controlled, tester: self())
+    assert {:ok, dtls} = DTLSTransport.start_link(MockICETransport, ice_pid)
+    MockICETransport.on_data(ice_pid, dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :new}}
-    {ice_transport, ice_pid} = DTLSTransport.get_ice_transport(dtls)
 
-    %{dtls: dtls, ice_transport: ice_transport, ice_pid: ice_pid}
-  end
-
-  test "forwards non-data ICE messages", %{ice_transport: ice_transport, ice_pid: ice_pid} do
-    message = :connected
-
-    ice_transport.send_dtls(ice_pid, message)
-    assert_receive {:ex_ice, _from, ^message}
-
-    ice_transport.send_dtls(ice_pid, {:data, <<1, 2, 3>>})
-    refute_receive {:ex_ice, _from, _msg}
+    %{dtls: dtls, ice_transport: MockICETransport, ice_pid: ice_pid}
   end
 
   test "cannot send data when handshake not finished", %{dtls: dtls} do
     DTLSTransport.send_rtp(dtls, <<1, 2, 3>>)
 
-    refute_receive {:fake_ice, _data}
+    refute_receive {:mock_ice, _data}
   end
 
   test "cannot start dtls more than once", %{dtls: dtls} do
@@ -86,43 +85,31 @@ defmodule ExWebRTC.DTLSTransportTest do
     assert {:error, :already_started} = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
   end
 
-  test "initiates DTLS handshake when in active mode", %{
-    dtls: dtls,
-    ice_transport: ice_transport,
-    ice_pid: ice_pid
-  } do
+  test "initiates DTLS handshake when in active mode", %{dtls: dtls} do
     :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
 
-    ice_transport.send_dtls(ice_pid, {:connection_state_change, :connected})
+    :ok = DTLSTransport.set_ice_connected(dtls)
 
-    assert_receive {:fake_ice, packets}
+    assert_receive {:mock_ice, packets}
     assert is_binary(packets)
   end
 
-  test "won't initiate DTLS handshake when in passive mode", %{
-    dtls: dtls,
-    ice_transport: ice_transport,
-    ice_pid: ice_pid
-  } do
+  test "won't initiate DTLS handshake when in passive mode", %{dtls: dtls} do
     :ok = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
 
-    ice_transport.send_dtls(ice_pid, {:connection_state_change, :connected})
+    :ok = DTLSTransport.set_ice_connected(dtls)
 
-    refute_receive({:fake_ice, _msg})
+    refute_receive({:mock_ice, _msg})
   end
 
-  test "will retransmit after initiating handshake", %{
-    dtls: dtls,
-    ice_transport: ice_transport,
-    ice_pid: ice_pid
-  } do
+  test "will retransmit after initiating handshake", %{dtls: dtls} do
     :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
 
-    ice_transport.send_dtls(ice_pid, {:connection_state_change, :connected})
+    :ok = DTLSTransport.set_ice_connected(dtls)
 
-    assert_receive {:fake_ice, _packets}
+    assert_receive {:mock_ice, _packets}
 
-    assert_receive {:fake_ice, _retransmited},
+    assert_receive {:mock_ice, _retransmited},
                    1000 + ExUnit.configuration()[:assert_receive_timeout]
   end
 
@@ -137,10 +124,10 @@ defmodule ExWebRTC.DTLSTransportTest do
     {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
 
     ice_transport.send_dtls(ice_pid, {:data, packets})
-    refute_receive {:fake_ice, _packets}
+    refute_receive {:mock_ice, _packets}
 
-    ice_transport.send_dtls(ice_pid, {:connection_state_change, :connected})
-    assert_receive {:fake_ice, packets}
+    :ok = DTLSTransport.set_ice_connected(dtls)
+    assert_receive {:mock_ice, packets}
     assert is_binary(packets)
   end
 
@@ -152,7 +139,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
     remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
 
-    ice_transport.send_dtls(ice_pid, {:connection_state_change, :connected})
+    :ok = DTLSTransport.set_ice_connected(dtls)
 
     assert :ok = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
@@ -175,7 +162,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     :ok = DTLSTransport.start_dtls(dtls, :passive, remote_fingerprint)
 
     {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
-    ice_transport.send_dtls(ice_pid, {:connection_state_change, :connected})
+    :ok = DTLSTransport.set_ice_connected(dtls)
 
     ice_transport.send_dtls(ice_pid, {:data, packets})
 
@@ -185,7 +172,7 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   defp check_handshake(dtls, ice_transport, ice_pid, remote_dtls) do
-    assert_receive {:fake_ice, packets}
+    assert_receive {:mock_ice, packets}
 
     case ExDTLS.handle_data(remote_dtls, packets) do
       {:handshake_packets, packets, _timeout} ->
