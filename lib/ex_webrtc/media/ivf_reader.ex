@@ -67,8 +67,8 @@ defmodule ExWebRTC.Media.IVFFrame do
           data: binary()
         }
 
-  @enforcekeys [:timestamp, :data]
-  defstruct @enforcekeys
+  @enforce_keys [:timestamp, :data]
+  defstruct @enforce_keys
 end
 
 defmodule ExWebRTC.Media.IVFReader do
