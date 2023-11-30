@@ -67,6 +67,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   * `ice_servers` - list of STUN servers to use.
   TURN servers are not supported right now and will be filtered out.
+  * `ice_ip_filter` - filter applied when gathering local candidates
   * `audio_codecs` - list of audio codecs to use.
   Use `default_audio_codecs/0` to get a list of default audio codecs.
   This option overrides default audio codecs.
@@ -100,6 +101,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   """
   @type options() :: [
           ice_servers: [ice_server()],
+          ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
           rtp_hdr_extensions: [rtp_hdr_extension()]
@@ -108,6 +110,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @typedoc false
   @type t() :: %__MODULE__{
           ice_servers: [ice_server()],
+          ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
           audio_rtp_hdr_exts: [Extmap.t()],
@@ -115,6 +118,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         }
 
   defstruct ice_servers: [],
+            ice_ip_filter: nil,
             audio_codecs: @default_audio_codecs,
             video_codecs: @default_video_codecs,
             audio_rtp_hdr_exts: @mandatory_audio_rtp_hdr_exts,

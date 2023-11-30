@@ -119,7 +119,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def init({owner, config}) do
-    ice_config = [stun_servers: config.ice_servers, on_data: nil]
+    ice_config = [stun_servers: config.ice_servers, ip_filter: config.ice_ip_filter, on_data: nil]
     {:ok, ice_pid} = DefaultICETransport.start_link(:controlled, ice_config)
     {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid)
     # route data to the DTLSTransport
@@ -334,30 +334,31 @@ defmodule ExWebRTC.PeerConnection do
   def handle_cast({:send_rtp, track_id, packet}, state) do
     # TODO: iterating over transceivers is not optimal
     # but this is, most likely, going to be refactored anyways
-    transceiver =
-      Enum.find(state.transceivers, fn
-        %{sender: %{track: %{id: id}}} -> id == track_id
+    {transceiver, idx} =
+      state.transceivers
+      |> Stream.with_index()
+      |> Enum.find(fn
+        {%{sender: %{track: %{id: id}}}, _idx} -> id == track_id
         _ -> false
       end)
 
     case transceiver do
-      %RTPTransceiver{mid: mid} ->
-        mid_ext =
-          %ExRTP.Packet.Extension.SourceDescription{text: mid}
-          |> ExRTP.Packet.Extension.SourceDescription.to_raw(state.demuxer.mid_ext_id)
+      %RTPTransceiver{} ->
+        {packet, sender} = RTPSender.send(transceiver.sender, packet)
+        :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
 
-        packet
-        |> ExRTP.Packet.set_extension(:two_byte, [mid_ext])
-        |> ExRTP.Packet.encode()
-        |> then(&DTLSTransport.send_rtp(state.dtls_transport, &1))
+        transceivers = List.update_at(state.transceivers, idx, &%{&1 | sender: sender})
+        state = %{state | transceivers: transceivers}
+
+        {:noreply, state}
 
       nil ->
         Logger.warning(
           "Attempted to send packet to track with unrecognized id: #{inspect(track_id)}"
         )
-    end
 
-    {:noreply, state}
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -439,6 +440,18 @@ defmodule ExWebRTC.PeerConnection do
         :video -> {config.video_rtp_hdr_exts, config.video_codecs}
       end
 
+    # When we create sendonly or sendrecv transceiver, we always only take one codec
+    # to avoid ambiguity when assigning payload type for RTP packets in RTPSender.
+    # In other case, if PeerConnection negotiated multiple codecs,
+    # user would have to pass RTP codec when sending RTP packets,
+    # or assing payload type on their own.
+    codecs =
+      if direction in [:sendrecv, :sendonly] do
+        Enum.slice(codecs, 0, 1)
+      else
+        codecs
+      end
+
     track = MediaStreamTrack.new(kind)
 
     %RTPTransceiver{
@@ -448,7 +461,7 @@ defmodule ExWebRTC.PeerConnection do
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
       receiver: %RTPReceiver{track: track},
-      sender: %RTPSender{track: sender_track}
+      sender: RTPSender.new(sender_track, List.first(codecs), rtp_hdr_exts)
     }
   end
 
@@ -622,8 +635,11 @@ defmodule ExWebRTC.PeerConnection do
   defp assign_mids(transceivers, next_mid) do
     {new_transceivers, _next_mid} =
       Enum.map_reduce(transceivers, next_mid, fn
-        %{mid: nil} = t, nm -> {%{t | mid: to_string(nm)}, nm + 1}
-        other, nm -> {other, nm}
+        %{mid: nil} = t, nm ->
+          {RTPTransceiver.assign_mid(t, to_string(nm)), nm + 1}
+
+        other, nm ->
+          {other, nm}
       end)
 
     new_transceivers
