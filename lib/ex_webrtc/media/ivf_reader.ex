@@ -25,15 +25,15 @@ defmodule ExWebRTC.Media.IVFHeader do
   """
   @type t() :: %__MODULE__{
           signature: binary(),
-          version: integer(),
-          header_size: integer(),
-          fourcc: integer(),
-          width: integer(),
-          height: integer(),
-          timebase_denum: integer(),
-          timebase_num: integer(),
-          num_frames: integer(),
-          unused: integer()
+          version: non_neg_integer(),
+          header_size: non_neg_integer(),
+          fourcc: non_neg_integer(),
+          width: non_neg_integer(),
+          height: non_neg_integer(),
+          timebase_denum: non_neg_integer(),
+          timebase_num: non_neg_integer(),
+          num_frames: non_neg_integer(),
+          unused: non_neg_integer()
         }
 
   @enforcekeyes [
