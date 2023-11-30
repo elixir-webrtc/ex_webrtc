@@ -26,6 +26,8 @@ defmodule ExWebRTC.Media.IVFReaderTest do
       assert is_binary(frame.data)
       assert frame.data != <<>>
     end
+
+    assert :eof == IVFReader.next_frame(reader)
   end
 
   test "empty file" do

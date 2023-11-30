@@ -36,7 +36,7 @@ defmodule ExWebRTC.Media.IVFHeader do
           unused: non_neg_integer()
         }
 
-  @enforcekeyes [
+  @enforce_keys [
     :signature,
     :version,
     :header_size,
@@ -48,7 +48,7 @@ defmodule ExWebRTC.Media.IVFHeader do
     :num_frames,
     :unused
   ]
-  defstruct @enforcekeyes
+  defstruct @enforce_keys
 end
 
 defmodule ExWebRTC.Media.IVFFrame do
@@ -116,24 +116,14 @@ defmodule ExWebRTC.Media.IVFReader do
 
   @spec next_frame(t()) :: {:ok, IVFFrame.t()} | {:error, :invalid_file} | :eof
   def next_frame(reader) do
-    case IO.binread(reader, 12) do
-      <<len_frame::little-integer-size(32), timestamp::little-integer-size(64)>> ->
-        case IO.binread(reader, len_frame) do
-          data when is_binary(data) and byte_size(data) == len_frame ->
-            {:ok, %IVFFrame{timestamp: timestamp, data: data}}
-
-          :eof ->
-            :eof
-
-          _other ->
-            {:error, :invalid_file}
-        end
-
-      :eof ->
-        :eof
-
-      _other ->
-        {:error, :invalid_file}
+    with <<len_frame::little-integer-size(32), timestamp::little-integer-size(64)>> <-
+           IO.binread(reader, 12),
+         data when is_binary(data) and byte_size(data) == len_frame <-
+           IO.binread(reader, len_frame) do
+      {:ok, %IVFFrame{timestamp: timestamp, data: data}}
+    else
+      :eof -> :eof
+      _other -> {:error, :invalid_file}
     end
   end
 end
