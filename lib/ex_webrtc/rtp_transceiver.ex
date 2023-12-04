@@ -16,6 +16,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
   @type t() :: %__MODULE__{
           mid: String.t(),
+          current_direction: direction(),
           direction: direction(),
           kind: kind(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
@@ -26,7 +27,13 @@ defmodule ExWebRTC.RTPTransceiver do
 
   @enforce_keys [:mid, :direction, :kind]
   defstruct @enforce_keys ++
-              [codecs: [], rtp_hdr_exts: [], receiver: %RTPReceiver{}, sender: %RTPSender{}]
+              [
+                current_direction: nil,
+                codecs: [],
+                rtp_hdr_exts: [],
+                receiver: %RTPReceiver{},
+                sender: %RTPSender{}
+              ]
 
   @doc false
   def find_by_mid(transceivers, mid) do

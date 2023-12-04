@@ -1,7 +1,9 @@
 defmodule ExWebRTC.SDPUtils do
   @moduledoc false
 
-  alias ExRTP.Packet.Extension.SourceDescription
+  alias ExRTP.Packet.Extension
+
+  @type extension() :: {Extension.SourceDescription, atom()}
 
   @spec get_media_direction(ExSDP.Media.t()) ::
           :sendrecv | :sendonly | :recvonly | :inactive | nil
@@ -121,6 +123,37 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
+  @spec get_ice_candidates(ExSDP.t()) :: [String.t()]
+  def get_ice_candidates(sdp) do
+    sdp.media
+    |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, "candidate"))
+    |> Enum.map(fn {"candidate", attr} -> attr end)
+  end
+
+  @spec check_if_trickle(ExSDP.t()) :: boolean
+  def check_if_trickle(sdp) do
+    case ExSDP.get_attribute(sdp, :ice_options) do
+      {:ice_options, "trickle"} ->
+        true
+
+      _other ->
+        Enum.any?(
+          sdp.media,
+          &(ExSDP.Media.get_attribute(&1, :ice_options) == {:ice_options, "trickle"})
+        )
+    end
+  end
+
+  @spec dtls_role_from_remote(ExSDP.t()) :: {:ok, :active | :passive} | {:error, :not_dtls_role}
+  def dtls_role_from_remote(sdp) do
+    Enum.find_value(sdp.media, {:error, :no_dtls_role}, fn mline ->
+      case ExSDP.Media.get_attribute(mline, :setup) do
+        {:setup, setup} -> {:ok, other_dtls_role(setup)}
+        _other -> nil
+      end
+    end)
+  end
+
   @spec get_cert_fingerprint(ExSDP.t()) ::
           {:ok, {:fingerprint, {:sha256, binary()}}}
           | {:error, :missing_cert_fingerprint | :conflicting_cert_fingerprints}
@@ -149,22 +182,20 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
-  @spec get_extensions(ExSDP.t()) ::
-          %{(id :: non_neg_integer()) => extension :: module() | {SourceDescription, atom()}}
+  @spec get_extensions(ExSDP.t()) :: %{(id :: non_neg_integer()) => extension() | :unknown}
   def get_extensions(sdp) do
     # we assume that, if extension is present in multiple mlines, the IDs are the same (RFC 8285)
     sdp.media
     |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, :extmap))
-    |> Enum.flat_map(fn
-      %{id: id, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"} -> [{id, {SourceDescription, :mid}}]
-      # TODO: handle other types of extensions
-      _ -> []
+    |> Map.new(fn extmap ->
+      # TODO: handle direction and extension attributes
+      ext = urn_to_extension(extmap.uri)
+      {extmap.id, ext}
     end)
-    |> Map.new()
   end
 
-  @spec get_payload_types(ExSDP.t()) :: %{(pt :: non_neg_integer()) => mid :: binary()}
-  def get_payload_types(sdp) do
+  @spec get_payload_to_mid(ExSDP.t()) :: %{(pt :: non_neg_integer()) => mid :: binary()}
+  def get_payload_to_mid(sdp) do
     # if payload type is used in more than 1 mline, it cannot be used to identify the mline
     # thus, it is not placed in the returned map
     sdp.media
@@ -181,6 +212,16 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.reject(fn {_, v} -> is_nil(v) end)
     |> Map.new()
   end
+
+  defp other_dtls_role(:passive), do: :active
+  defp other_dtls_role(:active), do: :passive
+
+  # TODO: handle other types of extensions
+  defp urn_to_extension("urn:ietf:params:rtp-hdrext:sdes:" <> item)
+       when item in ["mid", "cname"],
+       do: {SourceDescription, String.to_atom(item)}
+
+  defp urn_to_extension(_other), do: :unknown
 
   defp do_get_ice_credentials(sdp_or_mline) do
     get_attr =
