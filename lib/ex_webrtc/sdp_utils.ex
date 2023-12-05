@@ -130,28 +130,31 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.map(fn {"candidate", attr} -> attr end)
   end
 
-  @spec check_if_trickle(ExSDP.t()) :: boolean
-  def check_if_trickle(sdp) do
-    case ExSDP.get_attribute(sdp, :ice_options) do
-      {:ice_options, "trickle"} ->
-        true
+  @spec get_dtls_role(ExSDP.t()) :: {:ok, :active | :passive} | {:error, :not_dtls_role}
+  def get_dtls_role(sdp) do
+    session_role = ExSDP.get_attribute(sdp, :setup)
+    mline_roles = Enum.map(sdp.media, &ExSDP.Media.get_attributes(&1, :setup))
 
-      _other ->
-        Enum.any?(
-          sdp.media,
-          &(ExSDP.Media.get_attribute(&1, :ice_options) == {:ice_options, "trickle"})
-        )
+    case {session_role, mline_roles} do
+      {nil, []} ->
+        {:error, :missing_dtls_role}
+
+      {session_role, []} ->
+        {:ok, session_role}
+
+      {session_role, mline_roles} ->
+        roles =
+          if session_role != nil do
+            mline_roles ++ [session_role]
+          else
+            mline_roles
+          end
+
+        case Enum.uniq(roles) do
+          [role] -> {:ok, role}
+          _other -> {:error, :conflicting_dtls_roles}
+        end
     end
-  end
-
-  @spec dtls_role_from_remote(ExSDP.t()) :: {:ok, :active | :passive} | {:error, :not_dtls_role}
-  def dtls_role_from_remote(sdp) do
-    Enum.find_value(sdp.media, {:error, :no_dtls_role}, fn mline ->
-      case ExSDP.Media.get_attribute(mline, :setup) do
-        {:setup, setup} -> {:ok, other_dtls_role(setup)}
-        _other -> nil
-      end
-    end)
   end
 
   @spec get_cert_fingerprint(ExSDP.t()) ::
@@ -212,9 +215,6 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.reject(fn {_, v} -> is_nil(v) end)
     |> Map.new()
   end
-
-  defp other_dtls_role(:passive), do: :active
-  defp other_dtls_role(:active), do: :passive
 
   # TODO: handle other types of extensions
   defp urn_to_extension("urn:ietf:params:rtp-hdrext:sdes:" <> item)
