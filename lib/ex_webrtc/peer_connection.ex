@@ -502,6 +502,15 @@ defmodule ExWebRTC.PeerConnection do
 
       state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
 
+      # TODO: for now, we emit track event for every new transceiver
+      transceivers
+      |> Enum.filter(fn tr ->
+        RTPTransceiver.find_by_mid(state.transceivers, tr.mid) == nil and
+          tr.direction in [:recvonly, :sendrecv]
+      end)
+      |> Enum.map(fn tr -> tr.receiver.track end)
+      |> Enum.each(fn track -> notify(state.owner, {:track, track}) end)
+
       state = set_description(:remote, type, sdp, state)
       {:ok, %{state | signaling_state: next_sig_state, transceivers: transceivers}}
     else
