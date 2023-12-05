@@ -13,6 +13,8 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
   alias ExRTP.Packet.Extension
   alias ExRTP.Packet.Extension.SourceDescription
 
+  alias ExWebRTC.SDPUtils
+
   @type t() :: %__MODULE__{
           ssrc_to_mid: %{(ssrc :: non_neg_integer()) => mid :: binary()},
           mid_ext_id: non_neg_integer() | nil,
@@ -20,6 +22,26 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
         }
 
   defstruct ssrc_to_mid: %{}, mid_ext_id: nil, pt_to_mid: %{}
+
+  @spec update(t(), ExSDP.t()) :: t()
+  def update(demuxer, sdp) do
+    ssrc_to_mid = Map.merge(demuxer.ssrc_to_mid, SDPUtils.get_ssrc_to_mid(sdp))
+    pt_to_mid = SDPUtils.get_payload_to_mid(sdp)
+
+    mid_ext_id =
+      sdp
+      |> SDPUtils.get_extensions()
+      |> Enum.find_value(fn
+        {id, {SourceDescription, :mid}} -> id
+        _ -> nil
+      end)
+
+    %__MODULE__{
+      ssrc_to_mid: ssrc_to_mid,
+      mid_ext_id: mid_ext_id,
+      pt_to_mid: pt_to_mid
+    }
+  end
 
   @spec demux(t(), binary()) :: {:ok, t(), binary(), ExRTP.Packet.t()} | {:error, atom()}
   def demux(demuxer, data) do

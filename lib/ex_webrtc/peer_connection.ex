@@ -465,23 +465,11 @@ defmodule ExWebRTC.PeerConnection do
     with {:ok, next_sig_state} <- next_signaling_state(state.signaling_state, :local, type),
          :ok <- check_altered(type, raw_sdp, state),
          {:ok, sdp} <- parse_sdp(raw_sdp) do
-      mid_ext_id =
-        sdp
-        |> SDPUtils.get_extensions()
-        |> Enum.find_value(fn
-          {id, {ExRTP.Packet.Extension.SourceDescription, :mid}} -> id
-          _ -> nil
-        end)
-
-      pt_to_mid = SDPUtils.get_payload_to_mid(sdp)
-      demuxer = %Demuxer{state.demuxer | mid_ext_id: mid_ext_id, pt_to_mid: pt_to_mid}
-      state = %{state | demuxer: demuxer}
-
       if state.ice_gathering_state == :new do
         state.ice_transport.gather_candidates(state.ice_pid)
       end
 
-      # TODO: do rest of the stuff from w3c
+      state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
 
       state = set_description(:local, type, sdp, state)
       {:ok, %{state | signaling_state: next_sig_state}}
@@ -497,6 +485,7 @@ defmodule ExWebRTC.PeerConnection do
          {:ok, sdp} <- parse_sdp(raw_sdp),
          :ok <- SDPUtils.ensure_mid(sdp),
          :ok <- SDPUtils.ensure_bundle(sdp),
+         :ok <- SDPUtils.ensure_rtcp_mux(sdp),
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
          {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp),
@@ -507,11 +496,11 @@ defmodule ExWebRTC.PeerConnection do
         state.ice_transport.add_remote_candidate(state.ice_pid, candidate)
       end
 
-      # infer out role from the remote role
+      # infer our role from the remote role
       dtls_role = if dtls_role == :active, do: :passive, else: :actice
       DTLSTransport.start_dtls(state.dtls_pid, dtls_role, peer_fingerprint)
 
-      # update demuxer and do rest of the stuff from w3c
+      state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
 
       state = set_description(:remote, type, sdp, state)
       {:ok, %{state | signaling_state: next_sig_state, transceivers: transceivers}}

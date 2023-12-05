@@ -81,6 +81,16 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
+  @spec ensure_rtcp_mux(ExSDP.t()) :: :ok | {:error, :rtcp_mux_not_indicated}
+  def ensure_rtcp_mux(sdp) do
+    sdp.media
+    |> Enum.all?(&(ExSDP.Media.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
+    |> case do
+      true -> :ok
+      false -> {:error, :rtcp_mux_not_included}
+    end
+  end
+
   @spec get_ice_credentials(ExSDP.t()) ::
           {:ok, {binary(), binary()}}
           | {:error,
@@ -213,6 +223,20 @@ defmodule ExWebRTC.SDPUtils do
       {pt, mid}, acc -> Map.put(acc, pt, mid)
     end)
     |> Enum.reject(fn {_, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  @spec get_ssrc_to_mid(ExSDP.t()) :: %{(ssrc :: String.t()) => mid :: String.t()}
+  def get_ssrc_to_mid(sdp) do
+    sdp.media
+    |> Enum.flat_map(fn mline ->
+      with {:mid, mid} <- ExSDP.Media.get_attribute(mline, :mid),
+           %ExSDP.Attribute.SSRC{} = ssrc <- ExSDP.Media.get_attribute(mline, :ssrc) do
+        [{ssrc, mid}]
+      else
+        _ -> []
+      end
+    end)
     |> Map.new()
   end
 
