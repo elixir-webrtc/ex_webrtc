@@ -81,7 +81,7 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
-  @spec ensure_rtcp_mux(ExSDP.t()) :: :ok | {:error, :rtcp_mux_not_indicated}
+  @spec ensure_rtcp_mux(ExSDP.t()) :: :ok | {:error, :missing_rtcp_mux}
   def ensure_rtcp_mux(sdp) do
     sdp.media
     |> Enum.all?(&(ExSDP.Media.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
