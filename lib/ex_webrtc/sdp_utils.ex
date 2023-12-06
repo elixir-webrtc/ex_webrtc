@@ -87,7 +87,7 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.all?(&(ExSDP.Media.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
     |> case do
       true -> :ok
-      false -> {:error, :rtcp_mux_not_included}
+      false -> {:error, :missing_rtcp_mux}
     end
   end
 
