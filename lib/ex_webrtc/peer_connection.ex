@@ -151,6 +151,7 @@ defmodule ExWebRTC.PeerConnection do
     }
 
     notify(state.owner, {:connection_state_change, :new})
+    notify(state.owner, {:signaling_state_change, :stable})
 
     {:ok, state}
   end
@@ -331,12 +332,6 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_cast({:send_rtp, track_id, packet}, state) do
-    sdes_id =
-      Enum.find_value(state.demuxer.extensions, fn
-        {ext_id, {ExRTP.Packet.Extension.SourceDescription, :mid}} -> ext_id
-        _ -> nil
-      end)
-
     # TODO: iterating over transceivers is not optimal
     # but this is, most likely, going to be refactored anyways
     transceiver =
@@ -349,7 +344,7 @@ defmodule ExWebRTC.PeerConnection do
       %RTPTransceiver{mid: mid} ->
         mid_ext =
           %ExRTP.Packet.Extension.SourceDescription{text: mid}
-          |> ExRTP.Packet.Extension.SourceDescription.to_raw(sdes_id)
+          |> ExRTP.Packet.Extension.SourceDescription.to_raw(state.demuxer.mid_ext_id)
 
         packet
         |> ExRTP.Packet.set_extension(:two_byte, [mid_ext])
@@ -472,7 +467,8 @@ defmodule ExWebRTC.PeerConnection do
       state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
 
       state = set_description(:local, type, sdp, state)
-      {:ok, %{state | signaling_state: next_sig_state}}
+      state = update_signaling_state(state, next_sig_state)
+      {:ok, state}
     end
   end
 
@@ -488,7 +484,7 @@ defmodule ExWebRTC.PeerConnection do
          :ok <- SDPUtils.ensure_rtcp_mux(sdp),
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
-         {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp),
+         {:ok, setup} <- SDPUtils.get_dtls_role(sdp),
          {:ok, transceivers} <- update_transceivers(state, sdp) do
       :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
 
@@ -497,8 +493,8 @@ defmodule ExWebRTC.PeerConnection do
       end
 
       # infer our role from the remote role
-      dtls_role = if dtls_role == :active, do: :passive, else: :actice
-      DTLSTransport.start_dtls(state.dtls_pid, dtls_role, peer_fingerprint)
+      dtls_role = if setup in [:actpass, :passive], do: :active, else: :passive
+      DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
 
       state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
 
@@ -512,7 +508,8 @@ defmodule ExWebRTC.PeerConnection do
       |> Enum.each(fn track -> notify(state.owner, {:track, track}) end)
 
       state = set_description(:remote, type, sdp, state)
-      {:ok, %{state | signaling_state: next_sig_state, transceivers: transceivers}}
+      state = update_signaling_state(state, next_sig_state)
+      {:ok, %{state | transceivers: transceivers}}
     else
       {:ok, {:fingerprint, {_hash_function, _fingerprint}}} ->
         {:error, :unsupported_cert_fingerprint_hash_function}
@@ -549,6 +546,18 @@ defmodule ExWebRTC.PeerConnection do
 
   defp next_signaling_state(:have_remote_pranswer, :remote, :answer), do: {:ok, :stable}
   defp next_signaling_state(:have_remote_pranswer, _, _), do: {:error, :invalid_state}
+
+  defp update_signaling_state(%{signaling_state: signaling_state} = state, signaling_state),
+    do: state
+
+  defp update_signaling_state(state, new_signaling_state) do
+    Logger.debug(
+      "Changing PeerConnection signaling state state: #{state.signaling_state} -> #{new_signaling_state}"
+    )
+
+    notify(state.owner, {:signaling_state_change, new_signaling_state})
+    %{state | signaling_state: new_signaling_state}
+  end
 
   defp check_altered(:offer, sdp, %{last_offer: sdp}), do: :ok
   defp check_altered(type, sdp, %{last_answer: sdp}) when type in [:answer, :pranswer], do: :ok

@@ -109,6 +109,7 @@ defmodule ExWebRTC.DTLSTransport do
       Process.send_after(self(), :dtls_timeout, timeout)
       :ok = state.ice_transport.send_data(state.ice_pid, packets)
       state = update_dtls_state(state, :connecting)
+      Logger.debug("Started DTLS handshake")
       {:reply, :ok, state}
     else
       {:reply, :ok, state}
@@ -137,6 +138,7 @@ defmodule ExWebRTC.DTLSTransport do
   @impl true
   def handle_call({:start_dtls, mode, peer_fingerprint}, _from, %{dtls: nil} = state)
       when mode in [:active, :passive] do
+    Logger.debug("Started DTLSTransport with role #{mode}")
     ex_dtls_mode = if mode == :active, do: :client, else: :server
 
     dtls =
@@ -185,6 +187,7 @@ defmodule ExWebRTC.DTLSTransport do
     case ExDTLS.handle_timeout(state.dtls) do
       {:retransmit, packets, timeout} when state.ice_connected ->
         state.ice_transport.send_data(state.ice_pid, packets)
+        Logger.debug("Retransmitted DTLS packets")
         Process.send_after(self(), :dtls_timeout, timeout)
 
       {:retransmit, ^buffered_packets, timeout} ->

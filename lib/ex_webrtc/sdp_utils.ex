@@ -140,10 +140,15 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.map(fn {"candidate", attr} -> attr end)
   end
 
-  @spec get_dtls_role(ExSDP.t()) :: {:ok, :active | :passive} | {:error, :not_dtls_role}
+  @spec get_dtls_role(ExSDP.t()) ::
+          {:ok, :active | :passive | :actpass} | {:error, :not_dtls_role}
   def get_dtls_role(sdp) do
     session_role = ExSDP.get_attribute(sdp, :setup)
-    mline_roles = Enum.map(sdp.media, &ExSDP.Media.get_attributes(&1, :setup))
+
+    mline_roles =
+      sdp.media
+      |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, :setup))
+      |> Enum.map(fn {_, setup} -> setup end)
 
     case {session_role, mline_roles} do
       {nil, []} ->
@@ -243,7 +248,7 @@ defmodule ExWebRTC.SDPUtils do
   # TODO: handle other types of extensions
   defp urn_to_extension("urn:ietf:params:rtp-hdrext:sdes:" <> item)
        when item in ["mid", "cname"],
-       do: {SourceDescription, String.to_atom(item)}
+       do: {Extension.SourceDescription, String.to_atom(item)}
 
   defp urn_to_extension(_other), do: :unknown
 

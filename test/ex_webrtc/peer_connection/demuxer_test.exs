@@ -22,7 +22,7 @@ defmodule ExWebRTC.PeerConnection.DemuxerTest do
               |> Packet.set_extension(:two_byte, [%Extension{id: 15, data: @mid}])
               |> Packet.encode()
 
-  @demuxer %Demuxer{extensions: %{15 => {Extension.SourceDescription, :mid}}}
+  @demuxer %Demuxer{mid_ext_id: 15}
 
   test "ssrc already mapped, without extension" do
     demuxer = %Demuxer{@demuxer | ssrc_to_mid: %{@ssrc => @mid}}
