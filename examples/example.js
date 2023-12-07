@@ -30,6 +30,13 @@ const start_connection = async (ws) => {
   };
   
   const localStream = await navigator.mediaDevices.getUserMedia({video: true});
+  const localVideoPlayer = document.createElement("video");
+  localVideoPlayer.srcObject = localStream;
+  localVideoPlayer.onloadedmetadata = () => {
+    localVideoPlayer.play();
+  };
+  document.body.appendChild(localVideoPlayer);
+
   for (const track of localStream.getTracks()) {
     pc.addTrack(track, localStream);
   }
