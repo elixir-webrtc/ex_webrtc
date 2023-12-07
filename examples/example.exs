@@ -82,11 +82,12 @@ defmodule Peer do
   end
 
   defp handle_ws_message(%{"type" => "offer", "sdp" => sdp}, %{peer_connection: pc} = state) do
-    Logger.info("Received SDP offer: #{inspect(sdp)}")
     offer = %SessionDescription{type: :offer, sdp: sdp}
+    Logger.info("Received SDP offer: #{inspect(offer.sdp)}")
     :ok = PeerConnection.set_remote_description(pc, offer)
     {:ok, answer} = PeerConnection.create_answer(pc)
     :ok = PeerConnection.set_local_description(pc, answer)
+    Logger.info("Send SDP answer: #{inspect(answer.sdp)}")
     msg = %{"type" => "answer", "sdp" => answer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
@@ -94,6 +95,7 @@ defmodule Peer do
     {:ok, _} = PeerConnection.add_transceiver(pc, track)
     {:ok, offer} = PeerConnection.create_offer(pc)
     :ok = PeerConnection.set_local_description(pc, offer)
+    Logger.info("Send SDP offer: #{inspect(offer.sdp)}")
     msg = %{"type" => "offer", "sdp" => offer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
@@ -101,8 +103,8 @@ defmodule Peer do
   end
 
   defp handle_ws_message(%{"type" => "answer", "sdp" => sdp}, state) do
-    Logger.info("Received SDP answer: #{inspect(sdp)}")
     answer = %SessionDescription{type: :answer, sdp: sdp}
+    Logger.info("Received SDP answer: #{inspect(answer.sdp)}")
     :ok = PeerConnection.set_remote_description(state.peer_connection, answer)
     state
   end

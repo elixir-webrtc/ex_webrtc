@@ -237,7 +237,7 @@ defmodule ExWebRTC.SDPUtils do
     sdp.media
     |> Enum.flat_map(fn mline ->
       with {:mid, mid} <- ExSDP.Media.get_attribute(mline, :mid),
-           %ExSDP.Attribute.SSRC{} = ssrc <- ExSDP.Media.get_attribute(mline, :ssrc) do
+           %ExSDP.Attribute.SSRC{id: ssrc} <- ExSDP.Media.get_attribute(mline, :ssrc) do
         [{ssrc, mid}]
       else
         _ -> []
