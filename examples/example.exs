@@ -87,7 +87,7 @@ defmodule Peer do
     :ok = PeerConnection.set_remote_description(pc, offer)
     {:ok, answer} = PeerConnection.create_answer(pc)
     :ok = PeerConnection.set_local_description(pc, answer)
-    Logger.info("Send SDP answer: #{inspect(answer.sdp)}")
+    Logger.info("Sent SDP answer: #{inspect(answer.sdp)}")
     msg = %{"type" => "answer", "sdp" => answer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
@@ -95,7 +95,7 @@ defmodule Peer do
     {:ok, _} = PeerConnection.add_transceiver(pc, track)
     {:ok, offer} = PeerConnection.create_offer(pc)
     :ok = PeerConnection.set_local_description(pc, offer)
-    Logger.info("Send SDP offer: #{inspect(offer.sdp)}")
+    Logger.info("Sent SDP offer: #{inspect(offer.sdp)}")
     msg = %{"type" => "offer", "sdp" => offer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
