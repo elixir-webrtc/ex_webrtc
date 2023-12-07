@@ -1,7 +1,9 @@
 defmodule ExWebRTC.SDPUtils do
   @moduledoc false
 
-  alias ExRTP.Packet.Extension.SourceDescription
+  alias ExRTP.Packet.Extension
+
+  @type extension() :: {Extension.SourceDescription, atom()}
 
   @spec get_media_direction(ExSDP.Media.t()) ::
           :sendrecv | :sendonly | :recvonly | :inactive | nil
@@ -79,6 +81,16 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
+  @spec ensure_rtcp_mux(ExSDP.t()) :: :ok | {:error, :missing_rtcp_mux}
+  def ensure_rtcp_mux(sdp) do
+    sdp.media
+    |> Enum.all?(&(ExSDP.Media.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
+    |> case do
+      true -> :ok
+      false -> {:error, :missing_rtcp_mux}
+    end
+  end
+
   @spec get_ice_credentials(ExSDP.t()) ::
           {:ok, {binary(), binary()}}
           | {:error,
@@ -121,6 +133,46 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
+  @spec get_ice_candidates(ExSDP.t()) :: [String.t()]
+  def get_ice_candidates(sdp) do
+    sdp.media
+    |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, "candidate"))
+    |> Enum.map(fn {"candidate", attr} -> attr end)
+  end
+
+  @spec get_dtls_role(ExSDP.t()) ::
+          {:ok, :active | :passive | :actpass}
+          | {:error, :missing_dtls_role | :conflicting_dtls_roles}
+  def get_dtls_role(sdp) do
+    session_role = ExSDP.get_attribute(sdp, :setup)
+
+    mline_roles =
+      sdp.media
+      |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, :setup))
+      |> Enum.map(fn {_, setup} -> setup end)
+
+    case {session_role, mline_roles} do
+      {nil, []} ->
+        {:error, :missing_dtls_role}
+
+      {session_role, []} ->
+        {:ok, session_role}
+
+      {session_role, mline_roles} ->
+        roles =
+          if session_role != nil do
+            mline_roles ++ [session_role]
+          else
+            mline_roles
+          end
+
+        case Enum.uniq(roles) do
+          [role] -> {:ok, role}
+          _other -> {:error, :conflicting_dtls_roles}
+        end
+    end
+  end
+
   @spec get_cert_fingerprint(ExSDP.t()) ::
           {:ok, {:fingerprint, {:sha256, binary()}}}
           | {:error, :missing_cert_fingerprint | :conflicting_cert_fingerprints}
@@ -149,22 +201,20 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
-  @spec get_extensions(ExSDP.t()) ::
-          %{(id :: non_neg_integer()) => extension :: module() | {SourceDescription, atom()}}
+  @spec get_extensions(ExSDP.t()) :: %{(id :: non_neg_integer()) => extension() | :unknown}
   def get_extensions(sdp) do
     # we assume that, if extension is present in multiple mlines, the IDs are the same (RFC 8285)
     sdp.media
     |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, :extmap))
-    |> Enum.flat_map(fn
-      %{id: id, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"} -> [{id, {SourceDescription, :mid}}]
-      # TODO: handle other types of extensions
-      _ -> []
+    |> Map.new(fn extmap ->
+      # TODO: handle direction and extension attributes
+      ext = urn_to_extension(extmap.uri)
+      {extmap.id, ext}
     end)
-    |> Map.new()
   end
 
-  @spec get_payload_types(ExSDP.t()) :: %{(pt :: non_neg_integer()) => mid :: binary()}
-  def get_payload_types(sdp) do
+  @spec get_payload_to_mid(ExSDP.t()) :: %{(pt :: non_neg_integer()) => mid :: binary()}
+  def get_payload_to_mid(sdp) do
     # if payload type is used in more than 1 mline, it cannot be used to identify the mline
     # thus, it is not placed in the returned map
     sdp.media
@@ -181,6 +231,27 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.reject(fn {_, v} -> is_nil(v) end)
     |> Map.new()
   end
+
+  @spec get_ssrc_to_mid(ExSDP.t()) :: %{(ssrc :: String.t()) => mid :: String.t()}
+  def get_ssrc_to_mid(sdp) do
+    sdp.media
+    |> Enum.flat_map(fn mline ->
+      with {:mid, mid} <- ExSDP.Media.get_attribute(mline, :mid),
+           %ExSDP.Attribute.SSRC{} = ssrc <- ExSDP.Media.get_attribute(mline, :ssrc) do
+        [{ssrc, mid}]
+      else
+        _ -> []
+      end
+    end)
+    |> Map.new()
+  end
+
+  # TODO: handle other types of extensions
+  defp urn_to_extension("urn:ietf:params:rtp-hdrext:sdes:" <> item)
+       when item in ["mid", "cname"],
+       do: {Extension.SourceDescription, String.to_atom(item)}
+
+  defp urn_to_extension(_other), do: :unknown
 
   defp do_get_ice_credentials(sdp_or_mline) do
     get_attr =

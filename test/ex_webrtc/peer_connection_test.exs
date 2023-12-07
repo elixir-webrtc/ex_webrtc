@@ -10,7 +10,9 @@ defmodule ExWebRTC.PeerConnectionTest do
                |> Utils.hex_dump()
 
   @audio_mline ExSDP.Media.new("audio", 9, "UDP/TLS/RTP/SAVPF", [108])
+               |> ExSDP.Media.add_attribute(:rtcp_mux)
                |> ExSDP.Media.add_attributes(
+                 setup: :active,
                  mid: "0",
                  ice_ufrag: "someufrag",
                  ice_pwd: "somepwd",
@@ -18,7 +20,9 @@ defmodule ExWebRTC.PeerConnectionTest do
                )
 
   @video_mline ExSDP.Media.new("video", 9, "UDP/TLS/RTP/SAVPF", [96])
+               |> ExSDP.Media.add_attribute(:rtcp_mux)
                |> ExSDP.Media.add_attributes(
+                 setup: :active,
                  mid: "1",
                  ice_ufrag: "someufrag",
                  ice_pwd: "somepwd",
@@ -44,18 +48,27 @@ defmodule ExWebRTC.PeerConnectionTest do
     refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
   end
 
-  test "offer/answer exchange" do
+  test "signaling state change" do
     {:ok, pc1} = PeerConnection.start_link()
+    assert_receive {:ex_webrtc, ^pc1, {:signaling_state_change, :stable}}
+
     {:ok, _} = PeerConnection.add_transceiver(pc1, :audio)
     {:ok, offer} = PeerConnection.create_offer(pc1)
     :ok = PeerConnection.set_local_description(pc1, offer)
+    assert_receive {:ex_webrtc, ^pc1, {:signaling_state_change, :have_local_offer}}
 
     {:ok, pc2} = PeerConnection.start_link()
+    assert_receive {:ex_webrtc, ^pc2, {:signaling_state_change, :stable}}
+
     :ok = PeerConnection.set_remote_description(pc2, offer)
+    assert_receive {:ex_webrtc, ^pc2, {:signaling_state_change, :have_remote_offer}}
+
     {:ok, answer} = PeerConnection.create_answer(pc2)
     :ok = PeerConnection.set_local_description(pc2, answer)
+    assert_receive {:ex_webrtc, ^pc2, {:signaling_state_change, :stable}}
 
     :ok = PeerConnection.set_remote_description(pc1, answer)
+    assert_receive {:ex_webrtc, ^pc1, {:signaling_state_change, :stable}}
   end
 
   test "connection state change" do
@@ -313,5 +326,30 @@ defmodule ExWebRTC.PeerConnectionTest do
         assert expected_result == PeerConnection.set_remote_description(pc, offer)
       end)
     end
+  end
+
+  test "sends basic data" do
+    {:ok, pc1} = PeerConnection.start_link()
+    %MediaStreamTrack{id: id1} = track = ExWebRTC.MediaStreamTrack.new(:video)
+    {:ok, _} = PeerConnection.add_transceiver(pc1, track)
+    {:ok, offer} = PeerConnection.create_offer(pc1)
+    :ok = PeerConnection.set_local_description(pc1, offer)
+
+    {:ok, pc2} = PeerConnection.start_link()
+    :ok = PeerConnection.set_remote_description(pc2, offer)
+    {:ok, answer} = PeerConnection.create_answer(pc2)
+    :ok = PeerConnection.set_local_description(pc2, answer)
+    :ok = PeerConnection.set_remote_description(pc1, answer)
+    assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :video, id: id2}}}
+
+    assert_receive {:ex_webrtc, ^pc2, {:ice_candidate, candidate}}
+    :ok = PeerConnection.add_ice_candidate(pc1, candidate)
+
+    assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}
+    payload = <<3, 2, 5>>
+    packet = ExRTP.Packet.new(payload, 111, 50_000, 3_000, 5_000)
+    :ok = PeerConnection.send_rtp(pc1, id1, packet)
+
+    assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, %ExRTP.Packet{payload: ^payload}}}
   end
 end

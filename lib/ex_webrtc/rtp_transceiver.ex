@@ -26,7 +26,12 @@ defmodule ExWebRTC.RTPTransceiver do
 
   @enforce_keys [:mid, :direction, :kind]
   defstruct @enforce_keys ++
-              [codecs: [], rtp_hdr_exts: [], receiver: %RTPReceiver{}, sender: %RTPSender{}]
+              [
+                codecs: [],
+                rtp_hdr_exts: [],
+                receiver: %RTPReceiver{},
+                sender: %RTPSender{}
+              ]
 
   @doc false
   def find_by_mid(transceivers, mid) do

@@ -13,15 +13,35 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
   alias ExRTP.Packet.Extension
   alias ExRTP.Packet.Extension.SourceDescription
 
+  alias ExWebRTC.SDPUtils
+
   @type t() :: %__MODULE__{
           ssrc_to_mid: %{(ssrc :: non_neg_integer()) => mid :: binary()},
-          extensions: %{
-            (id :: non_neg_integer()) => extension :: module() | {SourceDescription, atom()}
-          },
+          mid_ext_id: non_neg_integer() | nil,
           pt_to_mid: %{(pt :: non_neg_integer()) => mid :: binary()}
         }
 
-  defstruct ssrc_to_mid: %{}, extensions: %{}, pt_to_mid: %{}
+  defstruct ssrc_to_mid: %{}, mid_ext_id: nil, pt_to_mid: %{}
+
+  @spec update(t(), ExSDP.t()) :: t()
+  def update(demuxer, sdp) do
+    ssrc_to_mid = Map.merge(demuxer.ssrc_to_mid, SDPUtils.get_ssrc_to_mid(sdp))
+    pt_to_mid = SDPUtils.get_payload_to_mid(sdp)
+
+    mid_ext_id =
+      sdp
+      |> SDPUtils.get_extensions()
+      |> Enum.find_value(fn
+        {id, {SourceDescription, :mid}} -> id
+        _ -> nil
+      end)
+
+    %__MODULE__{
+      ssrc_to_mid: ssrc_to_mid,
+      mid_ext_id: mid_ext_id,
+      pt_to_mid: pt_to_mid
+    }
+  end
 
   @spec demux(t(), binary()) :: {:ok, t(), binary(), ExRTP.Packet.t()} | {:error, atom()}
   def demux(demuxer, data) do
@@ -41,18 +61,15 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
     end
   end
 
-  defp update_ssrc_mapping(demuxer, %Packet{ssrc: ssrc} = packet) do
+  defp update_ssrc_mapping(%__MODULE__{mid_ext_id: id} = demuxer, %Packet{ssrc: ssrc} = packet) do
     mid =
-      packet.extensions
-      |> Enum.find_value(fn %Extension{id: id} = ext ->
-        case demuxer.extensions[id] do
-          {SourceDescription, :mid} ->
-            {:ok, decoded_ext} = SourceDescription.from_raw(ext)
-            decoded_ext.text
+      Enum.find_value(packet.extensions, fn
+        %Extension{id: ^id} = ext ->
+          {:ok, mid_ext} = SourceDescription.from_raw(ext)
+          mid_ext.text
 
-          _other ->
-            nil
-        end
+        _ ->
+          nil
       end)
 
     case Map.fetch(demuxer.ssrc_to_mid, ssrc) do

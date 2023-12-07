@@ -125,6 +125,9 @@ defmodule ExWebRTC.PeerConnection do
     # route data to the DTLSTransport
     :ok = DefaultICETransport.on_data(ice_pid, dtls_transport)
 
+    # TODO: should keep track of previous ice candidates
+    # and add them to local description
+
     state = %{
       owner: owner,
       config: config,
@@ -138,15 +141,17 @@ defmodule ExWebRTC.PeerConnection do
       demuxer: %Demuxer{},
       transceivers: [],
       ice_state: :new,
+      ice_gathering_state: :new,
       dtls_state: :new,
-      signaling_state: :stable,
       conn_state: :new,
+      signaling_state: :stable,
       last_offer: nil,
       last_answer: nil,
       peer_fingerprint: nil
     }
 
     notify(state.owner, {:connection_state_change, :new})
+    notify(state.owner, {:signaling_state_change, :stable})
 
     {:ok, state}
   end
@@ -275,40 +280,17 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call({:set_local_description, desc}, _from, state) do
-    %SessionDescription{type: type, sdp: sdp} = desc
-
-    case type do
-      :rollback ->
-        {:reply, :ok, state}
-
-      other_type ->
-        with {:ok, next_state} <- maybe_next_state(state.signaling_state, :local, other_type),
-             :ok <- check_desc_altered(type, sdp, state),
-             {:ok, sdp} <- ExSDP.parse(sdp),
-             {:ok, state} <- apply_local_description(other_type, sdp, state) do
-          {:reply, :ok, %{state | signaling_state: next_state}}
-        else
-          {:error, _reason} = error -> {:reply, error, state}
-        end
+    case apply_local_description(desc, state) do
+      {:ok, new_state} -> {:reply, :ok, new_state}
+      {:error, _reason} = err -> {:reply, err, state}
     end
   end
 
   @impl true
   def handle_call({:set_remote_description, desc}, _from, state) do
-    %SessionDescription{type: type, sdp: sdp} = desc
-
-    case type do
-      :rollback ->
-        {:reply, :ok, state}
-
-      other_type ->
-        with {:ok, next_state} <- maybe_next_state(state.signaling_state, :remote, other_type),
-             {:ok, sdp} <- ExSDP.parse(sdp),
-             {:ok, state} <- apply_remote_description(other_type, sdp, state) do
-          {:reply, :ok, %{state | signaling_state: next_state}}
-        else
-          {:error, _reason} = error -> {:reply, error, state}
-        end
+    case apply_remote_description(desc, state) do
+      {:ok, new_state} -> {:reply, :ok, new_state}
+      {:error, _reason} = err -> {:reply, err, state}
     end
   end
 
@@ -350,12 +332,6 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_cast({:send_rtp, track_id, packet}, state) do
-    sdes_id =
-      Enum.find_value(state.demuxer.extensions, fn
-        {ext_id, {ExRTP.Packet.Extension.SourceDescription, :mid}} -> ext_id
-        _ -> nil
-      end)
-
     # TODO: iterating over transceivers is not optimal
     # but this is, most likely, going to be refactored anyways
     transceiver =
@@ -368,7 +344,7 @@ defmodule ExWebRTC.PeerConnection do
       %RTPTransceiver{mid: mid} ->
         mid_ext =
           %ExRTP.Packet.Extension.SourceDescription{text: mid}
-          |> ExRTP.Packet.Extension.SourceDescription.to_raw(sdes_id)
+          |> ExRTP.Packet.Extension.SourceDescription.to_raw(state.demuxer.mid_ext_id)
 
         packet
         |> ExRTP.Packet.set_extension(:two_byte, [mid_ext])
@@ -400,6 +376,12 @@ defmodule ExWebRTC.PeerConnection do
     else
       {:noreply, state}
     end
+  end
+
+  @impl true
+  def handle_info({:ex_ice, _from, {:gathering_state_changed, new_gathering_state}}, state) do
+    state = %{state | ice_gathering_state: new_gathering_state}
+    {:noreply, state}
   end
 
   @impl true
@@ -470,91 +452,161 @@ defmodule ExWebRTC.PeerConnection do
     }
   end
 
-  defp apply_local_description(type, sdp, state) do
-    new_transceivers = update_local_transceivers(type, state.transceivers, sdp)
-    state = set_description(:local, type, sdp, state)
+  defp apply_local_description(%SessionDescription{type: type}, _state)
+       when type in [:rollback, :pranswer],
+       do: {:error, :not_implemented}
 
-    demuxer = %Demuxer{
-      state.demuxer
-      | extensions: SDPUtils.get_extensions(sdp),
-        pt_to_mid: SDPUtils.get_payload_types(sdp)
-    }
+  defp apply_local_description(%SessionDescription{type: type, sdp: raw_sdp}, state) do
+    with {:ok, next_sig_state} <- next_signaling_state(state.signaling_state, :local, type),
+         :ok <- check_altered(type, raw_sdp, state),
+         {:ok, sdp} <- parse_sdp(raw_sdp) do
+      if state.ice_gathering_state == :new do
+        state.ice_transport.gather_candidates(state.ice_pid)
+      end
 
-    if type == :answer do
-      {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
-      DTLSTransport.start_dtls(state.dtls_transport, setup, state.peer_fingerprint)
+      state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
+
+      state = set_description(:local, type, sdp, state)
+      state = update_signaling_state(state, next_sig_state)
+      {:ok, state}
     end
-
-    {:ok, %{state | transceivers: new_transceivers, demuxer: demuxer}}
   end
 
-  defp update_local_transceivers(:offer, transceivers, _sdp) do
-    # TODO: at the moment, we assign mids in create_offer
-    transceivers
-  end
+  defp apply_remote_description(%SessionDescription{type: type}, _state)
+       when type in [:rollback, :pranswer],
+       do: {:error, :not_implemented}
 
-  defp update_local_transceivers(:answer, transceivers, _sdp) do
-    transceivers
-  end
-
-  defp apply_remote_description(type, sdp, state) do
-    # TODO apply steps listed in RFC 8829 5.10
-    with :ok <- SDPUtils.ensure_mid(sdp),
+  defp apply_remote_description(%SessionDescription{type: type, sdp: raw_sdp}, state) do
+    with {:ok, next_sig_state} <- next_signaling_state(state.signaling_state, :remote, type),
+         {:ok, sdp} <- parse_sdp(raw_sdp),
+         :ok <- SDPUtils.ensure_mid(sdp),
          :ok <- SDPUtils.ensure_bundle(sdp),
+         :ok <- SDPUtils.ensure_rtcp_mux(sdp),
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
-         {:ok, new_transceivers} <-
-           update_remote_transceivers(state.transceivers, sdp, state.config) do
-      :ok =
-        state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
+         {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp),
+         {:ok, transceivers} <- update_transceivers(state, sdp) do
+      :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
 
-      :ok = state.ice_transport.gather_candidates(state.ice_pid)
-
-      # TODO: this needs a look
-
-      new_remote_tracks =
-        new_transceivers
-        # only take new transceivers that can receive tracks
-        |> Enum.filter(fn tr ->
-          RTPTransceiver.find_by_mid(state.transceivers, tr.mid) == nil and
-            tr.direction in [:recvonly, :sendrecv]
-        end)
-        |> Enum.map(fn tr -> tr.receiver.track end)
-
-      for track <- new_remote_tracks do
-        notify(state.owner, {:track, track})
+      for candidate <- SDPUtils.get_ice_candidates(sdp) do
+        state.ice_transport.add_remote_candidate(state.ice_pid, candidate)
       end
+
+      # infer our role from the remote role
+      dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
+      DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
+
+      state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
+
+      # TODO: for now, we emit track event for every new transceiver
+      # but renegotiation can result in a new track on existing transceiver
+      transceivers
+      |> Enum.filter(fn tr ->
+        RTPTransceiver.find_by_mid(state.transceivers, tr.mid) == nil and
+          tr.direction in [:recvonly, :sendrecv]
+      end)
+      |> Enum.map(fn tr -> tr.receiver.track end)
+      |> Enum.each(fn track -> notify(state.owner, {:track, track}) end)
 
       state = set_description(:remote, type, sdp, state)
-
-      if type == :answer do
-        {:setup, setup} = ExSDP.Media.get_attribute(hd(sdp.media), :setup)
-
-        setup =
-          case setup do
-            :active -> :passive
-            :passive -> :active
-          end
-
-        DTLSTransport.start_dtls(state.dtls_transport, setup, peer_fingerprint)
-      end
-
-      {:ok,
-       %{
-         state
-         | transceivers: new_transceivers,
-           peer_fingerprint: peer_fingerprint
-       }}
+      state = update_signaling_state(state, next_sig_state)
+      {:ok, %{state | transceivers: transceivers}}
     else
       {:ok, {:fingerprint, {_hash_function, _fingerprint}}} ->
         {:error, :unsupported_cert_fingerprint_hash_function}
 
-      {:error, _reason} = error ->
-        error
+      {:error, _reason} = err ->
+        err
     end
   end
 
-  defp update_remote_transceivers(transceivers, sdp, config) do
+  defp next_signaling_state(current_signaling_state, source, type)
+  defp next_signaling_state(:stable, :remote, :offer), do: {:ok, :have_remote_offer}
+  defp next_signaling_state(:stable, :local, :offer), do: {:ok, :have_local_offer}
+  defp next_signaling_state(:stable, _, _), do: {:error, :invalid_state}
+  defp next_signaling_state(:have_local_offer, :local, :offer), do: {:ok, :have_local_offer}
+  defp next_signaling_state(:have_local_offer, :remote, :answer), do: {:ok, :stable}
+
+  defp next_signaling_state(:have_local_offer, :remote, :pranswer),
+    do: {:ok, :have_remote_pranswer}
+
+  defp next_signaling_state(:have_local_offer, _, _), do: {:error, :invalid_state}
+  defp next_signaling_state(:have_remote_offer, :remote, :offer), do: {:ok, :have_remote_offer}
+  defp next_signaling_state(:have_remote_offer, :local, :answer), do: {:ok, :stable}
+  defp next_signaling_state(:have_remote_offer, :local, :pranswer), do: {:ok, :stable}
+  defp next_signaling_state(:have_remote_offer, _, _), do: {:error, :invalid_state}
+
+  defp next_signaling_state(:have_local_pranswer, :local, :pranswer),
+    do: {:ok, :have_local_pranswer}
+
+  defp next_signaling_state(:have_local_pranswer, :local, :answer), do: {:ok, :stable}
+  defp next_signaling_state(:have_local_pranswer, _, _), do: {:error, :invalid_state}
+
+  defp next_signaling_state(:have_remote_pranswer, :remote, :pranswer),
+    do: {:ok, :have_remote_pranswer}
+
+  defp next_signaling_state(:have_remote_pranswer, :remote, :answer), do: {:ok, :stable}
+  defp next_signaling_state(:have_remote_pranswer, _, _), do: {:error, :invalid_state}
+
+  defp update_signaling_state(%{signaling_state: signaling_state} = state, signaling_state),
+    do: state
+
+  defp update_signaling_state(state, new_signaling_state) do
+    Logger.debug(
+      "Changing PeerConnection signaling state state: #{state.signaling_state} -> #{new_signaling_state}"
+    )
+
+    notify(state.owner, {:signaling_state_change, new_signaling_state})
+    %{state | signaling_state: new_signaling_state}
+  end
+
+  defp check_altered(:offer, sdp, %{last_offer: sdp}), do: :ok
+  defp check_altered(type, sdp, %{last_answer: sdp}) when type in [:answer, :pranswer], do: :ok
+  defp check_altered(_type, _sdp, _state), do: {:error, :description_altered}
+
+  defp set_description(:local, :answer, sdp, state) do
+    # NOTICE: internaly, we don't create SessionDescription
+    # as it would require serialization of sdp
+    %{
+      state
+      | current_local_desc: {:answer, sdp},
+        current_remote_desc: state.pending_remote_desc,
+        pending_local_desc: nil,
+        pending_remote_desc: nil,
+        # W3C 4.4.1.5 (.4.7.5.2) suggests setting these to "", not nil
+        last_offer: nil,
+        last_answer: nil
+    }
+  end
+
+  defp set_description(:local, type, sdp, state) when type in [:offer, :pranswer] do
+    %{state | pending_local_desc: {type, sdp}}
+  end
+
+  defp set_description(:remote, :answer, sdp, state) do
+    %{
+      state
+      | current_remote_desc: {:answer, sdp},
+        current_local_desc: state.pending_local_desc,
+        pending_remote_desc: nil,
+        pending_local_desc: nil,
+        last_offer: nil,
+        last_answer: nil
+    }
+  end
+
+  defp set_description(:remote, type, sdp, state) when type in [:offer, :pranswer] do
+    %{state | pending_remote_desc: {type, sdp}}
+  end
+
+  defp parse_sdp(raw_sdp) do
+    case ExSDP.parse(raw_sdp) do
+      {:ok, _sdp} = res -> res
+      {:error, _reason} -> {:error, :invalid_sdp_syntax}
+    end
+  end
+
+  defp update_transceivers(%{transceivers: transceivers, config: config}, sdp) do
     Enum.reduce_while(sdp.media, {:ok, transceivers}, fn mline, {:ok, transceivers} ->
       case ExSDP.Media.get_attribute(mline, :mid) do
         {:mid, mid} ->
@@ -610,36 +662,6 @@ defmodule ExWebRTC.PeerConnection do
     end)
   end
 
-  defp check_desc_altered(:offer, sdp, %{last_offer: offer}) when sdp == offer, do: :ok
-  defp check_desc_altered(:offer, _sdp, _state), do: {:error, :offer_altered}
-  defp check_desc_altered(:answer, sdp, %{last_answer: answer}) when sdp == answer, do: :ok
-  defp check_desc_altered(:answer, _sdp, _state), do: {:error, :answer_altered}
-
-  # Signaling state machine, RFC 8829 3.2
-  defp maybe_next_state(:stable, :remote, :offer), do: {:ok, :have_remote_offer}
-  defp maybe_next_state(:stable, :local, :offer), do: {:ok, :have_local_offer}
-  defp maybe_next_state(:stable, _, _), do: {:error, :invalid_transition}
-
-  defp maybe_next_state(:have_local_offer, :local, :offer), do: {:ok, :have_local_offer}
-  defp maybe_next_state(:have_local_offer, :remote, :answer), do: {:ok, :stable}
-  defp maybe_next_state(:have_local_offer, :remote, :pranswer), do: {:ok, :have_remote_pranswer}
-  defp maybe_next_state(:have_local_offer, _, _), do: {:error, :invalid_transition}
-
-  defp maybe_next_state(:have_remote_offer, :remote, :offer), do: {:ok, :have_remote_offer}
-  defp maybe_next_state(:have_remote_offer, :local, :answer), do: {:ok, :stable}
-  defp maybe_next_state(:have_remote_offer, :local, :pranswer), do: {:ok, :stable}
-  defp maybe_next_state(:have_remote_offer, _, _), do: {:error, :invalid_transition}
-
-  defp maybe_next_state(:have_local_pranswer, :local, :pranswer), do: {:ok, :have_local_pranswer}
-  defp maybe_next_state(:have_local_pranswer, :local, :answer), do: {:ok, :stable}
-  defp maybe_next_state(:have_local_pranswer, _, _), do: {:error, :invalid_transition}
-
-  defp maybe_next_state(:have_remote_pranswer, :remote, :pranswer),
-    do: {:ok, :have_remote_pranswer}
-
-  defp maybe_next_state(:have_remote_pranswer, :remote, :answer), do: {:ok, :stable}
-  defp maybe_next_state(:have_remote_pranswer, _, _), do: {:error, :invalid_transition}
-
   # TODO support :disconnected state - our ICE doesn't provide disconnected state for now
   # TODO support :closed state
   # the order of these clauses is important
@@ -667,41 +689,6 @@ defmodule ExWebRTC.PeerConnection do
     Logger.debug("Changing PeerConnection state: #{state.conn_state} -> #{new_conn_state}")
     notify(state.owner, {:connection_state_change, new_conn_state})
     %{state | conn_state: new_conn_state}
-  end
-
-  defp set_description(:local, :answer, sdp, state) do
-    # NOTICE: internaly, we don't create SessionDescription
-    # as it would require serialization of sdp
-    %{
-      state
-      | current_local_desc: {:answer, sdp},
-        current_remote_desc: state.pending_remote_desc,
-        pending_local_desc: nil,
-        pending_remote_desc: nil,
-        # W3C 4.4.1.5 (.4.7.5.2) suggests setting these to "", not nil
-        last_offer: nil,
-        last_answer: nil
-    }
-  end
-
-  defp set_description(:local, other, sdp, state) when other in [:offer, :pranswer] do
-    %{state | pending_local_desc: {other, sdp}}
-  end
-
-  defp set_description(:remote, :answer, sdp, state) do
-    %{
-      state
-      | current_remote_desc: {:answer, sdp},
-        current_local_desc: state.pending_local_desc,
-        pending_remote_desc: nil,
-        pending_local_desc: nil,
-        last_offer: nil,
-        last_answer: nil
-    }
-  end
-
-  defp set_description(:remote, other, sdp, state) when other in [:offer, :pranswer] do
-    %{state | pending_remote_desc: {other, sdp}}
   end
 
   defp notify(pid, msg), do: send(pid, {:ex_webrtc, self(), msg})
