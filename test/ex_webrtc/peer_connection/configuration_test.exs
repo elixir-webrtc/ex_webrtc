@@ -25,8 +25,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
         pt: 111,
         minptime: 10,
         useinbandfec: true
-      },
-      rtcp_fbs: []
+      }
     }
 
     h264_codec = %RTPCodecParameters{
@@ -38,26 +37,23 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
         profile_level_id: 0x42001F,
         level_asymmetry_allowed: true,
         packetization_mode: 1
-      },
-      rtcp_fbs: []
+      }
     }
 
     vp8_codec = %RTPCodecParameters{
       payload_type: 96,
       mime_type: "video/VP8",
-      clock_rate: 90_000,
-      rtcp_fbs: []
+      clock_rate: 90_000
     }
 
     av1_codec = %RTPCodecParameters{
       payload_type: 45,
       mime_type: "video/AV1",
-      clock_rate: 90_000,
-      rtcp_fbs: []
+      clock_rate: 90_000
     }
 
     # default audio and video codecs
-    # assert there are only them - no av1, g711 or others
+    # assert there are only them - no g711 or others
     {:ok, pc} = PeerConnection.start_link()
 
     offer = %SessionDescription{
@@ -81,13 +77,13 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
                direction: :recvonly,
                kind: :video,
                rtp_hdr_exts: [^mid_rtp_hdr_ext],
-               codecs: [^vp8_codec, ^h264_codec]
+               codecs: [^vp8_codec, ^h264_codec, ^av1_codec]
              }
            ] = transceivers
 
     assert :ok = PeerConnection.close(pc)
 
-    # audio level rtp hdr ext, no audio codecs and one non-default av1 codec
+    # audio level rtp hdr ext, no audio codecs and one video codec
     # assert there are no audio, h264 and vp8 codecs, and there is audio level
     # rtp hdr extension
     {:ok, pc} =

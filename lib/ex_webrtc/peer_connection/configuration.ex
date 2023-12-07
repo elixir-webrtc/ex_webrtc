@@ -12,32 +12,31 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       mime_type: "audio/opus",
       clock_rate: 48_000,
       channels: 2,
-      sdp_fmtp_line: %FMTP{pt: 111, minptime: 10, useinbandfec: true},
-      rtcp_fbs: []
+      sdp_fmtp_line: %FMTP{pt: 111, minptime: 10, useinbandfec: true}
     }
   ]
 
   @default_video_codecs [
     %RTPCodecParameters{
+      payload_type: 96,
+      mime_type: "video/VP8",
+      clock_rate: 90_000
+    },
+    %RTPCodecParameters{
+      payload_type: 45,
+      mime_type: "video/AV1",
+      clock_rate: 90_000
+    },
+    %RTPCodecParameters{
       payload_type: 98,
       mime_type: "video/H264",
       clock_rate: 90_000,
-      channels: nil,
       sdp_fmtp_line: %FMTP{
         pt: 98,
         level_asymmetry_allowed: true,
         packetization_mode: 1,
         profile_level_id: 0x42001F
-      },
-      rtcp_fbs: []
-    },
-    %RTPCodecParameters{
-      payload_type: 96,
-      mime_type: "video/VP8",
-      clock_rate: 90_000,
-      channels: nil,
-      sdp_fmtp_line: nil,
-      rtcp_fbs: []
+      }
     }
   ]
 
@@ -74,6 +73,16 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   If you wish to add codecs to default ones do 
   `audio_codecs: Configuration.default_audio_codecs() ++ my_codecs`
   * `video_codecs` - the same as `audio_codecs` but for video.
+  If you wish to e.g. only use AV1, pass as video_codecs:
+  ```
+    video_codecs: [
+      %ExWebRTC.RTPCodecParameters{
+        payload_type: 45,
+        mime_type: "video/AV1",
+        clock_rate: 90_000
+      }
+    ]
+  ```
   * `rtp_hdr_extensions` - list of RTP header extensions to use.
   MID extension is enabled by default and cannot be turned off.
   If an extension can be used both for audio and video media, it
