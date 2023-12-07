@@ -484,7 +484,7 @@ defmodule ExWebRTC.PeerConnection do
          :ok <- SDPUtils.ensure_rtcp_mux(sdp),
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
-         {:ok, setup} <- SDPUtils.get_dtls_role(sdp),
+         {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp),
          {:ok, transceivers} <- update_transceivers(state, sdp) do
       :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
 
@@ -493,12 +493,13 @@ defmodule ExWebRTC.PeerConnection do
       end
 
       # infer our role from the remote role
-      dtls_role = if setup in [:actpass, :passive], do: :active, else: :passive
+      dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
       DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
 
       state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
 
       # TODO: for now, we emit track event for every new transceiver
+      # but renegotiation can result in a new track on existing transceiver
       transceivers
       |> Enum.filter(fn tr ->
         RTPTransceiver.find_by_mid(state.transceivers, tr.mid) == nil and

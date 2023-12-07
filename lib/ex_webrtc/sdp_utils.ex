@@ -141,7 +141,8 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   @spec get_dtls_role(ExSDP.t()) ::
-          {:ok, :active | :passive | :actpass} | {:error, :not_dtls_role}
+          {:ok, :active | :passive | :actpass}
+          | {:error, :missing_dtls_role | :conflicting_dtls_roles}
   def get_dtls_role(sdp) do
     session_role = ExSDP.get_attribute(sdp, :setup)
 
