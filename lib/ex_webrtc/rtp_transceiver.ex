@@ -17,6 +17,7 @@ defmodule ExWebRTC.RTPTransceiver do
   @type t() :: %__MODULE__{
           mid: String.t() | nil,
           direction: direction(),
+          current_direction: direction(),
           kind: kind(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()],
@@ -24,7 +25,7 @@ defmodule ExWebRTC.RTPTransceiver do
           sender: RTPSender.t()
         }
 
-  @enforce_keys [:mid, :direction, :kind]
+  @enforce_keys [:mid, :direction, :current_direction, :kind]
   defstruct @enforce_keys ++
               [
                 codecs: [],
@@ -34,10 +35,34 @@ defmodule ExWebRTC.RTPTransceiver do
               ]
 
   @doc false
-  def find_by_mid(transceivers, mid) do
-    transceivers
-    |> Enum.with_index(fn tr, idx -> {idx, tr} end)
-    |> Enum.find(fn {_idx, tr} -> tr.mid == mid end)
+  def new_from_mline(mline, config) do
+    codecs = get_codecs(mline, config)
+    rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
+    {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+
+    track = MediaStreamTrack.new(mline.type)
+
+    %__MODULE__{
+      mid: mid,
+      direction: :recvonly,
+      current_direction: nil,
+      kind: mline.type,
+      codecs: codecs,
+      rtp_hdr_exts: rtp_hdr_exts,
+      receiver: %RTPReceiver{track: track}
+    }
+  end
+
+  @doc false
+  def update_from_mline(transceiver, mline, config) do
+    codecs = get_codecs(mline, config)
+    rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
+
+    %__MODULE__{
+      transceiver
+      | codecs: codecs,
+        rtp_hdr_exts: rtp_hdr_exts
+    }
   end
 
   @doc false
@@ -67,35 +92,6 @@ defmodule ExWebRTC.RTPTransceiver do
   def assign_mid(transceiver, mid) do
     sender = %{transceiver.sender | mid: mid}
     %{transceiver | mid: mid, sender: sender}
-  end
-
-  # Searches for transceiver for a given mline.
-  # If it exists, updates its configuration.
-  # If it doesn't exist, creates a new one.
-  # Returns a list of updated transceivers.
-  @doc false
-  def update_or_create(transceivers, mid, mline, config) do
-    case find_by_mid(transceivers, mid) do
-      {idx, %__MODULE__{} = tr} ->
-        List.replace_at(transceivers, idx, update(tr, mline, config))
-
-      nil ->
-        codecs = get_codecs(mline, config)
-        rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-
-        track = MediaStreamTrack.new(mline.type)
-
-        tr = %__MODULE__{
-          mid: mid,
-          direction: :recvonly,
-          kind: mline.type,
-          codecs: codecs,
-          rtp_hdr_exts: rtp_hdr_exts,
-          receiver: %RTPReceiver{track: track}
-        }
-
-        transceivers ++ [tr]
-    end
   end
 
   defp to_mline(transceiver, opts) do
@@ -146,18 +142,6 @@ defmodule ExWebRTC.RTPTransceiver do
   defp get_direction(:recvonly, t) when t in [:sendrecv, :sendonly], do: :sendonly
   defp get_direction(o, other) when o in [:sendrecv, nil], do: other
   defp get_direction(:inactive, _), do: :inactive
-
-  defp update(transceiver, mline, config) do
-    codecs = get_codecs(mline, config)
-    rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    # TODO: potentially update tracks
-
-    %__MODULE__{
-      transceiver
-      | codecs: codecs,
-        rtp_hdr_exts: rtp_hdr_exts
-    }
-  end
 
   defp get_codecs(mline, config) do
     rtp_mappings = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.RTPMapping)
