@@ -1,13 +1,65 @@
 defmodule ExWebRTC.RTPSender do
   @moduledoc """
-  RTPSender
+  Prepares RTP packets for sending.
   """
+  import Bitwise
 
-  alias ExWebRTC.MediaStreamTrack
+  alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters}
+  alias ExSDP.Attribute.Extmap
+
+  @mid_uri "urn:ietf:params:rtp-hdrext:sdes:mid"
 
   @type t() :: %__MODULE__{
-          track: MediaStreamTrack.t() | nil
+          track: MediaStreamTrack.t() | nil,
+          codec: RTPCodecParameters.t(),
+          rtp_hdr_exts: %{Extmap.extension_id() => Extmap.t()},
+          mid: String.t() | nil,
+          pt: non_neg_integer(),
+          ssrc: non_neg_integer(),
+          last_seq_num: non_neg_integer()
         }
 
-  defstruct [:track]
+  defstruct [:track, :codec, :rtp_hdr_exts, :mid, :pt, :ssrc, :last_seq_num]
+
+  @doc false
+  @spec new(MediaStreamTrack.t() | nil, RTPCodecParameters.t(), [Extmap.t()]) :: t()
+  def new(track, codec, rtp_hdr_exts) do
+    # convert to a map to be able to find extension id using extension uri
+    rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
+
+    %__MODULE__{
+      track: track,
+      codec: codec,
+      rtp_hdr_exts: rtp_hdr_exts,
+      pt: codec.payload_type,
+      ssrc: 1234,
+      last_seq_num: random_seq_num()
+    }
+  end
+
+  # Prepares packet for sending i.e.:
+  # * assigns SSRC, pt, seq_num, mid
+  # * serializes to binary
+  @doc false
+  @spec send(t(), ExRTP.Packet.t()) :: {binary(), t()}
+  def send(sender, packet) do
+    %Extmap{} = mid_extmap = Map.fetch!(sender.rtp_hdr_exts, @mid_uri)
+
+    mid_ext =
+      %ExRTP.Packet.Extension.SourceDescription{text: sender.mid}
+      |> ExRTP.Packet.Extension.SourceDescription.to_raw(mid_extmap.id)
+
+    next_seq_num = sender.last_seq_num + 1 &&& 0xFFFF
+    packet = %{packet | payload_type: sender.pt, ssrc: sender.ssrc, sequence_number: next_seq_num}
+
+    packet =
+      packet
+      |> ExRTP.Packet.set_extension(:two_byte, [mid_ext])
+      |> ExRTP.Packet.encode()
+
+    sender = %{sender | last_seq_num: next_seq_num}
+    {packet, sender}
+  end
+
+  defp random_seq_num(), do: Enum.random(0..65_535)
 end

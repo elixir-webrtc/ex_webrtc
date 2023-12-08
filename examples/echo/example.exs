@@ -1,4 +1,4 @@
-Mix.install([{:gun, "~> 2.0.1"}, {:ex_webrtc, path: "./"}, {:jason, "~> 1.4.0"}])
+Mix.install([{:gun, "~> 2.0.1"}, {:ex_webrtc, path: "../.."}, {:jason, "~> 1.4.0"}])
 
 require Logger
 Logger.configure(level: :info)
@@ -11,7 +11,6 @@ defmodule Peer do
   alias ExWebRTC.{IceCandidate, PeerConnection, SessionDescription, RTPTransceiver}
 
   @ice_servers [
-    # %{urls: "stun:stun.stunprotocol.org:3478"},
     %{urls: "stun:stun.l.google.com:19302"}
   ]
 

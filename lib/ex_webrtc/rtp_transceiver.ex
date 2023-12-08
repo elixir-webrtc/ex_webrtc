@@ -15,7 +15,7 @@ defmodule ExWebRTC.RTPTransceiver do
   @type kind() :: :audio | :video
 
   @type t() :: %__MODULE__{
-          mid: String.t(),
+          mid: String.t() | nil,
           direction: direction(),
           kind: kind(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
@@ -61,10 +61,18 @@ defmodule ExWebRTC.RTPTransceiver do
     to_mline(transceiver, opts)
   end
 
-  # searches for transceiver for a given mline
-  # if it exists, updates its configuration
-  # if it doesn't exist, creats a new one
-  # returns list of updated transceivers
+  @doc false
+  # asssings mid to the transceiver and its sender
+  @spec assign_mid(t(), String.t()) :: t()
+  def assign_mid(transceiver, mid) do
+    sender = %{transceiver.sender | mid: mid}
+    %{transceiver | mid: mid, sender: sender}
+  end
+
+  # Searches for transceiver for a given mline.
+  # If it exists, updates its configuration.
+  # If it doesn't exist, creates a new one.
+  # Returns a list of updated transceivers.
   @doc false
   def update_or_create(transceivers, mid, mline, config) do
     case find_by_mid(transceivers, mid) do
