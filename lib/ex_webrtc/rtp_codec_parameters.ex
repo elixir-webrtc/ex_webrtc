@@ -12,7 +12,8 @@ defmodule ExWebRTC.RTPCodecParameters do
           rtcp_fbs: [ExSDP.Attribute.RTCPFeedback.t()]
         }
 
-  defstruct [:payload_type, :mime_type, :clock_rate, :channels, :sdp_fmtp_line, :rtcp_fbs]
+  @enforce_keys [:payload_type, :mime_type, :clock_rate]
+  defstruct @enforce_keys ++ [:channels, :sdp_fmtp_line, rtcp_fbs: []]
 
   def new(type, rtp_mapping, fmtp, rtcp_fbs) do
     %__MODULE__{
