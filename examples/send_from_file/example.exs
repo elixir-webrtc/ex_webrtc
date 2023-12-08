@@ -121,8 +121,9 @@ defmodule Peer do
 
         {rtp_packets, last_timestamp} =
           Enum.map_reduce(rtp_packets, state.last_timestamp, fn rtp_packet, last_timestamp ->
-            # we hardcode 3000 as we know the video is in 30 FPS
-            last_timestamp = last_timestamp + 3000 &&& @max_rtp_timestamp
+            # the video has 30 FPS, VP8 clock rate is 90_000, so we have:
+            # 90_000 / 30 = 3_000
+            last_timestamp = last_timestamp + 3_000 &&& @max_rtp_timestamp
             rtp_packet = %{packet | timestamp: last_timestamp}
             {rtp_packet, last_timestamp}
           end)

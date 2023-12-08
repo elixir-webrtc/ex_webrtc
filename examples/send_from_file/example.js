@@ -16,7 +16,6 @@ const start_connection = async (ws) => {
   pc.ontrack = event => {
     const videoPlayer = document.getElementById("videoPlayer");
     videoPlayer.srcObject = event.streams[0];
-    
   };
   pc.onicecandidate = event => {
     console.log("New local ICE candidate:", event.candidate);
