@@ -16,10 +16,12 @@ defmodule Peer do
     Media.IVFReader,
     PeerConnection,
     RTPCodecParameters,
-    RTP.VP8Payloader,
+    RTP.AV1Payloader,
     RTPTransceiver,
     SessionDescription
   }
+
+  @video_file "./av1_correct_long.ivf"
 
   @max_rtp_timestamp (1 <<< 32) - 1
 
@@ -45,15 +47,11 @@ defmodule Peer do
         {:ok, pc} =
           PeerConnection.start_link(
             ice_servers: @ice_servers,
-            ice_ip_filter: ice_ip_filter,
             video_codecs: [
               %RTPCodecParameters{
-                payload_type: 96,
-                mime_type: "video/VP8",
-                clock_rate: 90_000,
-                channels: nil,
-                sdp_fmtp_line: nil,
-                rtcp_fbs: []
+                payload_type: 45,
+                mime_type: "video/AV1",
+                clock_rate: 90_000
               }
             ]
           )
@@ -117,16 +115,15 @@ defmodule Peer do
 
     case IVFReader.next_frame(state.ivf_reader) do
       {:ok, frame} ->
-        {rtp_packets, payloader} = VP8Payloader.payload(state.payloader, frame.data)
+        {rtp_packets, payloader} = AV1Payloader.payload(state.payloader, frame.data)
 
-        {rtp_packets, last_timestamp} =
-          Enum.map_reduce(rtp_packets, state.last_timestamp, fn rtp_packet, last_timestamp ->
-            # the video has 30 FPS, VP8 clock rate is 90_000, so we have:
-            # 90_000 / 30 = 3_000
-            last_timestamp = last_timestamp + 3_000 &&& @max_rtp_timestamp
-            rtp_packet = %{packet | timestamp: last_timestamp}
-            {rtp_packet, last_timestamp}
-          end)
+        # the video has 30 FPS, VP8 clock rate is 90_000, so we have:
+        # 90_000 / 30 = 3_000
+        last_timestamp = state.last_timestamp + 3_000 &&& @max_rtp_timestamp
+
+        rtp_packets = Enum.map(rtp_packets, fn rtp_packet -> %{rtp_packet | timestamp: last_timestamp} end)
+
+        # dbg(rtp_packets)
 
         Enum.each(rtp_packets, fn rtp_packet ->
           PeerConnection.send_rtp(state.peer_connection, state.track_id, rtp_packet)
@@ -137,7 +134,7 @@ defmodule Peer do
 
       :eof ->
         Logger.info("video.ivf ended. Looping...")
-        {:ok, ivf_reader} = IVFReader.open("./video.ivf")
+        {:ok, ivf_reader} = IVFReader.open(@video_file)
         {:ok, _header} = IVFReader.read_header(ivf_reader)
         state = %{state | ivf_reader: ivf_reader}
         {:noreply, state}
@@ -206,9 +203,9 @@ defmodule Peer do
   defp handle_webrtc_message({:connection_state_change, :connected} = msg, state) do
     Logger.info("#{inspect(msg)}")
     Logger.info("Starting sending video.ivf")
-    {:ok, ivf_reader} = IVFReader.open("./video.ivf")
+    {:ok, ivf_reader} = IVFReader.open(@video_file)
     {:ok, _header} = IVFReader.read_header(ivf_reader)
-    payloader = VP8Payloader.new(800)
+    payloader = AV1Payloader.new()
 
     Process.send_after(self(), :send_frame, 30)
     %{state | ivf_reader: ivf_reader, payloader: payloader}
