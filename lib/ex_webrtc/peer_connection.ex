@@ -627,31 +627,31 @@ defmodule ExWebRTC.PeerConnection do
     Enum.reduce(sdp.media, state.transceivers, fn mline, transceivers ->
       {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
 
-      # TODO: reusing transceivers
+      # TODO: consider recycled transceivers
       case find_transceiver(transceivers, mid) do
         {idx, %RTPTransceiver{} = tr} ->
-          new_tr = RTPTransceiver.update_from_mline(tr, mline, state.config)
+          new_tr = RTPTransceiver.update(tr, mline, state.config)
           notify_if_new_track(mline, new_tr, state.owner)
 
           List.replace_at(transceivers, idx, new_tr)
 
         nil ->
-          new_tr = RTPTransceiver.new_from_mline(mline, state.config)
+          new_tr = RTPTransceiver.from_mline(mline, state.config)
           notify_if_new_track(mline, new_tr, state.owner)
           transceivers ++ [new_tr]
       end
     end)
   end
 
-  defp notify_if_new_track(mline, new_tr, owner) do
+  defp notify_if_new_track(mline, tr, owner) do
     # TODO: applying offers back to back (without answer)
     # will result in multiple messages for the same track
     # because current_direction is set in set_remote_description
     direction = SDPUtils.get_media_direction(mline)
 
     if direction in [:sendrecv, :sendonly] and
-         new_tr.current_direction not in [:sendrecv, :recvonly] do
-      notify(owner, {:track, new_tr.receiver.track})
+         tr.current_direction not in [:sendrecv, :recvonly] do
+      notify(owner, {:track, tr.receiver.track})
     end
   end
 
@@ -668,11 +668,22 @@ defmodule ExWebRTC.PeerConnection do
           :remote -> reverse_direction(direction)
         end
 
-      # TODO: we don't handle remote transceivers set to recvonly
-
       transceiver = %RTPTransceiver{transceiver | current_direction: direction}
       List.replace_at(transceivers, idx, transceiver)
     end)
+  end
+
+  defp update_transceiver_directions(transceivers, sdp, :remote, :offer) do
+    # TODO: currently, we don't handle remote recvonly mlines
+    # as they need to be handled diffrently (i.e. transceiver set to inactive)
+    # and we have no way to check that when applying answer
+    Enum.each(sdp.media, fn mline ->
+      if SDPUtils.get_media_direction(mline) == :recvonly do
+        raise "Unable to handle remote `recvonly` mline"
+      end
+    end)
+
+    transceivers
   end
 
   defp update_transceiver_directions(transceivers, _sdp, _source, _type),

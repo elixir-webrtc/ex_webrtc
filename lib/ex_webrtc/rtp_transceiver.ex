@@ -35,7 +35,7 @@ defmodule ExWebRTC.RTPTransceiver do
               ]
 
   @doc false
-  def new_from_mline(mline, config) do
+  def from_mline(mline, config) do
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
     {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
@@ -54,7 +54,7 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  def update_from_mline(transceiver, mline, config) do
+  def update(transceiver, mline, config) do
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
 
