@@ -251,7 +251,7 @@ defmodule ExWebRTC.PeerConnection do
     mlines =
       Enum.map(remote_offer.media, fn mline ->
         {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
-        {_ix, transceiver} = RTPTransceiver.find_by_mid(state.transceivers, mid)
+        {_ix, transceiver} = find_transceiver(state.transceivers, mid)
         RTPTransceiver.to_answer_mline(transceiver, mline, opts)
       end)
 
@@ -432,7 +432,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp new_transceiver(kind, sender_track, options, config) do
-    direction = Keyword.get(options, :direction, :sendrcv)
+    direction = Keyword.get(options, :direction, :sendrecv)
 
     {rtp_hdr_exts, codecs} =
       case kind do
@@ -457,6 +457,7 @@ defmodule ExWebRTC.PeerConnection do
     %RTPTransceiver{
       mid: nil,
       direction: direction,
+      current_direction: nil,
       kind: kind,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
@@ -477,10 +478,15 @@ defmodule ExWebRTC.PeerConnection do
         state.ice_transport.gather_candidates(state.ice_pid)
       end
 
-      state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
+      transceivers = update_transceiver_directions(state.transceivers, sdp, :local, type)
 
-      state = set_description(:local, type, sdp, state)
-      state = update_signaling_state(state, next_sig_state)
+      state =
+        state
+        |> set_description(:local, type, sdp)
+        |> update_signaling_state(next_sig_state)
+        |> Map.update!(:demuxer, &Demuxer.update(&1, sdp))
+        |> Map.replace!(:transceivers, transceivers)
+
       {:ok, state}
     end
   end
@@ -497,8 +503,13 @@ defmodule ExWebRTC.PeerConnection do
          :ok <- SDPUtils.ensure_rtcp_mux(sdp),
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
-         {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp),
-         {:ok, transceivers} <- update_transceivers(state, sdp) do
+         {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp) do
+      transceivers =
+        state
+        |> update_transceivers(sdp)
+        |> update_transceiver_directions(sdp, :remote, type)
+
+      # TODO: this can result in ICE restart (when it should, e.g. when this is answer)
       :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
 
       for candidate <- SDPUtils.get_ice_candidates(sdp) do
@@ -509,21 +520,14 @@ defmodule ExWebRTC.PeerConnection do
       dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
       DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
 
-      state = %{state | demuxer: Demuxer.update(state.demuxer, sdp)}
+      state =
+        state
+        |> set_description(:remote, type, sdp)
+        |> update_signaling_state(next_sig_state)
+        |> Map.update!(:demuxer, &Demuxer.update(&1, sdp))
+        |> Map.replace!(:transceivers, transceivers)
 
-      # TODO: for now, we emit track event for every new transceiver
-      # but renegotiation can result in a new track on existing transceiver
-      transceivers
-      |> Enum.filter(fn tr ->
-        RTPTransceiver.find_by_mid(state.transceivers, tr.mid) == nil and
-          tr.direction in [:recvonly, :sendrecv]
-      end)
-      |> Enum.map(fn tr -> tr.receiver.track end)
-      |> Enum.each(fn track -> notify(state.owner, {:track, track}) end)
-
-      state = set_description(:remote, type, sdp, state)
-      state = update_signaling_state(state, next_sig_state)
-      {:ok, %{state | transceivers: transceivers}}
+      {:ok, state}
     else
       {:ok, {:fingerprint, {_hash_function, _fingerprint}}} ->
         {:error, :unsupported_cert_fingerprint_hash_function}
@@ -577,7 +581,7 @@ defmodule ExWebRTC.PeerConnection do
   defp check_altered(type, sdp, %{last_answer: sdp}) when type in [:answer, :pranswer], do: :ok
   defp check_altered(_type, _sdp, _state), do: {:error, :description_altered}
 
-  defp set_description(:local, :answer, sdp, state) do
+  defp set_description(state, :local, :answer, sdp) do
     # NOTICE: internaly, we don't create SessionDescription
     # as it would require serialization of sdp
     %{
@@ -592,11 +596,11 @@ defmodule ExWebRTC.PeerConnection do
     }
   end
 
-  defp set_description(:local, type, sdp, state) when type in [:offer, :pranswer] do
+  defp set_description(state, :local, type, sdp) when type in [:offer, :pranswer] do
     %{state | pending_local_desc: {type, sdp}}
   end
 
-  defp set_description(:remote, :answer, sdp, state) do
+  defp set_description(state, :remote, :answer, sdp) do
     %{
       state
       | current_remote_desc: {:answer, sdp},
@@ -608,7 +612,7 @@ defmodule ExWebRTC.PeerConnection do
     }
   end
 
-  defp set_description(:remote, type, sdp, state) when type in [:offer, :pranswer] do
+  defp set_description(state, :remote, type, sdp) when type in [:offer, :pranswer] do
     %{state | pending_remote_desc: {type, sdp}}
   end
 
@@ -619,17 +623,80 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  defp update_transceivers(%{transceivers: transceivers, config: config}, sdp) do
-    Enum.reduce_while(sdp.media, {:ok, transceivers}, fn mline, {:ok, transceivers} ->
-      case ExSDP.Media.get_attribute(mline, :mid) do
-        {:mid, mid} ->
-          transceivers = RTPTransceiver.update_or_create(transceivers, mid, mline, config)
-          {:cont, {:ok, transceivers}}
+  defp update_transceivers(state, sdp) do
+    Enum.reduce(sdp.media, state.transceivers, fn mline, transceivers ->
+      {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
 
-        _other ->
-          {:halt, {:error, :missing_mid}}
+      # TODO: consider recycled transceivers
+      case find_transceiver(transceivers, mid) do
+        {idx, %RTPTransceiver{} = tr} ->
+          new_tr = RTPTransceiver.update(tr, mline, state.config)
+          notify_if_new_track(mline, new_tr, state.owner)
+
+          List.replace_at(transceivers, idx, new_tr)
+
+        nil ->
+          new_tr = RTPTransceiver.from_mline(mline, state.config)
+          notify_if_new_track(mline, new_tr, state.owner)
+          transceivers ++ [new_tr]
       end
     end)
+  end
+
+  defp notify_if_new_track(mline, tr, owner) do
+    # TODO: applying offers back to back (without answer)
+    # will result in multiple messages for the same track
+    # because current_direction is set in set_remote_description
+    direction = SDPUtils.get_media_direction(mline)
+
+    if direction in [:sendrecv, :sendonly] and
+         tr.current_direction not in [:sendrecv, :recvonly] do
+      notify(owner, {:track, tr.receiver.track})
+    end
+  end
+
+  defp update_transceiver_directions(transceivers, sdp, source, :answer) do
+    Enum.reduce(sdp.media, transceivers, fn mline, transceivers ->
+      {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+      {idx, transceiver} = find_transceiver(transceivers, mid)
+
+      direction = SDPUtils.get_media_direction(mline)
+
+      direction =
+        case source do
+          :local -> direction
+          :remote -> reverse_direction(direction)
+        end
+
+      transceiver = %RTPTransceiver{transceiver | current_direction: direction}
+      List.replace_at(transceivers, idx, transceiver)
+    end)
+  end
+
+  defp update_transceiver_directions(transceivers, sdp, :remote, :offer) do
+    # TODO: currently, we don't handle remote recvonly mlines
+    # as they need to be handled diffrently (i.e. transceiver set to inactive)
+    # and we have no way to check that when applying answer
+    Enum.each(sdp.media, fn mline ->
+      if SDPUtils.get_media_direction(mline) == :recvonly do
+        raise "Unable to handle remote `recvonly` mline"
+      end
+    end)
+
+    transceivers
+  end
+
+  defp update_transceiver_directions(transceivers, _sdp, _source, _type),
+    do: transceivers
+
+  defp reverse_direction(:recvonly), do: :sendonly
+  defp reverse_direction(:sendonly), do: :recvonly
+  defp reverse_direction(dir) when dir in [:sendrecv, :inactive], do: dir
+
+  defp find_transceiver(transceivers, mid) do
+    transceivers
+    |> Enum.with_index(fn tr, idx -> {idx, tr} end)
+    |> Enum.find(fn {_idx, tr} -> tr.mid == mid end)
   end
 
   defp assign_mids(transceivers, next_mid) do

@@ -37,6 +37,9 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :audio}}}
 
+    {:ok, answer} = PeerConnection.create_answer(pc)
+    :ok = PeerConnection.set_local_description(pc, answer)
+
     offer = %SessionDescription{
       type: :offer,
       sdp: File.read!("test/fixtures/audio_video_sdp.txt")
