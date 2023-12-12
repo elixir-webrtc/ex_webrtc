@@ -7,7 +7,6 @@ defmodule ExWebRTC.PeerConnectionTest do
     MediaStreamTrack,
     PeerConnection,
     SessionDescription,
-    SDPUtils,
     Utils
   }
 
@@ -200,7 +199,7 @@ defmodule ExWebRTC.PeerConnectionTest do
       offer = %SessionDescription{type: :offer, sdp: sdp}
       assert {:error, :duplicated_mid} = PeerConnection.set_remote_description(pc, offer)
 
-      mline = SDPUtils.delete_attribute(@audio_mline, :mid)
+      mline = ExSDP.Media.delete_attribute(@audio_mline, :mid)
       sdp = ExSDP.add_media(raw_sdp, mline) |> to_string()
       offer = %SessionDescription{type: :offer, sdp: sdp}
       assert {:error, :missing_mid} = PeerConnection.set_remote_description(pc, offer)
@@ -229,8 +228,8 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       raw_sdp = ExSDP.new()
 
-      audio_mline = SDPUtils.delete_attributes(@audio_mline, [:ice_ufrag, :ice_pwd])
-      video_mline = SDPUtils.delete_attributes(@video_mline, [:ice_ufrag, :ice_pwd])
+      audio_mline = ExSDP.Media.delete_attributes(@audio_mline, [:ice_ufrag, :ice_pwd])
+      video_mline = ExSDP.Media.delete_attributes(@video_mline, [:ice_ufrag, :ice_pwd])
 
       [
         {{nil, nil}, {"someufrag", "somepwd"}, {"someufrag", "somepwd"}, :ok},
@@ -305,8 +304,8 @@ defmodule ExWebRTC.PeerConnectionTest do
       {:ok, pc} = PeerConnection.start_link()
       raw_sdp = ExSDP.new()
 
-      audio_mline = SDPUtils.delete_attribute(@audio_mline, :fingerprint)
-      video_mline = SDPUtils.delete_attribute(@video_mline, :fingerprint)
+      audio_mline = ExSDP.Media.delete_attribute(@audio_mline, :fingerprint)
+      video_mline = ExSDP.Media.delete_attribute(@video_mline, :fingerprint)
 
       [
         {{:sha256, @fingerprint}, {:sha256, @fingerprint}, {:sha256, @fingerprint}, :ok},
@@ -467,5 +466,65 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = PeerConnection.send_rtp(pc2, track2.id, packet)
 
     assert_receive {:ex_webrtc, ^pc1, {:rtp, ^id1, %ExRTP.Packet{payload: ^payload}}}
+  end
+
+  test "updates rtp header extension ids and payload types" do
+    # check wheter we update our RTP header extension ids
+    # and payload types when we receive a remote offer with different ones
+    {:ok, pc1} = PeerConnection.start_link()
+    {:ok, _} = PeerConnection.add_transceiver(pc1, :audio)
+    {:ok, offer} = PeerConnection.create_offer(pc1)
+
+    sdp = ExSDP.parse!(offer.sdp)
+
+    # munge Extmap and RTPMappingsso so that we use different ids and pts
+    [mline] = sdp.media
+
+    extmaps =
+      mline
+      |> ExSDP.Media.get_attributes(:extmap)
+      |> Enum.map(fn extmap -> %{extmap | id: extmap.id + 1} end)
+
+    rtp_mappings =
+      mline
+      |> ExSDP.Media.get_attributes(:rtpmap)
+      |> Enum.map(fn rtp_mapping ->
+        %{rtp_mapping | payload_type: rtp_mapping.payload_type + 1}
+      end)
+
+    fmtps =
+      mline
+      |> ExSDP.Media.get_attributes(:fmtp)
+      |> Enum.map(fn fmtp -> %{fmtp | pt: fmtp.pt + 1} end)
+
+    mline =
+      mline
+      |> ExSDP.Media.delete_attributes([:extmap, :rtpmap, :fmtp])
+      |> ExSDP.Media.add_attributes(extmaps ++ rtp_mappings ++ fmtps)
+
+    sdp = %{sdp | media: [mline]}
+
+    offer = %SessionDescription{type: :offer, sdp: to_string(sdp)}
+
+    {:ok, pc2} = PeerConnection.start_link()
+    :ok = PeerConnection.set_remote_description(pc2, offer)
+    {:ok, answer} = PeerConnection.create_answer(pc2)
+    :ok = PeerConnection.set_local_description(pc2, answer)
+
+    {:ok, _} = PeerConnection.add_transceiver(pc2, :audio)
+    {:ok, offer} = PeerConnection.create_offer(pc2)
+
+    [audio1, audio2] = ExSDP.parse!(offer.sdp).media
+
+    assert ExSDP.Media.get_attributes(audio1, :extmap) ==
+             ExSDP.Media.get_attributes(audio2, :extmap)
+
+    assert ExSDP.Media.get_attributes(audio1, :rtpmap) ==
+             ExSDP.Media.get_attributes(audio2, :rtpmap)
+
+    assert ExSDP.Media.get_attributes(audio1, :fmtp) == ExSDP.Media.get_attributes(audio2, :fmtp)
+
+    :ok = PeerConnection.close(pc1)
+    :ok = PeerConnection.close(pc2)
   end
 end

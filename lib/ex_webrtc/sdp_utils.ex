@@ -2,6 +2,9 @@ defmodule ExWebRTC.SDPUtils do
   @moduledoc false
 
   alias ExRTP.Packet.Extension
+  alias ExSDP.Attribute.Extmap
+
+  alias ExWebRTC.RTPCodecParameters
 
   @type extension() :: {Extension.SourceDescription, atom()}
 
@@ -11,26 +14,6 @@ defmodule ExWebRTC.SDPUtils do
     Enum.find(media.attributes, fn attr ->
       attr in [:sendrecv, :sendonly, :recvonly, :inactive]
     end)
-  end
-
-  @spec delete_attribute(ExSDP.t() | ExSDP.Media.t(), module() | atom() | binary()) ::
-          ExSDP.t() | ExSDP.Media.t()
-  def delete_attribute(sdp_or_mline, key) do
-    delete_attributes(sdp_or_mline, [key])
-  end
-
-  @spec delete_attributes(ExSDP.t() | ExSDP.Media.t(), [module() | atom() | binary()]) ::
-          ExSDP.t() | ExSDP.Media.t()
-  def delete_attributes(sdp_or_mline, attributes) when is_list(attributes) do
-    new_attrs =
-      Enum.reject(sdp_or_mline.attributes, fn
-        %module{} -> module in attributes
-        {k, _v} -> k in attributes
-        # flag attributes
-        k -> k in attributes
-      end)
-
-    Map.put(sdp_or_mline, :attributes, new_attrs)
   end
 
   @spec ensure_mid(ExSDP.t()) :: :ok | {:error, :missing_mid | :duplicated_mid}
@@ -201,15 +184,33 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
-  @spec get_extensions(ExSDP.t()) :: %{(id :: non_neg_integer()) => extension() | :unknown}
+  @spec get_extensions(ExSDP.t()) :: [Extmap.t()]
   def get_extensions(sdp) do
     # we assume that, if extension is present in multiple mlines, the IDs are the same (RFC 8285)
-    sdp.media
-    |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, :extmap))
-    |> Map.new(fn extmap ->
-      # TODO: handle direction and extension attributes
-      ext = urn_to_extension(extmap.uri)
-      {extmap.id, ext}
+    Enum.flat_map(sdp.media, &ExSDP.get_attributes(&1, Extmap))
+  end
+
+  @spec get_rtp_codec_parameters(ExSDP.t() | ExSDP.Media.t()) :: [RTPCodecParameters.t()]
+  def get_rtp_codec_parameters(sdp_or_mline)
+
+  def get_rtp_codec_parameters(%ExSDP{} = sdp), do: do_get_rtp_codec_parameters(sdp.media)
+
+  def get_rtp_codec_parameters(%ExSDP.Media{} = mline),
+    do: do_get_rtp_codec_parameters(List.wrap(mline))
+
+  defp do_get_rtp_codec_parameters(mlines) do
+    Enum.flat_map(mlines, fn mline ->
+      rtp_mappings = ExSDP.Media.get_attributes(mline, :rtpmap)
+      fmtps = ExSDP.Media.get_attributes(mline, :fmtp)
+      all_rtcp_fbs = ExSDP.Media.get_attributes(mline, :rtcp_feedback)
+
+      rtp_mappings
+      |> Enum.map(fn rtp_mapping ->
+        fmtp = Enum.find(fmtps, &(&1.pt == rtp_mapping.payload_type))
+        rtcp_fbs = Enum.filter(all_rtcp_fbs, &(&1.pt == rtp_mapping.payload_type))
+
+        RTPCodecParameters.new(mline.type, rtp_mapping, fmtp, rtcp_fbs)
+      end)
     end)
   end
 
@@ -245,13 +246,6 @@ defmodule ExWebRTC.SDPUtils do
     end)
     |> Map.new()
   end
-
-  # TODO: handle other types of extensions
-  defp urn_to_extension("urn:ietf:params:rtp-hdrext:sdes:" <> item)
-       when item in ["mid", "cname"],
-       do: {Extension.SourceDescription, String.to_atom(item)}
-
-  defp urn_to_extension(_other), do: :unknown
 
   defp do_get_ice_credentials(sdp_or_mline) do
     get_attr =

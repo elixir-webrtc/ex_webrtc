@@ -4,11 +4,12 @@ defmodule ExWebRTC.RTPTransceiver do
   """
 
   alias ExWebRTC.{
+    MediaStreamTrack,
     PeerConnection.Configuration,
     RTPCodecParameters,
     RTPReceiver,
     RTPSender,
-    MediaStreamTrack
+    SDPUtils
   }
 
   @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
@@ -39,8 +40,8 @@ defmodule ExWebRTC.RTPTransceiver do
 
     {rtp_hdr_exts, codecs} =
       case kind do
-        :audio -> {config.audio_rtp_hdr_exts, config.audio_codecs}
-        :video -> {config.video_rtp_hdr_exts, config.video_codecs}
+        :audio -> {Map.values(config.audio_rtp_hdr_exts), config.audio_codecs}
+        :video -> {Map.values(config.video_rtp_hdr_exts), config.video_codecs}
       end
 
     # When we create sendonly or sendrecv transceiver, we always only take one codec
@@ -184,22 +185,17 @@ defmodule ExWebRTC.RTPTransceiver do
   defp get_direction(:inactive, _), do: :inactive
 
   defp get_codecs(mline, config) do
-    rtp_mappings = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.RTPMapping)
-    fmtps = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.FMTP)
-    all_rtcp_fbs = ExSDP.Media.get_attributes(mline, ExSDP.Attribute.RTCPFeedback)
-
-    rtp_mappings
-    |> Stream.map(fn rtp_mapping ->
-      fmtp = Enum.find(fmtps, &(&1.pt == rtp_mapping.payload_type))
-
+    mline
+    |> SDPUtils.get_rtp_codec_parameters()
+    |> Stream.filter(&Configuration.is_supported_codec(config, &1))
+    |> Enum.map(fn codec ->
       rtcp_fbs =
-        all_rtcp_fbs
-        |> Stream.filter(&(&1.pt == rtp_mapping.payload_type))
-        |> Enum.filter(&Configuration.is_supported_rtcp_fb(config, &1))
+        Enum.filter(codec.rtcp_fbs, fn rtcp_fb ->
+          Configuration.is_supported_rtcp_fb(config, rtcp_fb)
+        end)
 
-      RTPCodecParameters.new(mline.type, rtp_mapping, fmtp, rtcp_fbs)
+      %RTPCodecParameters{codec | rtcp_fbs: rtcp_fbs}
     end)
-    |> Enum.filter(fn codec -> Configuration.is_supported_codec(config, codec) end)
   end
 
   defp get_rtp_hdr_extensions(mline, config) do

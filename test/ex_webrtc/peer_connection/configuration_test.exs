@@ -130,12 +130,12 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
     {:ok, pc} = PeerConnection.start_link(rtp_hdr_extensions: [:audio_level])
     {:ok, tr} = PeerConnection.add_transceiver(pc, :audio)
 
-    # we can't compare ids as those used in audio_video_offer are
-    # different than those used by us
-    assert [
-             %Extmap{uri: "urn:ietf:params:rtp-hdrext:ssrc-audio-level"},
-             %Extmap{uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}
-           ] = tr.rtp_hdr_exts
+    tr_rtp_hdr_exts = Enum.map(tr.rtp_hdr_exts, & &1.uri) |> MapSet.new()
+
+    assert MapSet.new([
+             "urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+             "urn:ietf:params:rtp-hdrext:sdes:mid"
+           ]) == tr_rtp_hdr_exts
 
     {:ok, tr} = PeerConnection.add_transceiver(pc, :video)
     assert [%Extmap{uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}] = tr.rtp_hdr_exts

@@ -515,6 +515,9 @@ defmodule ExWebRTC.PeerConnection do
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
          {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp) do
+      config = Configuration.update(state.config, sdp)
+      state = %{state | config: config}
+
       transceivers =
         state
         |> update_transceivers(sdp)

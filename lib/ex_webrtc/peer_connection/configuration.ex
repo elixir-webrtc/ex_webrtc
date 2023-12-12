@@ -3,7 +3,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   PeerConnection configuration
   """
 
-  alias ExWebRTC.RTPCodecParameters
+  alias ExWebRTC.{RTPCodecParameters, SDPUtils}
   alias ExSDP.Attribute.{Extmap, FMTP, RTCPFeedback}
 
   @default_audio_codecs [
@@ -48,8 +48,15 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     }
   }
 
-  @mandatory_audio_rtp_hdr_exts Enum.map([:mid], &Map.fetch!(@rtp_hdr_extensions, &1).ext)
-  @mandatory_video_rtp_hdr_exts Enum.map([:mid], &Map.fetch!(@rtp_hdr_extensions, &1).ext)
+  @mandatory_audio_rtp_hdr_exts Map.new([:mid], fn ext_shortcut ->
+                                  extmap = Map.fetch!(@rtp_hdr_extensions, ext_shortcut).ext
+                                  {extmap.uri, extmap}
+                                end)
+
+  @mandatory_video_rtp_hdr_exts Map.new([:mid], fn ext_shortcut ->
+                                  extmap = Map.fetch!(@rtp_hdr_extensions, ext_shortcut).ext
+                                  {extmap.uri, extmap}
+                                end)
 
   @typedoc """
   Supported RTP header extensions.
@@ -113,8 +120,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
-          audio_rtp_hdr_exts: [Extmap.t()],
-          video_rtp_hdr_exts: [Extmap.t()]
+          audio_rtp_hdr_exts: %{(uri :: String.t()) => Extmap.t()},
+          video_rtp_hdr_exts: %{(uri :: String.t()) => Extmap.t()}
         }
 
   defstruct ice_servers: [],
@@ -155,26 +162,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     # This function doesn't check if rtcp-fb is supported.
     # Instead, `is_supported_rtcp_fb` has to be used to filter out
     # rtcp-fb that are not supported.
-    Enum.any?(
-      config.audio_codecs ++ config.video_codecs,
-      fn supported_codec ->
-        # for the time of comparision, override payload type in our codec
-        supported_codec =
-          if supported_codec.sdp_fmtp_line != nil and codec.sdp_fmtp_line != nil do
-            %RTPCodecParameters{
-              supported_codec
-              | sdp_fmtp_line: %FMTP{supported_codec.sdp_fmtp_line | pt: codec.sdp_fmtp_line.pt}
-            }
-          else
-            supported_codec
-          end
-
-        supported_codec.mime_type == codec.mime_type and
-          supported_codec.clock_rate == codec.clock_rate and
-          supported_codec.channels == codec.channels and
-          supported_codec.sdp_fmtp_line == codec.sdp_fmtp_line
-      end
-    )
+    Enum.any?(config.audio_codecs ++ config.video_codecs, fn supported_codec ->
+      %{supported_codec | rtcp_fbs: codec.rtcp_fbs} == codec
+    end)
   end
 
   @doc false
@@ -183,8 +173,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   def is_supported_rtp_hdr_extension(config, rtp_hdr_extension, media_type) do
     supported_uris =
       case media_type do
-        :audio -> Enum.map(config.audio_rtp_hdr_exts, & &1.uri)
-        :video -> Enum.map(config.video_rtp_hdr_exts, & &1.uri)
+        :audio -> Map.keys(config.audio_rtp_hdr_exts)
+        :video -> Map.keys(config.video_rtp_hdr_exts)
       end
 
     rtp_hdr_extension.uri in supported_uris
@@ -194,34 +184,168 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @spec is_supported_rtcp_fb(t(), RTCPFeedback.t()) :: boolean()
   def is_supported_rtcp_fb(_config, _rtcp_fb), do: false
 
+  @doc false
+  @spec update(t(), ExSDP.t()) :: t()
+  def update(config, sdp) do
+    sdp_extmaps = SDPUtils.get_extensions(sdp)
+    sdp_codecs = SDPUtils.get_rtp_codec_parameters(sdp)
+
+    {audio_exts, video_exts} =
+      update_rtp_hdr_extensions(sdp_extmaps, config.audio_rtp_hdr_exts, config.video_rtp_hdr_exts)
+
+    {audio_codecs, video_codecs} =
+      update_codecs(sdp_codecs, config.audio_codecs, config.video_codecs)
+
+    %__MODULE__{
+      config
+      | audio_rtp_hdr_exts: audio_exts,
+        video_rtp_hdr_exts: video_exts,
+        audio_codecs: audio_codecs,
+        video_codecs: video_codecs
+    }
+  end
+
+  defp update_rtp_hdr_extensions(sdp_extmaps, audio_exts, video_exts)
+  defp update_rtp_hdr_extensions([], audio_exts, video_exts), do: {audio_exts, video_exts}
+
+  defp update_rtp_hdr_extensions([extmap | sdp_extmaps], audio_exts, video_exts)
+       when is_map_key(audio_exts, extmap.uri) do
+    update_rtp_hdr_extensions(sdp_extmaps, Map.put(audio_exts, extmap.uri, extmap), video_exts)
+  end
+
+  defp update_rtp_hdr_extensions([extmap | sdp_extmaps], audio_exts, video_exts)
+       when is_map_key(video_exts, extmap.uri) do
+    update_rtp_hdr_extensions(sdp_extmaps, audio_exts, Map.put(video_exts, extmap.uri, extmap))
+  end
+
+  defp update_rtp_hdr_extensions([_extmap | sdp_extmaps], audio_exts, video_exts) do
+    update_rtp_hdr_extensions(sdp_extmaps, audio_exts, video_exts)
+  end
+
+  defp update_codecs(sdp_codecs, audio_codecs, video_codecs)
+
+  defp update_codecs([], audio_codecs, video_codecs) do
+    {audio_codecs, video_codecs}
+  end
+
+  defp update_codecs(
+         [%{mime_type: "audio/" <> _} = codec | sdp_codecs],
+         audio_codecs,
+         video_codecs
+       ) do
+    audio_codec =
+      audio_codecs
+      |> Stream.with_index()
+      |> Enum.find(fn {audio_codec, _idx} ->
+        # For the time of comparision, assume the same payload type and rtcp_fbs.
+        # We don't want to take into account rtcp_fbs as they can be negotiated
+        # i.e. we can reject those that are not supported by us.
+        fmtp =
+          if audio_codec.sdp_fmtp_line != nil and codec.sdp_fmtp_line != nil do
+            %FMTP{audio_codec.sdp_fmtp_line | pt: codec.payload_type}
+          else
+            audio_codec.sdp_fmtp_line
+          end
+
+        audio_codec = %RTPCodecParameters{
+          audio_codec
+          | payload_type: codec.payload_type,
+            sdp_fmtp_line: fmtp,
+            rtcp_fbs: codec.rtcp_fbs
+        }
+
+        audio_codec == codec
+      end)
+
+    case audio_codec do
+      nil ->
+        update_codecs(sdp_codecs, audio_codecs, video_codecs)
+
+      {audio_codec, idx} ->
+        audio_codec = %RTPCodecParameters{
+          audio_codec
+          | payload_type: codec.payload_type,
+            sdp_fmtp_line: codec.sdp_fmtp_line
+        }
+
+        audio_codecs = List.insert_at(audio_codecs, idx, audio_codec)
+        update_codecs(sdp_codecs, audio_codecs, video_codecs)
+    end
+  end
+
+  defp update_codecs(
+         [%{mime_type: "video/" <> _} = codec | sdp_codecs],
+         audio_codecs,
+         video_codecs
+       ) do
+    video_codec =
+      video_codecs
+      |> Stream.with_index()
+      |> Enum.find(fn {video_codec, _idx} ->
+        fmtp =
+          if video_codec.sdp_fmtp_line != nil and codec.sdp_fmtp_line != nil do
+            %FMTP{video_codec.sdp_fmtp_line | pt: codec.payload_type}
+          else
+            video_codec.sdp_fmtp_line
+          end
+
+        video_codec = %RTPCodecParameters{
+          video_codec
+          | payload_type: codec.payload_type,
+            sdp_fmtp_line: fmtp,
+            rtcp_fbs: codec.rtcp_fbs
+        }
+
+        video_codec == codec
+      end)
+
+    case video_codec do
+      nil ->
+        update_codecs(sdp_codecs, audio_codecs, video_codecs)
+
+      {video_codec, idx} ->
+        video_codec = %RTPCodecParameters{
+          video_codec
+          | payload_type: codec.payload_type,
+            sdp_fmtp_line: codec.sdp_fmtp_line
+        }
+
+        video_codecs = List.insert_at(video_codecs, idx, video_codec)
+        update_codecs(sdp_codecs, audio_codecs, video_codecs)
+    end
+  end
+
   defp add_mandatory_rtp_hdr_extensions(options) do
     options
-    |> Keyword.update(:audio_rtp_hdr_exts, [], fn exts ->
-      exts ++ @mandatory_audio_rtp_hdr_exts
+    |> Keyword.update(:audio_rtp_hdr_exts, %{}, fn exts ->
+      Map.merge(exts, @mandatory_audio_rtp_hdr_exts)
     end)
-    |> Keyword.update(:video_rtp_hdr_exts, [], fn exts ->
-      exts ++ @mandatory_video_rtp_hdr_exts
+    |> Keyword.update(:video_rtp_hdr_exts, %{}, fn exts ->
+      Map.merge(exts, @mandatory_video_rtp_hdr_exts)
     end)
   end
 
   defp resolve_rtp_hdr_extensions(options) do
     {audio_exts, video_exts} =
       Keyword.get(options, :rtp_hdr_extensions, [])
-      |> Enum.reduce({[], []}, fn ext, {audio_exts, video_exts} ->
+      |> Enum.reduce({%{}, %{}}, fn ext, {audio_exts, video_exts} ->
         resolved_ext = Map.fetch!(@rtp_hdr_extensions, ext)
 
         case resolved_ext.media_type do
           :audio ->
-            {[resolved_ext.ext | audio_exts], video_exts}
+            audio_exts = Map.put(audio_exts, resolved_ext.ext.uri, resolved_ext.ext)
+            {audio_exts, video_exts}
 
           :all ->
-            {[resolved_ext.ext | audio_exts], [resolved_ext.ext | video_exts]}
+            audio_exts = Map.put(audio_exts, resolved_ext.ext.uri, resolved_ext.ext)
+            video_exts = Map.put(video_exts, resolved_ext.ext.uri, resolved_ext.ext)
+            {audio_exts, video_exts}
         end
       end)
 
     options
-    |> Keyword.put(:audio_rtp_hdr_exts, Enum.reverse(audio_exts))
-    |> Keyword.put(:video_rtp_hdr_exts, Enum.reverse(video_exts))
+    |> Keyword.put(:audio_rtp_hdr_exts, audio_exts)
+    |> Keyword.put(:video_rtp_hdr_exts, video_exts)
     |> Keyword.delete(:rtp_hdr_extensions)
   end
 
