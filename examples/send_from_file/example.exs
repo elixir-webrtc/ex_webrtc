@@ -45,7 +45,6 @@ defmodule Peer do
         {:ok, pc} =
           PeerConnection.start_link(
             ice_servers: @ice_servers,
-            ice_ip_filter: ice_ip_filter,
             video_codecs: [
               %RTPCodecParameters{
                 payload_type: 96,
@@ -119,14 +118,12 @@ defmodule Peer do
       {:ok, frame} ->
         {rtp_packets, payloader} = VP8Payloader.payload(state.payloader, frame.data)
 
-        {rtp_packets, last_timestamp} =
-          Enum.map_reduce(rtp_packets, state.last_timestamp, fn rtp_packet, last_timestamp ->
-            # the video has 30 FPS, VP8 clock rate is 90_000, so we have:
-            # 90_000 / 30 = 3_000
-            last_timestamp = last_timestamp + 3_000 &&& @max_rtp_timestamp
-            rtp_packet = %{packet | timestamp: last_timestamp}
-            {rtp_packet, last_timestamp}
-          end)
+        # the video has 30 FPS, VP8 clock rate is 90_000, so we have:
+        # 90_000 / 30 = 3_000
+        last_timestamp = state.last_timestamp + 3_000 &&& @max_rtp_timestamp
+
+        rtp_packets =
+          Enum.map(rtp_packets, fn rtp_packet -> %{rtp_packet | timestamp: last_timestamp} end)
 
         Enum.each(rtp_packets, fn rtp_packet ->
           PeerConnection.send_rtp(state.peer_connection, state.track_id, rtp_packet)
