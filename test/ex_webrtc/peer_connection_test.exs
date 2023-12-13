@@ -406,10 +406,11 @@ defmodule ExWebRTC.PeerConnectionTest do
     end
   end
 
-  test "sends basic data" do
+  test "can exchange data on single transceiver" do
+    # setup track pc1 -> pc2
     {:ok, pc1} = PeerConnection.start_link()
-    %MediaStreamTrack{id: id1} = track = ExWebRTC.MediaStreamTrack.new(:video)
-    {:ok, _} = PeerConnection.add_transceiver(pc1, track)
+    track1 = MediaStreamTrack.new(:audio)
+    {:ok, _sender} = PeerConnection.add_track(pc1, track1)
     {:ok, offer} = PeerConnection.create_offer(pc1)
     :ok = PeerConnection.set_local_description(pc1, offer)
 
@@ -417,20 +418,54 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = PeerConnection.set_remote_description(pc2, offer)
     {:ok, answer} = PeerConnection.create_answer(pc2)
     :ok = PeerConnection.set_local_description(pc2, answer)
-    :ok = PeerConnection.set_remote_description(pc1, answer)
-    assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :video, id: id2}}}
 
+    :ok = PeerConnection.set_remote_description(pc1, answer)
+
+    # setup track pc2 -> pc1
+    track2 = MediaStreamTrack.new(:audio)
+    {:ok, _sender} = PeerConnection.add_track(pc2, track2)
+    {:ok, offer} = PeerConnection.create_offer(pc2)
+    :ok = PeerConnection.set_local_description(pc2, offer)
+
+    :ok = PeerConnection.set_remote_description(pc1, offer)
+    {:ok, answer} = PeerConnection.create_answer(pc1)
+    :ok = PeerConnection.set_local_description(pc1, answer)
+
+    :ok = PeerConnection.set_remote_description(pc2, answer)
+
+    # exchange ICE candidates
+    assert_receive {:ex_webrtc, ^pc1, {:ice_candidate, candidate}}
+    :ok = PeerConnection.add_ice_candidate(pc2, candidate)
     assert_receive {:ex_webrtc, ^pc2, {:ice_candidate, candidate}}
     :ok = PeerConnection.add_ice_candidate(pc1, candidate)
 
+    # wait to establish connection
     assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}
+    assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :connected}}
+
+    # receive track info
+    assert_receive {:ex_webrtc, ^pc1, {:track, %MediaStreamTrack{kind: :audio, id: id1}}}
+    assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :audio, id: id2}}}
+
+    # check transceivers
+    assert [tr1] = PeerConnection.get_transceivers(pc1)
+    assert [tr2] = PeerConnection.get_transceivers(pc1)
+
+    assert tr1.mid == tr2.mid
+    assert tr1.current_direction == :sendrecv
+    assert tr2.current_direction == :sendrecv
+
+    # send data
     payload = <<3, 2, 5>>
     packet = ExRTP.Packet.new(payload, 111, 50_000, 3_000, 5_000)
-    :ok = PeerConnection.send_rtp(pc1, id1, packet)
+    :ok = PeerConnection.send_rtp(pc1, track1.id, packet)
 
     assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, %ExRTP.Packet{payload: ^payload}}}
-  end
 
-  test "can exchange data on single transceiver" do
+    payload = <<7, 8, 9>>
+    packet = ExRTP.Packet.new(payload, 111, 50_000, 3_000, 5_000)
+    :ok = PeerConnection.send_rtp(pc2, track2.id, packet)
+
+    assert_receive {:ex_webrtc, ^pc1, {:rtp, ^id1, %ExRTP.Packet{payload: ^payload}}}
   end
 end
