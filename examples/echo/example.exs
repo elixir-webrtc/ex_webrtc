@@ -91,9 +91,10 @@ defmodule Peer do
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
     track = ExWebRTC.MediaStreamTrack.new(:video)
-    {:ok, _} = PeerConnection.add_transceiver(pc, track)
+    {:ok, _} = PeerConnection.add_track(pc, track)
     {:ok, offer} = PeerConnection.create_offer(pc)
     :ok = PeerConnection.set_local_description(pc, offer)
+    dbg(PeerConnection.get_transceivers(pc))
     Logger.info("Sent SDP offer: #{inspect(offer.sdp)}")
     msg = %{"type" => "offer", "sdp" => offer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})

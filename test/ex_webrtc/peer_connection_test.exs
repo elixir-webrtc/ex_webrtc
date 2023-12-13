@@ -430,4 +430,7 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, %ExRTP.Packet{payload: ^payload}}}
   end
+
+  test "can exchange data on single transceiver" do
+  end
 end
