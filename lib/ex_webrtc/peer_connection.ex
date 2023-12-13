@@ -101,8 +101,14 @@ defmodule ExWebRTC.PeerConnection do
           transceiver_options()
         ) ::
           {:ok, RTPTransceiver.t()} | {:error, :TODO}
-  def add_transceiver(peer_connection, kind, options \\ []) do
-    GenServer.call(peer_connection, {:add_transceiver, kind, options})
+  def add_transceiver(peer_connection, kind_or_track, options \\ []) do
+    GenServer.call(peer_connection, {:add_transceiver, kind_or_track, options})
+  end
+
+  @spec add_track(peer_connection(), MediaStreamTrack.t()) ::
+          {:ok, RTPSender.t()} | {:error, :TODO}
+  def add_track(peer_connection, track) do
+    GenServer.call(peer_connection, {:add_track, track})
   end
 
   @spec close(peer_connection()) :: :ok
@@ -316,7 +322,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:add_transceiver, kind, options}, _from, state)
       when kind in [:audio, :video] do
-    transceiver = new_transceiver(kind, nil, options, state.config)
+    transceiver = new_transceiver(kind, nil, state.config, options)
     transceivers = state.transceivers ++ [transceiver]
 
     {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
@@ -324,10 +330,51 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call({:add_transceiver, %MediaStreamTrack{} = track, options}, _from, state) do
-    transceiver = new_transceiver(track.kind, track, options, state.config)
+    transceiver = new_transceiver(track.kind, track, state.config, options)
     transceivers = state.transceivers ++ [transceiver]
 
     {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
+  end
+
+  @impl true
+  def handle_call({:add_track, %MediaStreamTrack{kind: kind} = track}, _from, state) do
+    # we ignore the condition that sender has never been used to send
+    free_transceiver =
+      Enum.find_index(state.transceivers, fn
+        %RTPTransceiver{
+          kind: ^kind,
+          sender: %RTPSender{track: nil},
+          current_direction: cr
+        }
+        when cr not in [:sendrecv, :sendonly] ->
+          true
+
+        _other ->
+          false
+      end)
+
+    {transceivers, sender} =
+      case free_transceiver do
+        nil ->
+          tr = new_transceiver(kind, track, state.config, direction: :sendrecv)
+          {state.transceivers ++ [tr], tr.sender}
+
+        ix ->
+          tr = Enum.at(state.transceivers, ix)
+          sender = %RTPSender{tr.sender | track: track}
+
+          direction =
+            case tr.direction do
+              :recvonly -> :sendrecv
+              :inactive -> :sendonly
+              other -> other
+            end
+
+          tr = %RTPTransceiver{tr | sender: sender, direction: direction}
+          {List.replace_at(state.transceivers, ix, tr), tr.sender}
+      end
+
+    {:reply, {:ok, sender}, %{state | transceivers: transceivers}}
   end
 
   @impl true
@@ -431,7 +478,7 @@ defmodule ExWebRTC.PeerConnection do
     {:noreply, state}
   end
 
-  defp new_transceiver(kind, sender_track, options, config) do
+  defp new_transceiver(kind, sender_track, config, options) do
     direction = Keyword.get(options, :direction, :sendrecv)
 
     {rtp_hdr_exts, codecs} =
