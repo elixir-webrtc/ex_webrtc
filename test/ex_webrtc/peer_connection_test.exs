@@ -1,7 +1,15 @@
 defmodule ExWebRTC.PeerConnectionTest do
   use ExUnit.Case, async: true
 
-  alias ExWebRTC.{MediaStreamTrack, PeerConnection, SessionDescription, SDPUtils, Utils}
+  alias ExWebRTC.{
+    RTPTransceiver,
+    RTPSender,
+    MediaStreamTrack,
+    PeerConnection,
+    SessionDescription,
+    SDPUtils,
+    Utils
+  }
 
   {_pkey, cert} = ExDTLS.generate_key_cert()
 
@@ -29,26 +37,43 @@ defmodule ExWebRTC.PeerConnectionTest do
                  fingerprint: {:sha256, @fingerprint}
                )
 
-  test "track notification" do
-    {:ok, pc} = PeerConnection.start_link()
+  describe "track notifications" do
+    test "are emitted on new remote track" do
+      {:ok, pc} = PeerConnection.start_link()
 
-    offer = %SessionDescription{type: :offer, sdp: File.read!("test/fixtures/audio_sdp.txt")}
-    :ok = PeerConnection.set_remote_description(pc, offer)
+      offer = %SessionDescription{type: :offer, sdp: File.read!("test/fixtures/audio_sdp.txt")}
+      :ok = PeerConnection.set_remote_description(pc, offer)
 
-    assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :audio}}}
+      assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :audio}}}
 
-    {:ok, answer} = PeerConnection.create_answer(pc)
-    :ok = PeerConnection.set_local_description(pc, answer)
+      {:ok, answer} = PeerConnection.create_answer(pc)
+      :ok = PeerConnection.set_local_description(pc, answer)
 
-    offer = %SessionDescription{
-      type: :offer,
-      sdp: File.read!("test/fixtures/audio_video_sdp.txt")
-    }
+      offer = %SessionDescription{
+        type: :offer,
+        sdp: File.read!("test/fixtures/audio_video_sdp.txt")
+      }
 
-    :ok = PeerConnection.set_remote_description(pc, offer)
+      :ok = PeerConnection.set_remote_description(pc, offer)
 
-    assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :video}}}
-    refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
+      assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :video}}}
+      refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
+    end
+
+    test "are not emitted for the same track twice" do
+      {:ok, pc} = PeerConnection.start_link()
+
+      offer = %SessionDescription{type: :offer, sdp: File.read!("test/fixtures/audio_sdp.txt")}
+      :ok = PeerConnection.set_remote_description(pc, offer)
+
+      assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :audio}}}
+
+      {:ok, answer} = PeerConnection.create_answer(pc)
+      :ok = PeerConnection.set_local_description(pc, answer)
+
+      :ok = PeerConnection.set_remote_description(pc, offer)
+      refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
+    end
   end
 
   test "signaling state change" do
@@ -328,6 +353,56 @@ defmodule ExWebRTC.PeerConnectionTest do
 
         assert expected_result == PeerConnection.set_remote_description(pc, offer)
       end)
+    end
+  end
+
+  describe "add_track/2" do
+    test "with no available transceivers" do
+      {:ok, pc} = PeerConnection.start_link()
+      track = MediaStreamTrack.new(:audio)
+
+      assert {:ok, sender} = PeerConnection.add_track(pc, track)
+      assert sender.track == track
+
+      assert [transceiver] = PeerConnection.get_transceivers(pc)
+      assert %RTPTransceiver{sender: ^sender, direction: :sendrecv} = transceiver
+    end
+
+    test "with transceiver available" do
+      {:ok, tmp_pc} = PeerConnection.start_link()
+      {:ok, _tr} = PeerConnection.add_transceiver(tmp_pc, :audio, direction: :sendonly)
+      {:ok, offer} = PeerConnection.create_offer(tmp_pc)
+
+      {:ok, pc} = PeerConnection.start_link()
+      :ok = PeerConnection.set_remote_description(pc, offer)
+      {:ok, answer} = PeerConnection.create_answer(pc)
+      :ok = PeerConnection.set_local_description(pc, answer)
+
+      assert [
+               %RTPTransceiver{
+                 current_direction: :recvonly,
+                 sender: %RTPSender{track: nil}
+               }
+             ] = PeerConnection.get_transceivers(pc)
+
+      track = MediaStreamTrack.new(:audio)
+      assert {:ok, sender} = PeerConnection.add_track(pc, track)
+      assert sender.track == track
+
+      assert [transceiver] = PeerConnection.get_transceivers(pc)
+      assert %RTPTransceiver{sender: ^sender, direction: :sendrecv} = transceiver
+    end
+
+    test "won't choose inappropriate transceiver" do
+      {:ok, pc} = PeerConnection.start_link()
+      {:ok, tr} = PeerConnection.add_transceiver(pc, MediaStreamTrack.new(:audio))
+
+      track = MediaStreamTrack.new(:audio)
+      assert {:ok, sender} = PeerConnection.add_track(pc, track)
+      assert sender.track == track
+
+      assert [^tr, transceiver] = PeerConnection.get_transceivers(pc)
+      assert %RTPTransceiver{sender: ^sender, direction: :sendrecv} = transceiver
     end
   end
 
