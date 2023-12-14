@@ -66,7 +66,7 @@ defmodule ExWebRTC.RTPTransceiver do
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
       receiver: %RTPReceiver{track: track},
-      sender: RTPSender.new(sender_track, List.first(codecs), rtp_hdr_exts)
+      sender: RTPSender.new(sender_track, List.first(codecs), rtp_hdr_exts, options[:ssrc])
     }
   end
 
@@ -87,7 +87,7 @@ defmodule ExWebRTC.RTPTransceiver do
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
       receiver: %RTPReceiver{track: track},
-      sender: RTPSender.new(nil, List.first(codecs), rtp_hdr_exts, mid)
+      sender: RTPSender.new(nil, List.first(codecs), rtp_hdr_exts, mid, nil)
     }
   end
 

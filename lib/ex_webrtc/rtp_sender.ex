@@ -15,15 +15,21 @@ defmodule ExWebRTC.RTPSender do
           rtp_hdr_exts: %{Extmap.extension_id() => Extmap.t()},
           mid: String.t() | nil,
           pt: non_neg_integer(),
-          ssrc: non_neg_integer(),
+          ssrc: non_neg_integer() | nil,
           last_seq_num: non_neg_integer()
         }
 
   defstruct [:track, :codec, :rtp_hdr_exts, :mid, :pt, :ssrc, :last_seq_num]
 
   @doc false
-  @spec new(MediaStreamTrack.t() | nil, RTPCodecParameters.t() | nil, [Extmap.t()]) :: t()
-  def new(track, codec, rtp_hdr_exts, mid \\ nil) do
+  @spec new(
+          MediaStreamTrack.t() | nil,
+          RTPCodecParameters.t() | nil,
+          [Extmap.t()],
+          String.t() | nil,
+          non_neg_integer | nil
+        ) :: t()
+  def new(track, codec, rtp_hdr_exts, mid \\ nil, ssrc) do
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
     # TODO: handle cases when codec == nil (no valid codecs after negotiation)
@@ -34,7 +40,7 @@ defmodule ExWebRTC.RTPSender do
       codec: codec,
       rtp_hdr_exts: rtp_hdr_exts,
       pt: pt,
-      ssrc: 1234,
+      ssrc: ssrc,
       last_seq_num: random_seq_num(),
       mid: mid
     }
