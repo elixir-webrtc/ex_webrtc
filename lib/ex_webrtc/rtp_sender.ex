@@ -22,7 +22,7 @@ defmodule ExWebRTC.RTPSender do
   defstruct [:track, :codec, :rtp_hdr_exts, :mid, :pt, :ssrc, :last_seq_num]
 
   @doc false
-  @spec new(MediaStreamTrack.t() | nil, RTPCodecParameters.t(), [Extmap.t()]) :: t()
+  @spec new(MediaStreamTrack.t() | nil, RTPCodecParameters.t() | nil, [Extmap.t()]) :: t()
   def new(track, codec, rtp_hdr_exts, mid \\ nil) do
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)

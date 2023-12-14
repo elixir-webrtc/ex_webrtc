@@ -17,7 +17,7 @@ defmodule ExWebRTC.RTPTransceiver do
   @type t() :: %__MODULE__{
           mid: String.t() | nil,
           direction: direction(),
-          current_direction: direction(),
+          current_direction: direction() | nil,
           kind: kind(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()],
@@ -33,6 +33,7 @@ defmodule ExWebRTC.RTPTransceiver do
               ]
 
   @doc false
+  @spec new(kind(), MediaStreamTrack.t() | nil, Configuration.t(), Keyword.t()) :: t()
   def new(kind, sender_track, config, options) do
     direction = Keyword.get(options, :direction, :sendrecv)
 
@@ -69,6 +70,7 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
+  @spec from_mline(ExSDP.Media.t(), Configuration.t()) :: t()
   def from_mline(mline, config) do
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
@@ -89,6 +91,7 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
+  @spec update(t(), ExSDP.Media.t(), Configuration.t()) :: t()
   def update(transceiver, mline, config) do
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)

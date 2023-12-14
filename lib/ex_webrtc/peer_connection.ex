@@ -338,14 +338,14 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:add_track, %MediaStreamTrack{kind: kind} = track}, _from, state) do
     # we ignore the condition that sender has never been used to send
-    free_transceiver =
+    free_transceiver_idx =
       Enum.find_index(state.transceivers, fn
         %RTPTransceiver{
           kind: ^kind,
           sender: %RTPSender{track: nil},
-          current_direction: cr
+          current_direction: direction
         }
-        when cr not in [:sendrecv, :sendonly] ->
+        when direction not in [:sendrecv, :sendonly] ->
           true
 
         _other ->
@@ -353,13 +353,13 @@ defmodule ExWebRTC.PeerConnection do
       end)
 
     {transceivers, sender} =
-      case free_transceiver do
+      case free_transceiver_idx do
         nil ->
           tr = RTPTransceiver.new(kind, track, state.config, direction: :sendrecv)
           {state.transceivers ++ [tr], tr.sender}
 
-        ix ->
-          tr = Enum.at(state.transceivers, ix)
+        idx ->
+          tr = Enum.at(state.transceivers, idx)
           sender = %RTPSender{tr.sender | track: track}
 
           direction =
@@ -370,7 +370,7 @@ defmodule ExWebRTC.PeerConnection do
             end
 
           tr = %RTPTransceiver{tr | sender: sender, direction: direction}
-          {List.replace_at(state.transceivers, ix, tr), tr.sender}
+          {List.replace_at(state.transceivers, idx, tr), tr.sender}
       end
 
     {:reply, {:ok, sender}, %{state | transceivers: transceivers}}
