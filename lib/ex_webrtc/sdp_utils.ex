@@ -20,7 +20,7 @@ defmodule ExWebRTC.SDPUtils do
   def ensure_mid(sdp) do
     sdp.media
     |> Enum.reduce_while({:ok, []}, fn media, {:ok, acc} ->
-      case ExSDP.Media.get_attributes(media, :mid) do
+      case ExSDP.get_attributes(media, :mid) do
         [{:mid, mid}] -> {:cont, {:ok, [mid | acc]}}
         [] -> {:halt, {:error, :missing_mid}}
         other when is_list(other) -> {:halt, {:error, :duplicated_mid}}
@@ -44,7 +44,7 @@ defmodule ExWebRTC.SDPUtils do
 
     mline_mids =
       Enum.map(sdp.media, fn media ->
-        {:mid, mid} = ExSDP.Media.get_attribute(media, :mid)
+        {:mid, mid} = ExSDP.get_attribute(media, :mid)
         mid
       end)
 
@@ -67,7 +67,7 @@ defmodule ExWebRTC.SDPUtils do
   @spec ensure_rtcp_mux(ExSDP.t()) :: :ok | {:error, :missing_rtcp_mux}
   def ensure_rtcp_mux(sdp) do
     sdp.media
-    |> Enum.all?(&(ExSDP.Media.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
+    |> Enum.all?(&(ExSDP.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
     |> case do
       true -> :ok
       false -> {:error, :missing_rtcp_mux}
@@ -119,7 +119,7 @@ defmodule ExWebRTC.SDPUtils do
   @spec get_ice_candidates(ExSDP.t()) :: [String.t()]
   def get_ice_candidates(sdp) do
     sdp.media
-    |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, "candidate"))
+    |> Enum.flat_map(&ExSDP.get_attributes(&1, "candidate"))
     |> Enum.map(fn {"candidate", attr} -> attr end)
   end
 
@@ -131,7 +131,7 @@ defmodule ExWebRTC.SDPUtils do
 
     mline_roles =
       sdp.media
-      |> Enum.flat_map(&ExSDP.Media.get_attributes(&1, :setup))
+      |> Enum.flat_map(&ExSDP.get_attributes(&1, :setup))
       |> Enum.map(fn {_, setup} -> setup end)
 
     case {session_role, mline_roles} do
@@ -200,9 +200,9 @@ defmodule ExWebRTC.SDPUtils do
 
   defp do_get_rtp_codec_parameters(mlines) do
     Enum.flat_map(mlines, fn mline ->
-      rtp_mappings = ExSDP.Media.get_attributes(mline, :rtpmap)
-      fmtps = ExSDP.Media.get_attributes(mline, :fmtp)
-      all_rtcp_fbs = ExSDP.Media.get_attributes(mline, :rtcp_feedback)
+      rtp_mappings = ExSDP.get_attributes(mline, :rtpmap)
+      fmtps = ExSDP.get_attributes(mline, :fmtp)
+      all_rtcp_fbs = ExSDP.get_attributes(mline, :rtcp_feedback)
 
       rtp_mappings
       |> Enum.map(fn rtp_mapping ->
@@ -220,8 +220,8 @@ defmodule ExWebRTC.SDPUtils do
     # thus, it is not placed in the returned map
     sdp.media
     |> Enum.flat_map(fn mline ->
-      {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
-      encodings = ExSDP.Media.get_attributes(mline, :rtpmap)
+      {:mid, mid} = ExSDP.get_attribute(mline, :mid)
+      encodings = ExSDP.get_attributes(mline, :rtpmap)
 
       Enum.map(encodings, &{&1.payload_type, mid})
     end)
@@ -237,8 +237,8 @@ defmodule ExWebRTC.SDPUtils do
   def get_ssrc_to_mid(sdp) do
     sdp.media
     |> Enum.flat_map(fn mline ->
-      with {:mid, mid} <- ExSDP.Media.get_attribute(mline, :mid),
-           %ExSDP.Attribute.SSRC{id: ssrc} <- ExSDP.Media.get_attribute(mline, :ssrc) do
+      with {:mid, mid} <- ExSDP.get_attribute(mline, :mid),
+           %ExSDP.Attribute.SSRC{id: ssrc} <- ExSDP.get_attribute(mline, :ssrc) do
         [{ssrc, mid}]
       else
         _ -> []
@@ -251,7 +251,7 @@ defmodule ExWebRTC.SDPUtils do
     get_attr =
       case sdp_or_mline do
         %ExSDP{} -> &ExSDP.get_attribute/2
-        %ExSDP.Media{} -> &ExSDP.Media.get_attribute/2
+        %ExSDP.Media{} -> &ExSDP.get_attribute/2
       end
 
     ice_ufrag =
@@ -273,7 +273,7 @@ defmodule ExWebRTC.SDPUtils do
     get_attr =
       case sdp_or_mline do
         %ExSDP{} -> &ExSDP.get_attribute/2
-        %ExSDP.Media{} -> &ExSDP.Media.get_attribute/2
+        %ExSDP.Media{} -> &ExSDP.get_attribute/2
       end
 
     get_attr.(sdp_or_mline, :fingerprint)

@@ -75,7 +75,7 @@ defmodule ExWebRTC.RTPTransceiver do
   def from_mline(mline, config) do
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+    {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
     track = MediaStreamTrack.new(mline.type)
 
@@ -114,7 +114,7 @@ defmodule ExWebRTC.RTPTransceiver do
       # see RFC 8299 sec. 5.3.1 and RFC 3264 sec. 6
       %ExSDP.Media{mline | port: 0}
     else
-      offered_direction = ExSDP.Media.get_attribute(mline, :direction)
+      offered_direction = ExSDP.get_attribute(mline, :direction)
       direction = get_direction(offered_direction, transceiver.direction)
       opts = Keyword.put(opts, :direction, direction)
       to_mline(transceiver, opts)
@@ -171,7 +171,7 @@ defmodule ExWebRTC.RTPTransceiver do
         # the default value "IN IP4 0.0.0.0" (as there are no candidates yet)
         connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
     }
-    |> ExSDP.Media.add_attributes(attributes ++ media_formats)
+    |> ExSDP.add_attributes(attributes ++ media_formats)
   end
 
   # RFC 3264 (6.1) + RFC 8829 (5.3.1)
@@ -200,7 +200,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
   defp get_rtp_hdr_extensions(mline, config) do
     mline
-    |> ExSDP.Media.get_attributes(ExSDP.Attribute.Extmap)
+    |> ExSDP.get_attributes(ExSDP.Attribute.Extmap)
     |> Enum.filter(&Configuration.is_supported_rtp_hdr_extension(config, &1, mline.type))
   end
 end
