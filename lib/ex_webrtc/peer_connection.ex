@@ -15,7 +15,6 @@ defmodule ExWebRTC.PeerConnection do
     IceCandidate,
     MediaStreamTrack,
     RTPTransceiver,
-    RTPReceiver,
     RTPSender,
     SDPUtils,
     SessionDescription,
@@ -101,8 +100,14 @@ defmodule ExWebRTC.PeerConnection do
           transceiver_options()
         ) ::
           {:ok, RTPTransceiver.t()} | {:error, :TODO}
-  def add_transceiver(peer_connection, kind, options \\ []) do
-    GenServer.call(peer_connection, {:add_transceiver, kind, options})
+  def add_transceiver(peer_connection, kind_or_track, options \\ []) do
+    GenServer.call(peer_connection, {:add_transceiver, kind_or_track, options})
+  end
+
+  @spec add_track(peer_connection(), MediaStreamTrack.t()) ::
+          {:ok, RTPSender.t()} | {:error, :TODO}
+  def add_track(peer_connection, track) do
+    GenServer.call(peer_connection, {:add_track, track})
   end
 
   @spec close(peer_connection()) :: :ok
@@ -316,7 +321,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:add_transceiver, kind, options}, _from, state)
       when kind in [:audio, :video] do
-    transceiver = new_transceiver(kind, nil, options, state.config)
+    transceiver = RTPTransceiver.new(kind, nil, state.config, options)
     transceivers = state.transceivers ++ [transceiver]
 
     {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
@@ -324,10 +329,51 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call({:add_transceiver, %MediaStreamTrack{} = track, options}, _from, state) do
-    transceiver = new_transceiver(track.kind, track, options, state.config)
+    transceiver = RTPTransceiver.new(track.kind, track, state.config, options)
     transceivers = state.transceivers ++ [transceiver]
 
     {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
+  end
+
+  @impl true
+  def handle_call({:add_track, %MediaStreamTrack{kind: kind} = track}, _from, state) do
+    # we ignore the condition that sender has never been used to send
+    free_transceiver_idx =
+      Enum.find_index(state.transceivers, fn
+        %RTPTransceiver{
+          kind: ^kind,
+          sender: %RTPSender{track: nil},
+          current_direction: direction
+        }
+        when direction not in [:sendrecv, :sendonly] ->
+          true
+
+        _other ->
+          false
+      end)
+
+    {transceivers, sender} =
+      case free_transceiver_idx do
+        nil ->
+          tr = RTPTransceiver.new(kind, track, state.config, direction: :sendrecv)
+          {state.transceivers ++ [tr], tr.sender}
+
+        idx ->
+          tr = Enum.at(state.transceivers, idx)
+          sender = %RTPSender{tr.sender | track: track}
+
+          direction =
+            case tr.direction do
+              :recvonly -> :sendrecv
+              :inactive -> :sendonly
+              other -> other
+            end
+
+          tr = %RTPTransceiver{tr | sender: sender, direction: direction}
+          {List.replace_at(state.transceivers, idx, tr), tr.sender}
+      end
+
+    {:reply, {:ok, sender}, %{state | transceivers: transceivers}}
   end
 
   @impl true
@@ -429,41 +475,6 @@ defmodule ExWebRTC.PeerConnection do
   def handle_info(msg, state) do
     Logger.info("OTHER MSG #{inspect(msg)}")
     {:noreply, state}
-  end
-
-  defp new_transceiver(kind, sender_track, options, config) do
-    direction = Keyword.get(options, :direction, :sendrecv)
-
-    {rtp_hdr_exts, codecs} =
-      case kind do
-        :audio -> {config.audio_rtp_hdr_exts, config.audio_codecs}
-        :video -> {config.video_rtp_hdr_exts, config.video_codecs}
-      end
-
-    # When we create sendonly or sendrecv transceiver, we always only take one codec
-    # to avoid ambiguity when assigning payload type for RTP packets in RTPSender.
-    # In other case, if PeerConnection negotiated multiple codecs,
-    # user would have to pass RTP codec when sending RTP packets,
-    # or assing payload type on their own.
-    codecs =
-      if direction in [:sendrecv, :sendonly] do
-        Enum.slice(codecs, 0, 1)
-      else
-        codecs
-      end
-
-    track = MediaStreamTrack.new(kind)
-
-    %RTPTransceiver{
-      mid: nil,
-      direction: direction,
-      current_direction: nil,
-      kind: kind,
-      codecs: codecs,
-      rtp_hdr_exts: rtp_hdr_exts,
-      receiver: %RTPReceiver{track: track},
-      sender: RTPSender.new(sender_track, List.first(codecs), rtp_hdr_exts)
-    }
   end
 
   defp apply_local_description(%SessionDescription{type: type}, _state)

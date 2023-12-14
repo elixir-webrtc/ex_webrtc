@@ -17,7 +17,7 @@ defmodule ExWebRTC.RTPTransceiver do
   @type t() :: %__MODULE__{
           mid: String.t() | nil,
           direction: direction(),
-          current_direction: direction(),
+          current_direction: direction() | nil,
           kind: kind(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()],
@@ -25,16 +25,52 @@ defmodule ExWebRTC.RTPTransceiver do
           sender: RTPSender.t()
         }
 
-  @enforce_keys [:mid, :direction, :current_direction, :kind]
+  @enforce_keys [:mid, :direction, :current_direction, :kind, :sender, :receiver]
   defstruct @enforce_keys ++
               [
                 codecs: [],
-                rtp_hdr_exts: [],
-                receiver: %RTPReceiver{},
-                sender: %RTPSender{}
+                rtp_hdr_exts: []
               ]
 
   @doc false
+  @spec new(kind(), MediaStreamTrack.t() | nil, Configuration.t(), Keyword.t()) :: t()
+  def new(kind, sender_track, config, options) do
+    direction = Keyword.get(options, :direction, :sendrecv)
+
+    {rtp_hdr_exts, codecs} =
+      case kind do
+        :audio -> {config.audio_rtp_hdr_exts, config.audio_codecs}
+        :video -> {config.video_rtp_hdr_exts, config.video_codecs}
+      end
+
+    # When we create sendonly or sendrecv transceiver, we always only take one codec
+    # to avoid ambiguity when assigning payload type for RTP packets in RTPSender.
+    # In other case, if PeerConnection negotiated multiple codecs,
+    # user would have to pass RTP codec when sending RTP packets,
+    # or assing payload type on their own.
+    codecs =
+      if direction in [:sendrecv, :sendonly] do
+        Enum.slice(codecs, 0, 1)
+      else
+        codecs
+      end
+
+    track = MediaStreamTrack.new(kind)
+
+    %__MODULE__{
+      mid: nil,
+      direction: direction,
+      current_direction: nil,
+      kind: kind,
+      codecs: codecs,
+      rtp_hdr_exts: rtp_hdr_exts,
+      receiver: %RTPReceiver{track: track},
+      sender: RTPSender.new(sender_track, List.first(codecs), rtp_hdr_exts)
+    }
+  end
+
+  @doc false
+  @spec from_mline(ExSDP.Media.t(), Configuration.t()) :: t()
   def from_mline(mline, config) do
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
@@ -49,19 +85,23 @@ defmodule ExWebRTC.RTPTransceiver do
       kind: mline.type,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
-      receiver: %RTPReceiver{track: track}
+      receiver: %RTPReceiver{track: track},
+      sender: RTPSender.new(nil, List.first(codecs), rtp_hdr_exts, mid)
     }
   end
 
   @doc false
+  @spec update(t(), ExSDP.Media.t(), Configuration.t()) :: t()
   def update(transceiver, mline, config) do
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
+    sender = RTPSender.update(transceiver.sender, List.first(codecs), rtp_hdr_exts)
 
     %__MODULE__{
       transceiver
       | codecs: codecs,
-        rtp_hdr_exts: rtp_hdr_exts
+        rtp_hdr_exts: rtp_hdr_exts,
+        sender: sender
     }
   end
 
@@ -90,7 +130,7 @@ defmodule ExWebRTC.RTPTransceiver do
   # asssings mid to the transceiver and its sender
   @spec assign_mid(t(), String.t()) :: t()
   def assign_mid(transceiver, mid) do
-    sender = %{transceiver.sender | mid: mid}
+    sender = %RTPSender{transceiver.sender | mid: mid}
     %{transceiver | mid: mid, sender: sender}
   end
 
