@@ -13,7 +13,11 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
   alias ExRTP.Packet.Extension
   alias ExRTP.Packet.Extension.SourceDescription
 
+  alias ExSDP.Attribute.Extmap
+
   alias ExWebRTC.SDPUtils
+
+  @mid_uri "urn:ietf:params:rtp-hdrext:sdes:mid"
 
   @type t() :: %__MODULE__{
           ssrc_to_mid: %{(ssrc :: non_neg_integer()) => mid :: binary()},
@@ -32,8 +36,8 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
       sdp
       |> SDPUtils.get_extensions()
       |> Enum.find_value(fn
-        {id, {SourceDescription, :mid}} -> id
-        _ -> nil
+        %Extmap{uri: @mid_uri, id: id} -> id
+        _other -> nil
       end)
 
     %__MODULE__{

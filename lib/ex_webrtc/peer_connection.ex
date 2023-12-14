@@ -202,7 +202,7 @@ defmodule ExWebRTC.PeerConnection do
 
     mids =
       Enum.map(mlines, fn mline ->
-        {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
         mid
       end)
 
@@ -255,14 +255,14 @@ defmodule ExWebRTC.PeerConnection do
     # TODO: rejected media sections
     mlines =
       Enum.map(remote_offer.media, fn mline ->
-        {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
         {_ix, transceiver} = find_transceiver(state.transceivers, mid)
         RTPTransceiver.to_answer_mline(transceiver, mline, opts)
       end)
 
     mids =
       Enum.map(mlines, fn mline ->
-        {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
         mid
       end)
 
@@ -515,6 +515,9 @@ defmodule ExWebRTC.PeerConnection do
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
          {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp) do
+      config = Configuration.update(state.config, sdp)
+      state = %{state | config: config}
+
       transceivers =
         state
         |> update_transceivers(sdp)
@@ -636,7 +639,7 @@ defmodule ExWebRTC.PeerConnection do
 
   defp update_transceivers(state, sdp) do
     Enum.reduce(sdp.media, state.transceivers, fn mline, transceivers ->
-      {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+      {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
       # TODO: consider recycled transceivers
       case find_transceiver(transceivers, mid) do
@@ -668,7 +671,7 @@ defmodule ExWebRTC.PeerConnection do
 
   defp update_transceiver_directions(transceivers, sdp, source, :answer) do
     Enum.reduce(sdp.media, transceivers, fn mline, transceivers ->
-      {:mid, mid} = ExSDP.Media.get_attribute(mline, :mid)
+      {:mid, mid} = ExSDP.get_attribute(mline, :mid)
       {idx, transceiver} = find_transceiver(transceivers, mid)
 
       direction = SDPUtils.get_media_direction(mline)
@@ -736,7 +739,7 @@ defmodule ExWebRTC.PeerConnection do
 
   defp get_desc_mids({_, remote_desc}) do
     Enum.flat_map(remote_desc.media, fn mline ->
-      with {:mid, mid} <- ExSDP.Media.get_attribute(mline, :mid),
+      with {:mid, mid} <- ExSDP.get_attribute(mline, :mid),
            {mid, ""} <- Integer.parse(mid) do
         [mid]
       else
