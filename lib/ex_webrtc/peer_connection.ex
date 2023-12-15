@@ -431,7 +431,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:ex_ice, _from, {:gathering_state_changed, new_gathering_state}}, state) do
+  def handle_info({:ex_ice, _from, {:gathering_state_change, new_gathering_state}}, state) do
     state = %{state | ice_gathering_state: new_gathering_state}
     {:noreply, state}
   end
