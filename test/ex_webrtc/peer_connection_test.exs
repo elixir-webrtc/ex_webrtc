@@ -527,4 +527,10 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = PeerConnection.close(pc1)
     :ok = PeerConnection.close(pc2)
   end
+
+  test "close/1" do
+    {:ok, pc} = PeerConnection.start_link()
+    assert :ok == PeerConnection.close(pc)
+    assert false == Process.alive?(pc)
+  end
 end

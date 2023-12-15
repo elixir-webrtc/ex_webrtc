@@ -482,6 +482,13 @@ defmodule ExWebRTC.PeerConnection do
     {:noreply, state}
   end
 
+  @impl true
+  def terminate(reason, state) do
+    Logger.debug("Closing peer connection with reason: #{inspect(reason)}")
+    :ok = DTLSTransport.stop(state.dtls_transport)
+    :ok = state.ice_transport.stop(state.ice_pid)
+  end
+
   defp apply_local_description(%SessionDescription{type: type}, _state)
        when type in [:rollback, :pranswer],
        do: {:error, :not_implemented}

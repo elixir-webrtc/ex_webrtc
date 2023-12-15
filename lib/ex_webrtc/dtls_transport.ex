@@ -72,6 +72,12 @@ defmodule ExWebRTC.DTLSTransport do
     GenServer.cast(dtls_transport, {:send_rtcp, data})
   end
 
+  @doc false
+  @spec stop(dtls_transport()) :: :ok
+  def stop(dtls_transport) do
+    GenServer.stop(dtls_transport)
+  end
+
   @impl true
   def init([ice_transport, ice_pid, owner]) do
     {pkey, cert} = ExDTLS.generate_key_cert()
@@ -213,6 +219,11 @@ defmodule ExWebRTC.DTLSTransport do
   def handle_info(msg, state) do
     Logger.debug("DTLSTransport received unexpected message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  @impl true
+  def terminate(reason, _state) do
+    Logger.debug("Stopping DTLSTransport with reason: #{inspect(reason)}")
   end
 
   defp handle_ice_data({:data, <<f, _rest::binary>> = data}, state) when f in 20..64 do
