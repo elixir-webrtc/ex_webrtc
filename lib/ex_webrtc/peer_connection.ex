@@ -37,9 +37,21 @@ defmodule ExWebRTC.PeerConnection do
   @typedoc """
   Messages sent by the ExWebRTC.
   """
-  @type signal() :: {:ex_webrtc, pid(), connection_state_change()}
+  @type signal() ::
+          {:ex_webrtc, pid(),
+           :negotiation_needed
+           | {:ice_candidate, IceCandidate.t()}
+           | {:signaling_state_change, signaling_state()}
+           | {:connection_state_change, connection_state()}
+           | {:track, MediaStreamTrack.t()}
+           | {:rtp, MediaStreamTrack.id(), ExRTP.Packet.t()}}
 
-  @type connection_state_change() :: {:connection_state_change, connection_state()}
+  @typedoc """
+  Possible PeerConnection signaling states.
+
+  For the exact meaning, refer to the [WebRTC W3C, section 4.3.1](https://www.w3.org/TR/webrtc/#dom-rtcsignalingstate)
+  """
+  @type signaling_state() :: :stable | :have_local_offer | :have_remote_offer
 
   @typedoc """
   Possible PeerConnection states.
@@ -142,6 +154,7 @@ defmodule ExWebRTC.PeerConnection do
       pending_local_desc: nil,
       current_remote_desc: nil,
       pending_remote_desc: nil,
+      negotiation_needed: false,
       ice_transport: DefaultICETransport,
       ice_pid: ice_pid,
       dtls_transport: dtls_transport,
@@ -325,18 +338,22 @@ defmodule ExWebRTC.PeerConnection do
       when kind in [:audio, :video] do
     options = Keyword.put(options, :ssrc, generate_ssrc(state))
     transceiver = RTPTransceiver.new(kind, nil, state.config, options)
-    transceivers = state.transceivers ++ [transceiver]
+    state = %{state | transceivers: state.transceivers ++ [transceiver]}
 
-    {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
+    state = update_negotiation_needed(state)
+
+    {:reply, {:ok, transceiver}, state}
   end
 
   @impl true
   def handle_call({:add_transceiver, %MediaStreamTrack{} = track, options}, _from, state) do
     options = Keyword.put(options, :ssrc, generate_ssrc(state))
     transceiver = RTPTransceiver.new(track.kind, track, state.config, options)
-    transceivers = state.transceivers ++ [transceiver]
+    state = %{state | transceivers: state.transceivers ++ [transceiver]}
 
-    {:reply, {:ok, transceiver}, %{state | transceivers: transceivers}}
+    state = update_negotiation_needed(state)
+
+    {:reply, {:ok, transceiver}, state}
   end
 
   @impl true
@@ -378,7 +395,11 @@ defmodule ExWebRTC.PeerConnection do
           {List.replace_at(state.transceivers, idx, tr), tr.sender}
       end
 
-    {:reply, {:ok, sender}, %{state | transceivers: transceivers}}
+    state = %{state | transceivers: transceivers}
+
+    state = update_negotiation_needed(state)
+
+    {:reply, {:ok, sender}, state}
   end
 
   @impl true
@@ -510,7 +531,13 @@ defmodule ExWebRTC.PeerConnection do
         |> Map.update!(:demuxer, &Demuxer.update(&1, sdp))
         |> Map.replace!(:transceivers, transceivers)
 
-      {:ok, state}
+      if state.signaling_state == :stable do
+        state = %{state | negotiation_needed: false}
+        state = update_negotiation_needed(state)
+        {:ok, state}
+      else
+        {:ok, state}
+      end
     end
   end
 
@@ -553,7 +580,13 @@ defmodule ExWebRTC.PeerConnection do
         |> Map.update!(:demuxer, &Demuxer.update(&1, sdp))
         |> Map.replace!(:transceivers, transceivers)
 
-      {:ok, state}
+      if state.signaling_state == :stable do
+        state = %{state | negotiation_needed: false}
+        state = update_negotiation_needed(state)
+        {:ok, state}
+      else
+        {:ok, state}
+      end
     else
       {:ok, {:fingerprint, {_hash_function, _fingerprint}}} ->
         {:error, :unsupported_cert_fingerprint_hash_function}
@@ -798,6 +831,42 @@ defmodule ExWebRTC.PeerConnection do
     Logger.debug("Changing PeerConnection state: #{state.conn_state} -> #{new_conn_state}")
     notify(state.owner, {:connection_state_change, new_conn_state})
     %{state | conn_state: new_conn_state}
+  end
+
+  # If signaling state is not stable i.e. we are during negotiation,
+  # don't fire negotiation needed notification.
+  # We will do this when moving to the stable state as part of the 
+  # steps for setting remote description.
+  defp update_negotiation_needed(%{signaling_state: sig_state} = state) when sig_state != :stable,
+    do: state
+
+  defp update_negotiation_needed(state) do
+    negotiation_needed = is_negotiation_needed(state)
+
+    cond do
+      negotiation_needed == true and state.negotiation_needed == true ->
+        state
+
+      negotiation_needed == true ->
+        notify(state.owner, :negotiation_needed)
+        %{state | negotiation_needed: true}
+
+      negotiation_needed == false ->
+        # We need to clear the flag.
+        # Consider scenario where we add a transceiver and then 
+        # remove it without performing negotiation. 
+        # At the end of the day, negotiation_needed flag has to be cleared.
+        %{state | negotiation_needed: false}
+    end
+  end
+
+  defp is_negotiation_needed(state) do
+    # We don't support MSIDs, stopping transceivers
+    # and changing their directions right now, so 
+    # we only check 5.2 from 4.7.3#check-if-negotiation-is-needed
+    # https://www.w3.org/TR/webrtc/#dfn-check-if-negotiation-is-needed
+    tr = Enum.find(state.transceivers, fn tr -> tr.mid == nil end)
+    tr != nil
   end
 
   defp generate_ssrc(state) do
