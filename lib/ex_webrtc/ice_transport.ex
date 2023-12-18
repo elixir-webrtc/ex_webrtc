@@ -14,6 +14,7 @@ defmodule ExWebRTC.ICETransport do
   @callback restart(pid()) :: :ok
   @callback send_data(pid(), binary()) :: :ok
   @callback set_remote_credentials(pid(), ufrag :: binary(), pwd :: binary()) :: :ok
+  @callback stop(pid()) :: :ok
 end
 
 defmodule ExWebRTC.DefaultICETransport do
@@ -41,4 +42,6 @@ defmodule ExWebRTC.DefaultICETransport do
   defdelegate send_data(pid, data), to: ICEAgent
   @impl true
   defdelegate set_remote_credentials(pid, ufrag, pwd), to: ICEAgent
+  @impl true
+  defdelegate stop(pid), to: ICEAgent
 end

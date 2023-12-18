@@ -41,6 +41,9 @@ defmodule ExWebRTC.DTLSTransportTest do
     @impl true
     def set_remote_credentials(ice_pid, _ufrag, _pwd), do: ice_pid
 
+    @impl true
+    def stop(ice_pid), do: GenServer.stop(ice_pid)
+
     def send_dtls(ice_pid, data), do: GenServer.cast(ice_pid, {:send_dtls, data})
 
     @impl true
@@ -186,5 +189,10 @@ defmodule ExWebRTC.DTLSTransportTest do
       {:handshake_finished, _, _, _} ->
         :ok
     end
+  end
+
+  test "stop/1", %{dtls: dtls} do
+    assert :ok == DTLSTransport.stop(dtls)
+    assert false == Process.alive?(dtls)
   end
 end

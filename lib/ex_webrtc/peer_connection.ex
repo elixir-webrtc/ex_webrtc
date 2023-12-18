@@ -431,7 +431,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:ex_ice, _from, {:gathering_state_changed, new_gathering_state}}, state) do
+  def handle_info({:ex_ice, _from, {:gathering_state_change, new_gathering_state}}, state) do
     state = %{state | ice_gathering_state: new_gathering_state}
     {:noreply, state}
   end
@@ -480,6 +480,13 @@ defmodule ExWebRTC.PeerConnection do
   def handle_info(msg, state) do
     Logger.info("OTHER MSG #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  @impl true
+  def terminate(reason, state) do
+    Logger.debug("Closing peer connection with reason: #{inspect(reason)}")
+    :ok = DTLSTransport.stop(state.dtls_transport)
+    :ok = state.ice_transport.stop(state.ice_pid)
   end
 
   defp apply_local_description(%SessionDescription{type: type}, _state)
