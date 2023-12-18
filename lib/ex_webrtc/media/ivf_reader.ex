@@ -31,7 +31,7 @@ defmodule ExWebRTC.Media.IVFHeader do
           width: non_neg_integer(),
           height: non_neg_integer(),
           timebase_denum: non_neg_integer(),
-          timebase_num: non_neg_integer(),
+          timebase_num: pos_integer(),
           num_frames: non_neg_integer(),
           unused: non_neg_integer()
         }
@@ -73,7 +73,7 @@ end
 
 defmodule ExWebRTC.Media.IVFReader do
   @moduledoc """
-  Defines IVF reader.
+  Reads video frames from an IVF file.
 
   Based on:
   * https://formats.kaitai.io/vp8_ivf/
@@ -84,37 +84,34 @@ defmodule ExWebRTC.Media.IVFReader do
 
   @opaque t() :: File.io_device()
 
-  @spec open(Path.t()) :: {:ok, t()} | {:error, File.posix()}
-  def open(path), do: File.open(path)
+  @spec open(Path.t()) :: {:ok, IVFHeader.t(), t()} | {:error, term()}
+  def open(path) do
+    with {:ok, file} <- File.open(path),
+         <<"DKIF", 0::little-16, 32::little-16, fourcc::little-32, width::little-16,
+           height::little-16, timebase_denum::little-32, timebase_num::little-32,
+           num_frames::little-32, unused::little-32>> <- IO.binread(file, 32) do
+      header = %IVFHeader{
+        signature: "DKIF",
+        version: 0,
+        header_size: 32,
+        fourcc: fourcc,
+        width: width,
+        height: height,
+        timebase_denum: timebase_denum,
+        timebase_num: timebase_num,
+        num_frames: num_frames,
+        unused: unused
+      }
 
-  @spec read_header(t()) :: {:ok, IVFHeader.t()} | {:error, :invalid_file} | :eof
-  def read_header(reader) do
-    case IO.binread(reader, 32) do
-      <<"DKIF", 0::little-integer-size(16), 32::little-integer-size(16),
-        fourcc::little-integer-size(32), width::little-integer-size(16),
-        height::little-integer-size(16), timebase_denum::little-integer-size(32),
-        timebase_num::little-integer-size(32), num_frames::little-integer-size(32),
-        unused::little-integer-size(32)>> ->
-        {:ok,
-         %IVFHeader{
-           signature: "DKIF",
-           version: 0,
-           header_size: 32,
-           fourcc: fourcc,
-           width: width,
-           height: height,
-           timebase_denum: timebase_denum,
-           timebase_num: timebase_num,
-           num_frames: num_frames,
-           unused: unused
-         }}
-
-      _other ->
-        {:error, :invalid_file}
+      {:ok, header, file}
+    else
+      {:error, _reason} = error -> error
+      # eof or invalid pattern matching
+      _other -> {:error, :invalid_file}
     end
   end
 
-  @spec next_frame(t()) :: {:ok, IVFFrame.t()} | {:error, :invalid_file} | :eof
+  @spec next_frame(t()) :: {:ok, IVFFrame.t()} | {:error, term()} | :eof
   def next_frame(reader) do
     with <<len_frame::little-integer-size(32), timestamp::little-integer-size(64)>> <-
            IO.binread(reader, 12),
@@ -123,6 +120,7 @@ defmodule ExWebRTC.Media.IVFReader do
       {:ok, %IVFFrame{timestamp: timestamp, data: data}}
     else
       :eof -> :eof
+      {:error, _reason} = error -> error
       _other -> {:error, :invalid_file}
     end
   end

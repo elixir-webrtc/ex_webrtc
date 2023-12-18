@@ -1,9 +1,4 @@
-const pcConfig = {
-  'iceServers': [
-    {'urls': 'stun:stun.stunprotocol.org:3478'},
-    {'urls': 'stun:stun.l.google.com:19302'},
-  ]
-};
+const pcConfig = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' },] };
 
 const start_connection = async (ws) => {
   const pc = new RTCPeerConnection(pcConfig);
@@ -21,10 +16,10 @@ const start_connection = async (ws) => {
     console.log("New local ICE candidate:", event.candidate);
 
     if (event.candidate !== null) {
-      ws.send(JSON.stringify({type: "ice", data: event.candidate}));
+      ws.send(JSON.stringify({ type: "ice", data: event.candidate }));
     }
   };
-  
+
   ws.onmessage = async event => {
     const msg = JSON.parse(event.data);
 

@@ -7,8 +7,7 @@ defmodule ExWebRTC.RTP.VP8PayloaderTest do
   test "payload vp8 video" do
     # video frames in the fixture are mostly 500+ bytes
     vp8_payloader = VP8Payloader.new(200)
-    {:ok, ivf_reader} = IVFReader.open("test/fixtures/ivf/vp8_correct.ivf")
-    {:ok, _header} = IVFReader.read_header(ivf_reader)
+    {:ok, _header, ivf_reader} = IVFReader.open("test/fixtures/ivf/vp8_correct.ivf")
 
     for _i <- 0..28, reduce: vp8_payloader do
       vp8_payloader ->

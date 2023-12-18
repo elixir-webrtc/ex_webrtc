@@ -145,8 +145,7 @@ defmodule Peer do
 
       :eof ->
         Logger.info("video.ivf ended. Looping...")
-        {:ok, reader} = IVFReader.open("./video.ivf")
-        {:ok, _header} = IVFReader.read_header(reader)
+        {:ok, _header, reader} = IVFReader.open("./video.ivf")
         {:noreply, %{state | video_reader: reader}}
     end
   end
@@ -253,8 +252,7 @@ defmodule Peer do
   defp handle_webrtc_message({:connection_state_change, :connected} = msg, state) do
     Logger.info("#{inspect(msg)}")
     Logger.info("Starting sending video.ivf and audio.ogg...")
-    {:ok, ivf_reader} = IVFReader.open("./video.ivf")
-    {:ok, _header} = IVFReader.read_header(ivf_reader)
+    {:ok, _header, ivf_reader} = IVFReader.open("./video.ivf")
     vp8_payloader = VP8Payloader.new(800)
 
     {:ok, ogg_reader} = OggReader.open("./audio.ogg")
