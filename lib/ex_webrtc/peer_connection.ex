@@ -5,6 +5,8 @@ defmodule ExWebRTC.PeerConnection do
 
   use GenServer
 
+  import Bitwise
+
   require Logger
 
   alias __MODULE__.{Configuration, Demuxer}
@@ -321,6 +323,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:add_transceiver, kind, options}, _from, state)
       when kind in [:audio, :video] do
+    options = Keyword.put(options, :ssrc, generate_ssrc(state))
     transceiver = RTPTransceiver.new(kind, nil, state.config, options)
     transceivers = state.transceivers ++ [transceiver]
 
@@ -329,6 +332,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call({:add_transceiver, %MediaStreamTrack{} = track, options}, _from, state) do
+    options = Keyword.put(options, :ssrc, generate_ssrc(state))
     transceiver = RTPTransceiver.new(track.kind, track, state.config, options)
     transceivers = state.transceivers ++ [transceiver]
 
@@ -355,12 +359,13 @@ defmodule ExWebRTC.PeerConnection do
     {transceivers, sender} =
       case free_transceiver_idx do
         nil ->
-          tr = RTPTransceiver.new(kind, track, state.config, direction: :sendrecv)
+          options = [direction: :sendrecv, ssrc: generate_ssrc(state)]
+          tr = RTPTransceiver.new(kind, track, state.config, options)
           {state.transceivers ++ [tr], tr.sender}
 
         idx ->
           tr = Enum.at(state.transceivers, idx)
-          sender = %RTPSender{tr.sender | track: track}
+          sender = %RTPSender{tr.sender | track: track, ssrc: generate_ssrc(state)}
 
           direction =
             case tr.direction do
@@ -786,6 +791,21 @@ defmodule ExWebRTC.PeerConnection do
     Logger.debug("Changing PeerConnection state: #{state.conn_state} -> #{new_conn_state}")
     notify(state.owner, {:connection_state_change, new_conn_state})
     %{state | conn_state: new_conn_state}
+  end
+
+  defp generate_ssrc(state) do
+    rtp_sender_ssrcs = Enum.map(state.transceivers, & &1.sender.ssrc)
+    ssrcs = MapSet.new(Map.keys(state.demuxer.ssrc_to_mid) ++ rtp_sender_ssrcs)
+    do_generate_ssrc(ssrcs, 200)
+  end
+
+  # this is practically impossible so it's easier to raise
+  # than to propagate the error up to the user
+  defp do_generate_ssrc(_ssrcs, 0), do: raise("Couldn't find free SSRC")
+
+  defp do_generate_ssrc(ssrcs, max_attempts) do
+    ssrc = Enum.random(0..((1 <<< 32) - 1))
+    if ssrc in ssrcs, do: do_generate_ssrc(ssrcs, max_attempts - 1), else: ssrc
   end
 
   defp notify(pid, msg), do: send(pid, {:ex_webrtc, self(), msg})
