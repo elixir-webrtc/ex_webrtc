@@ -3,9 +3,11 @@ defmodule ExWebRTC.MediaStreamTrack do
   MediaStreamTrack
   """
 
+  @type id() :: integer()
+
   @type t() :: %__MODULE__{
           kind: :audio | :video,
-          id: integer()
+          id: id()
         }
 
   @enforce_keys [:id, :kind]

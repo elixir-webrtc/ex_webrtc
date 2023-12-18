@@ -36,43 +36,101 @@ defmodule ExWebRTC.PeerConnectionTest do
                  fingerprint: {:sha256, @fingerprint}
                )
 
-  describe "track notifications" do
-    test "are emitted on new remote track" do
-      {:ok, pc} = PeerConnection.start_link()
+  test "negotiation needed" do
+    # is fired on add_transceiver
+    {:ok, pc} = PeerConnection.start_link()
+    {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
+    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+    :ok = PeerConnection.close(pc)
 
-      offer = %SessionDescription{type: :offer, sdp: File.read!("test/fixtures/audio_sdp.txt")}
-      :ok = PeerConnection.set_remote_description(pc, offer)
+    # is fired on add_trasceiver with track
+    {:ok, pc} = PeerConnection.start_link()
+    track = MediaStreamTrack.new(:video)
+    {:ok, _tr} = PeerConnection.add_transceiver(pc, track)
+    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+    :ok = PeerConnection.close(pc)
 
-      assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :audio}}}
+    # is fired on add_track
+    {:ok, pc} = PeerConnection.start_link()
+    {:ok, _tr} = PeerConnection.add_track(pc, track)
+    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+    :ok = PeerConnection.close(pc)
 
-      {:ok, answer} = PeerConnection.create_answer(pc)
-      :ok = PeerConnection.set_local_description(pc, answer)
+    # is not fired two times in a row
+    {:ok, pc} = PeerConnection.start_link()
+    {:ok, _tr} = PeerConnection.add_transceiver(pc, :video)
+    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+    {:ok, _tr} = PeerConnection.add_transceiver(pc, :video)
+    refute_receive {:ex_webrtc, ^pc, :negotiation_needed}
+    :ok = PeerConnection.close(pc)
 
-      offer = %SessionDescription{
-        type: :offer,
-        sdp: File.read!("test/fixtures/audio_video_sdp.txt")
-      }
+    # is not fired when adding transceiver during negotiation
+    {:ok, pc} = PeerConnection.start_link()
+    {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
+    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+    {:ok, offer} = PeerConnection.create_offer(pc)
+    :ok = PeerConnection.set_local_description(pc, offer)
+    {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
 
-      :ok = PeerConnection.set_remote_description(pc, offer)
+    {:ok, pc2} = PeerConnection.start_link()
+    :ok = PeerConnection.set_remote_description(pc2, offer)
+    {:ok, _tr} = PeerConnection.add_transceiver(pc2, :audio)
 
-      assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :video}}}
-      refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
-    end
+    # we do this refute_receive here, instead of after 
+    # adding the second audio transceiver on pc to save time
+    refute_receive {:ex_webrtc, ^pc, :negotiation_needed}
+    refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
 
-    test "are not emitted for the same track twice" do
-      {:ok, pc} = PeerConnection.start_link()
+    {:ok, answer} = PeerConnection.create_answer(pc2)
+    :ok = PeerConnection.set_local_description(pc2, answer)
+    :ok = PeerConnection.set_remote_description(pc, answer)
 
-      offer = %SessionDescription{type: :offer, sdp: File.read!("test/fixtures/audio_sdp.txt")}
-      :ok = PeerConnection.set_remote_description(pc, offer)
+    assert_receive {:ex_webrtc, ^pc2, :negotiation_needed}
+    assert_receive {:ex_webrtc, pc, :negotiation_needed}
 
-      assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :audio}}}
+    :ok = PeerConnection.close(pc)
+    :ok = PeerConnection.close(pc2)
 
-      {:ok, answer} = PeerConnection.create_answer(pc)
-      :ok = PeerConnection.set_local_description(pc, answer)
+    # is not fired after successful negotiation
+    {:ok, pc} = PeerConnection.start_link()
+    {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
+    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+    {:ok, offer} = PeerConnection.create_offer(pc)
+    :ok = PeerConnection.set_local_description(pc, offer)
 
-      :ok = PeerConnection.set_remote_description(pc, offer)
-      refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
-    end
+    {:ok, pc2} = PeerConnection.start_link()
+    :ok = PeerConnection.set_remote_description(pc2, offer)
+    {:ok, answer} = PeerConnection.create_answer(pc2)
+    :ok = PeerConnection.set_local_description(pc2, answer)
+    :ok = PeerConnection.set_remote_description(pc, answer)
+
+    refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}
+    refute_receive {:ex_webrtc, ^pc, :negotiation_needed}, 0
+
+    :ok = PeerConnection.close(pc)
+    :ok = PeerConnection.close(pc2)
+  end
+
+  test "track notification" do
+    {:ok, pc} = PeerConnection.start_link()
+
+    offer = %SessionDescription{type: :offer, sdp: File.read!("test/fixtures/audio_sdp.txt")}
+    :ok = PeerConnection.set_remote_description(pc, offer)
+
+    assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :audio}}}
+
+    {:ok, answer} = PeerConnection.create_answer(pc)
+    :ok = PeerConnection.set_local_description(pc, answer)
+
+    offer = %SessionDescription{
+      type: :offer,
+      sdp: File.read!("test/fixtures/audio_video_sdp.txt")
+    }
+
+    :ok = PeerConnection.set_remote_description(pc, offer)
+
+    assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :video}}}
+    refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
   end
 
   test "signaling state change" do
