@@ -8,20 +8,16 @@ defmodule Peer do
 
   require Logger
 
-  import Bitwise
-
   alias ExWebRTC.{
     IceCandidate,
-    MediaStreamTrack,
-    Media.IVFReader,
     PeerConnection,
-    RTPCodecParameters,
-    RTP.VP8Payloader,
+    SessionDescription,
     RTPTransceiver,
-    SessionDescription
+    RTPCodecParameters
   }
 
-  @max_rtp_timestamp (1 <<< 32) - 1
+  alias ExWebRTC.RTP.VP8Depayloader
+  alias ExWebRTC.Media.{IVFFrame, IVFHeader, IVFWriter}
 
   @ice_servers [
     %{urls: "stun:stun.l.google.com:19302"}
@@ -49,10 +45,7 @@ defmodule Peer do
               %RTPCodecParameters{
                 payload_type: 96,
                 mime_type: "video/VP8",
-                clock_rate: 90_000,
-                channels: nil,
-                sdp_fmtp_line: nil,
-                rtcp_fbs: []
+                clock_rate: 90_000
               }
             ]
           )
@@ -62,11 +55,9 @@ defmodule Peer do
            conn: conn,
            stream: stream,
            peer_connection: pc,
-           track_id: nil,
-           ivf_reader: nil,
-           payloader: nil,
-           timer: nil,
-           last_timestamp: Enum.random(0..@max_rtp_timestamp)
+           vp8_depayloader: nil,
+           ivf_writer: nil,
+           frames_cnt: 0
          }}
 
       other ->
@@ -90,10 +81,9 @@ defmodule Peer do
 
   @impl true
   def handle_info({:gun_ws, _, _, {:text, msg}}, state) do
-    state =
-      msg
-      |> Jason.decode!()
-      |> handle_ws_message(state)
+    msg
+    |> Jason.decode!()
+    |> handle_ws_message(state)
 
     {:noreply, state}
   end
@@ -111,59 +101,20 @@ defmodule Peer do
   end
 
   @impl true
-  def handle_info(:send_frame, state) do
-    Process.send_after(self(), :send_frame, 30)
-
-    case IVFReader.next_frame(state.ivf_reader) do
-      {:ok, frame} ->
-        {rtp_packets, payloader} = VP8Payloader.payload(state.payloader, frame.data)
-
-        # the video has 30 FPS, VP8 clock rate is 90_000, so we have:
-        # 90_000 / 30 = 3_000
-        last_timestamp = state.last_timestamp + 3_000 &&& @max_rtp_timestamp
-
-        rtp_packets =
-          Enum.map(rtp_packets, fn rtp_packet -> %{rtp_packet | timestamp: last_timestamp} end)
-
-        Enum.each(rtp_packets, fn rtp_packet ->
-          PeerConnection.send_rtp(state.peer_connection, state.track_id, rtp_packet)
-        end)
-
-        state = %{state | payloader: payloader, last_timestamp: last_timestamp}
-        {:noreply, state}
-
-      :eof ->
-        Logger.info("video.ivf ended. Looping...")
-        {:ok, _header, ivf_reader} = IVFReader.open("./video.ivf")
-        state = %{state | ivf_reader: ivf_reader}
-        {:noreply, state}
-    end
-  end
-
-  @impl true
   def handle_info(msg, state) do
     Logger.warning("Received unknown msg: #{inspect(msg)}")
     {:noreply, state}
   end
 
-  defp handle_ws_message(
-         %{"role" => _role, "type" => "peer_joined"},
-         %{peer_connection: pc} = state
-       ) do
-    track = MediaStreamTrack.new(:video)
-    {:ok, _} = PeerConnection.add_transceiver(pc, track, codec: :vp8)
-    {:ok, offer} = PeerConnection.create_offer(pc)
-    :ok = PeerConnection.set_local_description(pc, offer)
-    msg = %{"type" => "offer", "sdp" => offer.sdp}
+  defp handle_ws_message(%{"type" => "offer", "sdp" => sdp}, %{peer_connection: pc} = state) do
+    offer = %SessionDescription{type: :offer, sdp: sdp}
+    Logger.info("Received SDP offer: #{inspect(offer.sdp)}")
+    :ok = PeerConnection.set_remote_description(pc, offer)
+    {:ok, answer} = PeerConnection.create_answer(pc)
+    :ok = PeerConnection.set_local_description(pc, answer)
+    Logger.info("Sent SDP answer: #{inspect(answer.sdp)}")
+    msg = %{"type" => "answer", "sdp" => answer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
-    %{state | track_id: track.id}
-  end
-
-  defp handle_ws_message(%{"type" => "answer", "sdp" => sdp}, state) do
-    Logger.info("Received SDP answer: #{inspect(sdp)}")
-    answer = %SessionDescription{type: :answer, sdp: sdp}
-    :ok = PeerConnection.set_remote_description(state.peer_connection, answer)
-    state
   end
 
   defp handle_ws_message(%{"type" => "ice", "data" => data}, state) do
@@ -177,13 +128,10 @@ defmodule Peer do
     }
 
     :ok = PeerConnection.add_ice_candidate(state.peer_connection, candidate)
-
-    state
   end
 
-  defp handle_ws_message(msg, state) do
+  defp handle_ws_message(msg, _state) do
     Logger.info("Received unexpected message: #{inspect(msg)}")
-    state
   end
 
   defp handle_webrtc_message({:ice_candidate, candidate}, state) do
@@ -199,14 +147,45 @@ defmodule Peer do
     state
   end
 
-  defp handle_webrtc_message({:connection_state_change, :connected} = msg, state) do
-    Logger.info("#{inspect(msg)}")
-    Logger.info("Starting sending video.ivf")
-    {:ok, _header, ivf_reader} = IVFReader.open("./video.ivf")
-    payloader = VP8Payloader.new(800)
+  defp handle_webrtc_message({:track, _track}, state) do
+    <<fourcc::little-32>> = "VP80"
 
-    Process.send_after(self(), :send_frame, 30)
-    %{state | ivf_reader: ivf_reader, payloader: payloader}
+    # Width, height and FPS (timebase_denum/num)
+    # are the same as we set in video constraints
+    # on the frontend side (in getUserMedia).
+    # However, keep in mind they can change in time
+    # so this is best effort saving.
+    # num_frames is set to 900 but it will be updated 
+    # on calling IVFWriter.close
+    {:ok, ivf_writer} =
+      IVFWriter.open("./output.ivf",
+        fourcc: fourcc,
+        height: 640,
+        width: 480,
+        num_frames: 900,
+        timebase_denum: 15,
+        timebase_num: 1
+      )
+
+    %{state | vp8_depayloader: VP8Depayloader.new(), ivf_writer: ivf_writer}
+  end
+
+  defp handle_webrtc_message({:rtp, _mid, packet}, state) do
+    case VP8Depayloader.write(state.vp8_depayloader, packet) do
+      {:ok, vp8_depayloader} ->
+        %{state | vp8_depayloader: vp8_depayloader}
+
+      {:ok, vp8_frame, vp8_depayloader} ->
+        frame = %IVFFrame{timestamp: state.frames_cnt, data: vp8_frame}
+        {:ok, ivf_writer} = IVFWriter.write_frame(state.ivf_writer, frame)
+
+        %{
+          state
+          | vp8_depayloader: vp8_depayloader,
+            ivf_writer: ivf_writer,
+            frames_cnt: state.frames_cnt + 1
+        }
+    end
   end
 
   defp handle_webrtc_message(msg, state) do

@@ -1,4 +1,4 @@
-const pcConfig = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' },] };
+const pcConfig = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] };
 
 const start_connection = async (ws) => {
   const pc = new RTCPeerConnection(pcConfig);
@@ -8,14 +8,6 @@ const start_connection = async (ws) => {
   pc.oniceconnectionstatechange = _ => console.log("ICE connection state changed:", pc.iceConnectionState);
   pc.onicegatheringstatechange = _ => console.log("ICE gathering state changed:", pc.iceGatheringState);
   pc.onsignalingstatechange = _ => console.log("Signaling state changed:", pc.signalingState);
-  pc.ontrack = event => {
-    const videoPlayer = document.createElement("video");
-    videoPlayer.srcObject = event.streams[0];
-    videoPlayer.onloadedmetadata = () => {
-      videoPlayer.play();
-    };
-    document.body.appendChild(videoPlayer);
-  };
   pc.onicecandidate = event => {
     console.log("New local ICE candidate:", event.candidate);
 
@@ -24,14 +16,15 @@ const start_connection = async (ws) => {
     }
   };
 
-  const localStream = await navigator.mediaDevices.getUserMedia({ video: true });
-  const localVideoPlayer = document.createElement("video");
+  const localStream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+      frameRate: { ideal: 15 }
+    }
+  });
+  const localVideoPlayer = document.getElementById("videoPlayer");
   localVideoPlayer.srcObject = localStream;
-  localVideoPlayer.onloadedmetadata = () => {
-    localVideoPlayer.play();
-  };
-  document.body.appendChild(localVideoPlayer);
-
   for (const track of localStream.getTracks()) {
     pc.addTrack(track, localStream);
   }
@@ -42,13 +35,6 @@ const start_connection = async (ws) => {
     if (msg.type === "answer") {
       console.log("Recieved SDP answer:", msg);
       pc.setRemoteDescription(msg);
-    } else if (msg.type === "offer") {
-      console.log("Received SDP offer:", msg);
-      await pc.setRemoteDescription(msg)
-
-      const desc = await pc.createAnswer();
-      await pc.setLocalDescription(desc);
-      ws.send(JSON.stringify(desc));
     } else if (msg.type === "ice") {
       console.log("Recieved remote ICE candidate:", msg.data);
       pc.addIceCandidate(msg.data);
