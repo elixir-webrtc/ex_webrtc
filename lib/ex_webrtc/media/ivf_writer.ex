@@ -13,6 +13,8 @@ defmodule ExWebRTC.Media.IVFWriter do
   @enforce_keys [:file]
   defstruct @enforce_keys ++ [update_header_after: 0, frames_cnt: 0]
 
+  defguard update_header?(writer) when rem(writer.frames_cnt, writer.update_header_after) == 0
+
   @doc """
   Creates a new IVF writer.
 
@@ -52,24 +54,30 @@ defmodule ExWebRTC.Media.IVFWriter do
   Writes IVF frame into a file.
   """
   @spec write_frame(t(), IVFFrame.t()) :: {:ok, t()} | {:error, term()}
-  def write_frame(writer, frame) do
+  def write_frame(writer, frame) when update_header?(writer) and frame.data != <<>> do
+    case update_header(writer) do
+      :ok -> do_write_frame(writer, frame)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def write_frame(writer, frame) when frame.data != <<>>, do: do_write_frame(writer, frame)
+
+  defp update_header(writer) do
+    num_frames = <<writer.frames_cnt + writer.update_header_after::little-32>>
+    ret = :file.pwrite(writer.file, 24, num_frames)
+    {:ok, _position} = :file.position(writer.file, :eof)
+    ret
+  end
+
+  defp do_write_frame(writer, frame) do
     len_frame = byte_size(frame.data)
     serialized_frame = <<len_frame::little-32, frame.timestamp::little-64, frame.data::binary>>
 
     case IO.binwrite(writer.file, serialized_frame) do
       :ok ->
         writer = %{writer | frames_cnt: writer.frames_cnt + 1}
-
-        if rem(writer.frames_cnt, writer.update_header_after) == 0 do
-          num_frames = <<writer.frames_cnt + writer.update_header_after::little-32>>
-
-          case :file.pwrite(writer.file, 24, num_frames) do
-            :ok -> {:ok, writer}
-            {:error, _reason} = error -> error
-          end
-        else
-          {:ok, writer}
-        end
+        {:ok, writer}
 
       {:error, _reason} = error ->
         error
