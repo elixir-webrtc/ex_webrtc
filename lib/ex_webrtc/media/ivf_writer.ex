@@ -13,7 +13,9 @@ defmodule ExWebRTC.Media.IVFWriter do
   @enforce_keys [:file]
   defstruct @enforce_keys ++ [update_header_after: 0, frames_cnt: 0]
 
-  defguard update_header?(writer) when rem(writer.frames_cnt, writer.update_header_after) == 0
+  defguard update_header?(writer)
+           when writer.frames_cnt > writer.update_header_after and
+                  rem(writer.frames_cnt, writer.update_header_after) == 0
 
   @doc """
   Creates a new IVF writer.
