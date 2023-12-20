@@ -23,6 +23,12 @@ defmodule ExWebRTC.Media.OggReader do
             rest: binary()
           }
 
+  @doc """
+  Opens Ogg file.
+
+  For now, works only with single Opus stream in the container.
+  This function reads the ID and Comment Headers (and, for now, ignores them).
+  """
   @spec open(Path.t()) :: {:ok, t()} | {:error, File.posix() | :invalid_header}
   def open(path) do
     with {:ok, file} <- File.open(path),
@@ -37,8 +43,17 @@ defmodule ExWebRTC.Media.OggReader do
     end
   end
 
+  @doc """
+  Reads next Ogg packet.
+
+  One Ogg packet is equivalent to one Opus packet.
+  This function also returns the duration of the audio in milliseconds, based on Opus packet TOC sequence.
+  It assumes that all of the Ogg packets belong to the same stream.
+  """
   @spec next_packet(t()) ::
-          {:ok, binary()} | {:error, :invalid_page_header | :not_enough_data} | :eof
+          {:ok, t(), {binary(), non_neg_integer()}}
+          | {:error, :invalid_page_header | :not_enough_data}
+          | :eof
   def next_packet(reader) do
     with {:ok, reader, packet} <- do_next_packet(reader),
          {:ok, duration} <- get_packet_duration(packet) do
