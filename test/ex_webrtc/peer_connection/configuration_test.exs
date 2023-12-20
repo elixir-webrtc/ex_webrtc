@@ -5,6 +5,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
   alias ExSDP.Attribute.{Extmap, FMTP}
 
+  @tag :debug
   test "codecs and rtp hdr extensions" do
     audio_level_rtp_hdr_ext = %Extmap{
       id: 1,

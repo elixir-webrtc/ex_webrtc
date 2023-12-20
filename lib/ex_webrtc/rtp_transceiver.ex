@@ -71,39 +71,53 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec from_mline(ExSDP.Media.t(), Configuration.t()) :: t()
+  @spec from_mline(ExSDP.Media.t(), Configuration.t()) ::
+          {:ok, t()} | {:error, :no_matching_codec}
   def from_mline(mline, config) do
-    codecs = get_codecs(mline, config)
-    rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    {:mid, mid} = ExSDP.get_attribute(mline, :mid)
+    case get_codecs(mline, config) do
+      [] ->
+        {:error, :no_matching_codec}
 
-    track = MediaStreamTrack.new(mline.type)
+      codecs ->
+        rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
+        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
-    %__MODULE__{
-      mid: mid,
-      direction: :recvonly,
-      current_direction: nil,
-      kind: mline.type,
-      codecs: codecs,
-      rtp_hdr_exts: rtp_hdr_exts,
-      receiver: %RTPReceiver{track: track},
-      sender: RTPSender.new(nil, List.first(codecs), rtp_hdr_exts, mid, nil)
-    }
+        track = MediaStreamTrack.new(mline.type)
+
+        {:ok,
+         %__MODULE__{
+           mid: mid,
+           direction: :recvonly,
+           current_direction: nil,
+           kind: mline.type,
+           codecs: codecs,
+           rtp_hdr_exts: rtp_hdr_exts,
+           receiver: %RTPReceiver{track: track},
+           sender: RTPSender.new(nil, List.first(codecs), rtp_hdr_exts, mid, nil)
+         }}
+    end
   end
 
   @doc false
-  @spec update(t(), ExSDP.Media.t(), Configuration.t()) :: t()
+  @spec update(t(), ExSDP.Media.t(), Configuration.t()) ::
+          {:ok, t()} | {:error, :no_matching_codec}
   def update(transceiver, mline, config) do
-    codecs = get_codecs(mline, config)
-    rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    sender = RTPSender.update(transceiver.sender, List.first(codecs), rtp_hdr_exts)
+    case get_codecs(mline, config) do
+      [] ->
+        {:error, :no_matching_codec}
 
-    %__MODULE__{
-      transceiver
-      | codecs: codecs,
-        rtp_hdr_exts: rtp_hdr_exts,
-        sender: sender
-    }
+      codecs ->
+        rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
+        sender = RTPSender.update(transceiver.sender, List.first(codecs), rtp_hdr_exts)
+
+        {:ok,
+         %__MODULE__{
+           transceiver
+           | codecs: codecs,
+             rtp_hdr_exts: rtp_hdr_exts,
+             sender: sender
+         }}
+    end
   end
 
   @doc false
@@ -111,7 +125,7 @@ defmodule ExWebRTC.RTPTransceiver do
   def to_answer_mline(transceiver, mline, opts) do
     if transceiver.codecs == [] do
       # reject mline and skip further processing
-      # see RFC 8299 sec. 5.3.1 and RFC 3264 sec. 6
+      # see RFC 8829 sec. 5.3.1 and RFC 3264 sec. 6
       %ExSDP.Media{mline | port: 0}
     else
       offered_direction = ExSDP.get_attribute(mline, :direction)

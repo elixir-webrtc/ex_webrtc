@@ -2,6 +2,7 @@ defmodule ExWebRTC.PeerConnectionTest do
   use ExUnit.Case, async: true
 
   alias ExWebRTC.{
+    RTPCodecParameters,
     RTPTransceiver,
     RTPSender,
     MediaStreamTrack,
@@ -16,7 +17,7 @@ defmodule ExWebRTC.PeerConnectionTest do
                |> ExDTLS.get_cert_fingerprint()
                |> Utils.hex_dump()
 
-  @audio_mline ExSDP.Media.new("audio", 9, "UDP/TLS/RTP/SAVPF", [108])
+  @audio_mline ExSDP.Media.new("audio", 9, "UDP/TLS/RTP/SAVPF", [111])
                |> ExSDP.add_attribute(:rtcp_mux)
                |> ExSDP.add_attributes(
                  setup: :active,
@@ -25,6 +26,15 @@ defmodule ExWebRTC.PeerConnectionTest do
                  ice_pwd: "somepwd",
                  fingerprint: {:sha256, @fingerprint}
                )
+               |> ExSDP.add_attributes([
+                 %ExSDP.Attribute.RTPMapping{
+                   clock_rate: 48_000,
+                   encoding: "opus",
+                   payload_type: 111,
+                   params: 2
+                 },
+                 %ExSDP.Attribute.FMTP{pt: 111, minptime: 10, useinbandfec: true}
+               ])
 
   @video_mline ExSDP.Media.new("video", 9, "UDP/TLS/RTP/SAVPF", [96])
                |> ExSDP.add_attribute(:rtcp_mux)
@@ -35,6 +45,13 @@ defmodule ExWebRTC.PeerConnectionTest do
                  ice_pwd: "somepwd",
                  fingerprint: {:sha256, @fingerprint}
                )
+               |> ExSDP.add_attributes([
+                 %ExSDP.Attribute.RTPMapping{
+                   clock_rate: 90_000,
+                   encoding: "VP8",
+                   payload_type: 96
+                 }
+               ])
 
   test "negotiation needed" do
     # is fired on add_transceiver
@@ -535,7 +552,7 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     sdp = ExSDP.parse!(offer.sdp)
 
-    # munge Extmap and RTPMappingsso so that we use different ids and pts
+    # munge Extmap and RTPMappings so that we use different ids and pts
     [mline] = sdp.media
 
     extmaps =
@@ -598,5 +615,36 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert true == Process.exit(pc, :shutdown)
     assert false == Process.alive?(pc)
     Enum.each(links, fn link -> assert false == Process.alive?(link) end)
+  end
+
+  @tag :debug
+  test "no matching codec" do
+    {:ok, pc} =
+      PeerConnection.start_link(
+        video_codecs: [
+          %RTPCodecParameters{
+            payload_type: 96,
+            mime_type: "video/VP8",
+            clock_rate: 90_000
+          }
+        ]
+      )
+
+    {:ok, pc2} =
+      PeerConnection.start_link(
+        video_codecs: [
+          %RTPCodecParameters{
+            payload_type: 45,
+            mime_type: "video/AV1",
+            clock_rate: 90_000
+          }
+        ]
+      )
+
+    {:ok, _tr} = PeerConnection.add_transceiver(pc, :video)
+    {:ok, offer} = PeerConnection.create_offer(pc)
+    :ok = PeerConnection.set_local_description(pc, offer)
+
+    assert {:error, :no_matching_codec} = PeerConnection.set_remote_description(pc2, offer)
   end
 end
