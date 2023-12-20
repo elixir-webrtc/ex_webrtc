@@ -4,6 +4,6 @@ defmodule ExWebRTC.Media.OggReaderTest do
   alias ExWebRTC.Media.OggReader
 
   test "correct file" do
-    assert {:ok, reader} = OggReader.open("test/fixtures/ogg/sine.ogg")
+    assert {:ok, _reader} = OggReader.open("test/fixtures/ogg/sine.ogg")
   end
 end

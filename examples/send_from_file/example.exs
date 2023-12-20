@@ -78,7 +78,7 @@ defmodule Peer do
            last_video_timestamp: Enum.random(0..@max_rtp_timestamp),
            audio_track_id: nil,
            audio_reader: nil,
-           last_audio_timestamp: Enum.random(0..@max_rtp_timestamp),
+           last_audio_timestamp: Enum.random(0..@max_rtp_timestamp)
          }}
 
       other ->
@@ -153,17 +153,34 @@ defmodule Peer do
 
   @impl true
   def handle_info(:send_audio_packet, state) do
-    Process.send_after(self(), :send_audio_packet, 20)
-
-    # TODO: implement
     case OggReader.next_packet(state.audio_reader) do
-      {:ok, reader, packet} ->
-        last_timestamp = state.last_audio_timestamp + 960
-        rtp_packet = ExRTP.Packet.new(packet, 111, last_timestamp, 5, 5)
+      {:ok, reader, {packet, duration}} ->
+        # in real-life scenario, you will need to conpensate for `Process.send_after/3` error
+        # and time spent on reading and parsing the file
+        # that's why you might hear short pauses in audio playback, when using this example
+        Process.send_after(self(), :send_audio_packet, duration)
+        rtp_packet = ExRTP.Packet.new(packet, 111, 1000, state.last_audio_timestamp, 1000)
         PeerConnection.send_rtp(state.peer_connection, state.audio_track_id, rtp_packet)
 
-        {:noreply, %{state | audio_reader: reader, last_audio_timestamp: last_timestamp}}
-      _else ->
+        # OggReader.next_packet/1 returns duration in ms
+        # we have to convert it to RTP timestamp difference
+        timestamp_delta = trunc(duration * 48_000 / 1000)
+
+        {:noreply,
+         %{
+           state
+           | audio_reader: reader,
+             last_audio_timestamp: state.last_audio_timestamp + timestamp_delta
+         }}
+
+      :eof ->
+        send(self(), :send_audio_packet)
+        Logger.info("audio.ogg ended. Looping...")
+        {:ok, reader} = OggReader.open("./audio.ogg")
+        {:noreply, %{state | audio_reader: reader}}
+
+      {:error, reason} ->
+        Logger.error("Error when reading Ogg, reason: #{inspect(reason)}")
         {:noreply, state}
     end
   end
