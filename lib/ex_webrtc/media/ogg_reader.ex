@@ -12,6 +12,15 @@ defmodule ExWebRTC.Media.OggReader do
 
   import Bitwise
 
+  @crc_params %{
+    extend: :crc_32,
+    poly: 0x04C11DB7,
+    init: 0x0,
+    xorout: 0x0,
+    refin: false,
+    refout: false
+  }
+
   @signature "OggS"
   @id_signature "OpusHead"
   @comment_signature "OpusTags"
@@ -81,12 +90,13 @@ defmodule ExWebRTC.Media.OggReader do
 
   defp read_page(file) do
     with <<@signature, @version, type, granule_pos::little-64, serial_no::little-32,
-           sequence_no::little-32, _checksum::little-32, segment_no>> <- IO.binread(file, 27),
-         segment_table when is_binary(segment_table) <- IO.binread(file, segment_no),
-         segment_table <- :binary.bin_to_list(segment_table),
+           sequence_no::little-32, _checksum::little-32,
+           segment_no>> = header <- IO.binread(file, 27),
+         raw_segment_table when is_binary(raw_segment_table) <- IO.binread(file, segment_no),
+         segment_table <- :binary.bin_to_list(raw_segment_table),
          payload_length <- Enum.sum(segment_table),
-         payload when is_binary(payload) <- IO.binread(file, payload_length) do
-      # TODO: checksum
+         payload when is_binary(payload) <- IO.binread(file, payload_length),
+         :ok <- verify_checksum(header <> raw_segment_table <> payload) do
       {packets, rest} = split_packets(segment_table, payload)
 
       type = %{
@@ -106,6 +116,18 @@ defmodule ExWebRTC.Media.OggReader do
       data when is_binary(data) -> {:error, :invalid_page_header}
       :eof -> :eof
       {:error, _res} = err -> err
+    end
+  end
+
+  defp verify_checksum(<<start::binary-22, checksum::little-32, rest::binary>>) do
+    actual_checksum =
+      <<start::binary, 0::32, rest::binary>>
+      |> CRC.calculate(@crc_params)
+
+    if checksum == actual_checksum do
+      :ok
+    else
+      {:error, :invalid_checksum}
     end
   end
 
