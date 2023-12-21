@@ -7,4 +7,4 @@ Send video and audio from files to a browser.
 3. Visit `example.html` in your browser e.g. `file:///home/Repos/elixir-webrtc/ex_webrtc/examples/send_from_file/example.html`
 4. Press the play button.
 
-You can replace `video.avf` or `audio.ogg` and use your own files instead.
+You can replace `video.ivf` or `audio.ogg` and use your own files instead.

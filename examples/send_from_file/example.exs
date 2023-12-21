@@ -154,12 +154,13 @@ defmodule Peer do
   @impl true
   def handle_info(:send_audio_packet, state) do
     case OggReader.next_packet(state.audio_reader) do
-      {:ok, reader, {packet, duration}} ->
+      {:ok, {packet, duration}, reader} ->
         # in real-life scenario, you will need to conpensate for `Process.send_after/3` error
         # and time spent on reading and parsing the file
         # that's why you might hear short pauses in audio playback, when using this example
         Process.send_after(self(), :send_audio_packet, duration)
-        rtp_packet = ExRTP.Packet.new(packet, 111, 1000, state.last_audio_timestamp, 1000)
+        # values set to 0 are handled by PeerConnection.set_rtp
+        rtp_packet = ExRTP.Packet.new(packet, 0, 0, state.last_audio_timestamp, 0)
         PeerConnection.send_rtp(state.peer_connection, state.audio_track_id, rtp_packet)
 
         # OggReader.next_packet/1 returns duration in ms
@@ -258,8 +259,8 @@ defmodule Peer do
 
     {:ok, ogg_reader} = OggReader.open("./audio.ogg")
 
-    Process.send_after(self(), :send_video_frame, 30)
-    Process.send_after(self(), :send_audio_packet, 20)
+    send(self(), :send_video_frame)
+    send(self(), :send_audio_packet)
     %{state | video_reader: ivf_reader, video_payloader: vp8_payloader, audio_reader: ogg_reader}
   end
 

@@ -8,7 +8,7 @@ defmodule ExWebRTC.Media.OggReaderTest do
 
     reader =
       Enum.reduce(0..50, reader, fn _, reader ->
-        assert {:ok, reader, {packet, duration}} = OggReader.next_packet(reader)
+        assert {:ok, {packet, duration}, reader} = OggReader.next_packet(reader)
         assert duration == 20
         assert is_binary(packet)
         assert packet != <<>>
@@ -28,7 +28,7 @@ defmodule ExWebRTC.Media.OggReaderTest do
 
     reader =
       Enum.reduce(0..49, reader, fn _, reader ->
-        {:ok, reader, _} = OggReader.next_packet(reader)
+        {:ok, _, reader} = OggReader.next_packet(reader)
         reader
       end)
 

@@ -43,8 +43,8 @@ defmodule ExWebRTC.Media.OggReader do
     with {:ok, file} <- File.open(path),
          reader <- %{file: file, packets: [], rest: <<>>},
          # for now, we ignore ID Header and Comment Header
-         {:ok, reader, <<@id_signature, _rest::binary>>} <- do_next_packet(reader),
-         {:ok, reader, <<@comment_signature, _rest::binary>>} <- do_next_packet(reader) do
+         {:ok, <<@id_signature, _rest::binary>>, reader} <- do_next_packet(reader),
+         {:ok, <<@comment_signature, _rest::binary>>, reader} <- do_next_packet(reader) do
       {:ok, reader}
     else
       {:error, _res} = err -> err
@@ -56,22 +56,22 @@ defmodule ExWebRTC.Media.OggReader do
   Reads next Ogg packet.
 
   One Ogg packet is equivalent to one Opus packet.
-  This function also returns the duration of the audio in milliseconds, based on Opus packet TOC sequence.
+  This function also returns the duration of the audio in milliseconds, based on Opus packet TOC sequence (see RFC 6716, sec. 3).
   It assumes that all of the Ogg packets belong to the same stream.
   """
   @spec next_packet(t()) ::
-          {:ok, t(), {binary(), non_neg_integer()}}
+          {:ok, {binary(), non_neg_integer()}, t()}
           | {:error, :invalid_page_header | :not_enough_data}
           | :eof
   def next_packet(reader) do
-    with {:ok, reader, packet} <- do_next_packet(reader),
+    with {:ok, packet, reader} <- do_next_packet(reader),
          {:ok, duration} <- get_packet_duration(packet) do
-      {:ok, reader, {packet, duration}}
+      {:ok, {packet, duration}, reader}
     end
   end
 
   defp do_next_packet(%{packets: [first | packets]} = reader) do
-    {:ok, %{reader | packets: packets}, first}
+    {:ok, first, %{reader | packets: packets}}
   end
 
   defp do_next_packet(%{packets: []} = reader) do
@@ -83,7 +83,7 @@ defmodule ExWebRTC.Media.OggReader do
         [first | packets] ->
           packet = rest <> first
           reader = %{reader | packets: packets, rest: rest}
-          {:ok, reader, packet}
+          {:ok, packet, reader}
       end
     end
   end
