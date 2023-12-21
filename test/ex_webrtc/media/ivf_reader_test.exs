@@ -4,8 +4,6 @@ defmodule ExWebRTC.Media.IVFReaderTest do
   alias ExWebRTC.Media.{IVFFrame, IVFHeader, IVFReader}
 
   test "correct file" do
-    assert {:ok, reader} = IVFReader.open("test/fixtures/ivf/vp8_correct.ivf")
-
     assert {:ok,
             %IVFHeader{
               signature: "DKIF",
@@ -18,7 +16,7 @@ defmodule ExWebRTC.Media.IVFReaderTest do
               timebase_num: 1000,
               num_frames: 29,
               unused: 0
-            }} == IVFReader.read_header(reader)
+            }, reader} = IVFReader.open("test/fixtures/ivf/vp8_correct.ivf")
 
     for i <- 0..28 do
       assert {:ok, %IVFFrame{} = frame} = IVFReader.next_frame(reader)
@@ -28,16 +26,14 @@ defmodule ExWebRTC.Media.IVFReaderTest do
     end
 
     assert :eof == IVFReader.next_frame(reader)
+    assert :ok == IVFReader.close(reader)
   end
 
   test "empty file" do
-    assert {:ok, reader} = IVFReader.open("test/fixtures/ivf/empty.ivf")
-    assert {:error, :invalid_file} == IVFReader.read_header(reader)
+    assert {:error, :invalid_file} = IVFReader.open("test/fixtures/ivf/empty.ivf")
   end
 
   test "invalid last frame" do
-    assert {:ok, reader} = IVFReader.open("test/fixtures/ivf/vp8_invalid_last_frame.ivf")
-
     assert {:ok,
             %IVFHeader{
               signature: "DKIF",
@@ -50,7 +46,7 @@ defmodule ExWebRTC.Media.IVFReaderTest do
               timebase_num: 1000,
               num_frames: 29,
               unused: 0
-            }} == IVFReader.read_header(reader)
+            }, reader} = IVFReader.open("test/fixtures/ivf/vp8_invalid_last_frame.ivf")
 
     for i <- 0..27 do
       assert {:ok, %IVFFrame{} = frame} = IVFReader.next_frame(reader)
