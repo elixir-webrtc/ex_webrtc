@@ -1,6 +1,8 @@
 defmodule ExWebRTC.RTP.VP8Payload do
   @moduledoc """
   Defines VP8 payload structure stored in RTP packet payload.
+
+  Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741)
   """
 
   @type t() :: %__MODULE__{
@@ -82,7 +84,8 @@ defmodule ExWebRTC.RTP.VP8Payload do
     do: {:ok, tid, y, nil, rest}
 
   # note that both pion and web browser always set y bit to 0 in this case
-  # but RFC explicitly states that y bit can be set when t is 0 and k is 1
+  # but RFC 7741, sec. 4.2 (definition for Y bit) explicitly states that Y bit
+  # can be set when T is 0 and K is 1
   defp parse_tidykeyidx(0, 1, <<_tid::2, y::1, keyidx::5, rest::binary>>),
     do: {:ok, nil, y, keyidx, rest}
 

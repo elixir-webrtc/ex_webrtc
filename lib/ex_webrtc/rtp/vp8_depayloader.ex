@@ -1,6 +1,8 @@
 defmodule ExWebRTC.RTP.VP8Depayloader do
   @moduledoc """
   Reassembles VP8 frames from RTP packets.
+
+  Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741)
   """
   require Logger
 
