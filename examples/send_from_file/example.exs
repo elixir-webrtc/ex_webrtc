@@ -14,6 +14,7 @@ defmodule Peer do
     IceCandidate,
     MediaStreamTrack,
     Media.IVFReader,
+    Media.OggReader,
     PeerConnection,
     RTPCodecParameters,
     RTP.VP8Payloader,
@@ -45,6 +46,15 @@ defmodule Peer do
         {:ok, pc} =
           PeerConnection.start_link(
             ice_servers: @ice_servers,
+            audio_codecs: [
+              %RTPCodecParameters{
+                payload_type: 111,
+                mime_type: "audio/opus",
+                clock_rate: 48_000,
+                channels: 2,
+                sdp_fmtp_line: %ExSDP.Attribute.FMTP{pt: 111, minptime: 10, useinbandfec: true}
+              }
+            ],
             video_codecs: [
               %RTPCodecParameters{
                 payload_type: 96,
@@ -62,11 +72,13 @@ defmodule Peer do
            conn: conn,
            stream: stream,
            peer_connection: pc,
-           track_id: nil,
-           ivf_reader: nil,
-           payloader: nil,
-           timer: nil,
-           last_timestamp: Enum.random(0..@max_rtp_timestamp)
+           video_track_id: nil,
+           video_reader: nil,
+           video_payloader: nil,
+           last_video_timestamp: Enum.random(0..@max_rtp_timestamp),
+           audio_track_id: nil,
+           audio_reader: nil,
+           last_audio_timestamp: Enum.random(0..@max_rtp_timestamp)
          }}
 
       other ->
@@ -111,32 +123,65 @@ defmodule Peer do
   end
 
   @impl true
-  def handle_info(:send_frame, state) do
-    Process.send_after(self(), :send_frame, 30)
+  def handle_info(:send_video_frame, state) do
+    Process.send_after(self(), :send_video_frame, 30)
 
-    case IVFReader.next_frame(state.ivf_reader) do
+    case IVFReader.next_frame(state.video_reader) do
       {:ok, frame} ->
-        {rtp_packets, payloader} = VP8Payloader.payload(state.payloader, frame.data)
+        {rtp_packets, payloader} = VP8Payloader.payload(state.video_payloader, frame.data)
 
         # the video has 30 FPS, VP8 clock rate is 90_000, so we have:
         # 90_000 / 30 = 3_000
-        last_timestamp = state.last_timestamp + 3_000 &&& @max_rtp_timestamp
+        last_timestamp = state.last_video_timestamp + 3_000 &&& @max_rtp_timestamp
 
         rtp_packets =
           Enum.map(rtp_packets, fn rtp_packet -> %{rtp_packet | timestamp: last_timestamp} end)
 
         Enum.each(rtp_packets, fn rtp_packet ->
-          PeerConnection.send_rtp(state.peer_connection, state.track_id, rtp_packet)
+          PeerConnection.send_rtp(state.peer_connection, state.video_track_id, rtp_packet)
         end)
 
-        state = %{state | payloader: payloader, last_timestamp: last_timestamp}
-        {:noreply, state}
+        {:noreply, %{state | video_payloader: payloader, last_video_timestamp: last_timestamp}}
 
       :eof ->
         Logger.info("video.ivf ended. Looping...")
-        {:ok, ivf_reader} = IVFReader.open("./video.ivf")
-        {:ok, _header} = IVFReader.read_header(ivf_reader)
-        state = %{state | ivf_reader: ivf_reader}
+        {:ok, reader} = IVFReader.open("./video.ivf")
+        {:ok, _header} = IVFReader.read_header(reader)
+        {:noreply, %{state | video_reader: reader}}
+    end
+  end
+
+  @impl true
+  def handle_info(:send_audio_packet, state) do
+    case OggReader.next_packet(state.audio_reader) do
+      {:ok, {packet, duration}, reader} ->
+        # in real-life scenario, you will need to conpensate for `Process.send_after/3` error
+        # and time spent on reading and parsing the file
+        # that's why you might hear short pauses in audio playback, when using this example
+        Process.send_after(self(), :send_audio_packet, duration)
+        # values set to 0 are handled by PeerConnection.set_rtp
+        rtp_packet = ExRTP.Packet.new(packet, 0, 0, state.last_audio_timestamp, 0)
+        PeerConnection.send_rtp(state.peer_connection, state.audio_track_id, rtp_packet)
+
+        # OggReader.next_packet/1 returns duration in ms
+        # we have to convert it to RTP timestamp difference
+        timestamp_delta = trunc(duration * 48_000 / 1000)
+
+        {:noreply,
+         %{
+           state
+           | audio_reader: reader,
+             last_audio_timestamp: state.last_audio_timestamp + timestamp_delta
+         }}
+
+      :eof ->
+        send(self(), :send_audio_packet)
+        Logger.info("audio.ogg ended. Looping...")
+        {:ok, reader} = OggReader.open("./audio.ogg")
+        {:noreply, %{state | audio_reader: reader}}
+
+      {:error, reason} ->
+        Logger.error("Error when reading Ogg, reason: #{inspect(reason)}")
         {:noreply, state}
     end
   end
@@ -151,13 +196,18 @@ defmodule Peer do
          %{"role" => _role, "type" => "peer_joined"},
          %{peer_connection: pc} = state
        ) do
-    track = MediaStreamTrack.new(:video)
-    {:ok, _} = PeerConnection.add_transceiver(pc, track, codec: :vp8)
+    audio_track = MediaStreamTrack.new(:audio)
+    video_track = MediaStreamTrack.new(:video)
+
+    {:ok, _} = PeerConnection.add_track(pc, audio_track)
+    {:ok, _} = PeerConnection.add_track(pc, video_track)
+
     {:ok, offer} = PeerConnection.create_offer(pc)
     :ok = PeerConnection.set_local_description(pc, offer)
     msg = %{"type" => "offer", "sdp" => offer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
-    %{state | track_id: track.id}
+
+    %{state | video_track_id: video_track.id, audio_track_id: audio_track.id}
   end
 
   defp handle_ws_message(%{"type" => "answer", "sdp" => sdp}, state) do
@@ -202,13 +252,16 @@ defmodule Peer do
 
   defp handle_webrtc_message({:connection_state_change, :connected} = msg, state) do
     Logger.info("#{inspect(msg)}")
-    Logger.info("Starting sending video.ivf")
+    Logger.info("Starting sending video.ivf and audio.ogg...")
     {:ok, ivf_reader} = IVFReader.open("./video.ivf")
     {:ok, _header} = IVFReader.read_header(ivf_reader)
-    payloader = VP8Payloader.new(800)
+    vp8_payloader = VP8Payloader.new(800)
 
-    Process.send_after(self(), :send_frame, 30)
-    %{state | ivf_reader: ivf_reader, payloader: payloader}
+    {:ok, ogg_reader} = OggReader.open("./audio.ogg")
+
+    send(self(), :send_video_frame)
+    send(self(), :send_audio_packet)
+    %{state | video_reader: ivf_reader, video_payloader: vp8_payloader, audio_reader: ogg_reader}
   end
 
   defp handle_webrtc_message(msg, state) do
