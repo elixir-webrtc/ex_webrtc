@@ -155,8 +155,8 @@ defmodule Peer do
     # on the frontend side (in getUserMedia).
     # However, keep in mind they can change in time
     # so this is best effort saving.
-    # num_frames is set to 900 but it will be updated 
-    # on calling IVFWriter.close
+    # `num_frames` is set to 900 and it will be updated
+    # every `num_frames` by `num_frames`.
     {:ok, ivf_writer} =
       IVFWriter.open("./output.ivf",
         fourcc: fourcc,
