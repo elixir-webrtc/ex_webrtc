@@ -7,7 +7,7 @@ defmodule ExWebRTC.Media.IVFWritertTest do
   test "IVF writer", %{tmp_dir: tmp_dir} do
     path = Path.join([tmp_dir, "output.ivf"])
     <<fourcc::little-32>> = "VP80"
-    num_frames = 2
+    num_frames = 5
 
     {:ok, writer} =
       IVFWriter.open(path,
@@ -42,7 +42,7 @@ defmodule ExWebRTC.Media.IVFWritertTest do
     # `num_frames + 1` frame
     expected_num_frames = 2 * num_frames
     frame = %IVFFrame{timestamp: num_frames, data: <<0, 1, 2, 3, 4>>}
-    assert {:ok, _writer} = IVFWriter.write_frame(writer, frame)
+    assert {:ok, writer} = IVFWriter.write_frame(writer, frame)
 
     assert {:ok,
             %IVFHeader{
@@ -65,5 +65,22 @@ defmodule ExWebRTC.Media.IVFWritertTest do
       assert frame.timestamp == i
       assert frame.data == <<0, 1, 2, 3, 4>>
     end
+
+    # assert that after calling close/1, number of frames
+    # in the header is equal to the 
+    # exact number of frames that were written
+    assert :ok = IVFWriter.close(writer)
+    exact_num_frames = num_frames + 1
+
+    assert {:ok,
+            %IVFHeader{
+              fourcc: ^fourcc,
+              height: 640,
+              width: 480,
+              num_frames: ^exact_num_frames,
+              timebase_denum: 30,
+              timebase_num: 1,
+              unused: 0
+            }, _reader} = IVFReader.open(path)
   end
 end

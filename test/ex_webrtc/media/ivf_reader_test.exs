@@ -26,6 +26,7 @@ defmodule ExWebRTC.Media.IVFReaderTest do
     end
 
     assert :eof == IVFReader.next_frame(reader)
+    assert :ok == IVFReader.close(reader)
   end
 
   test "empty file" do

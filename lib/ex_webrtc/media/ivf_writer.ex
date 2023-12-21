@@ -13,15 +13,18 @@ defmodule ExWebRTC.Media.IVFWriter do
   @enforce_keys [:file]
   defstruct @enforce_keys ++ [update_header_after: 0, frames_cnt: 0]
 
-  defguard update_header?(writer)
-           when writer.frames_cnt >= writer.update_header_after and
-                  rem(writer.frames_cnt, writer.update_header_after) == 0
+  defguardp update_header?(writer)
+            when writer.frames_cnt >= writer.update_header_after and
+                   rem(writer.frames_cnt, writer.update_header_after) == 0
 
   @doc """
   Creates a new IVF writer.
 
   Initially, IVF header is written with `num_frames` and 
   is updated every `num_frames` by `num_frames`.
+  To have a precise number of frames in the header,
+  either write exactly `num_frames` or call `close/1` 
+  at the end of writing.
   """
   @spec open(Path.t(),
           fourcc: non_neg_integer(),
@@ -53,11 +56,11 @@ defmodule ExWebRTC.Media.IVFWriter do
   end
 
   @doc """
-  Writes IVF frame into a file.
+  Writes an IVF frame into a file.
   """
   @spec write_frame(t(), IVFFrame.t()) :: {:ok, t()} | {:error, term()}
   def write_frame(writer, frame) when update_header?(writer) and frame.data != <<>> do
-    case update_header(writer) do
+    case update_header(writer, writer.frames_cnt + writer.update_header_after) do
       :ok -> do_write_frame(writer, frame)
       {:error, _reason} = error -> error
     end
@@ -65,8 +68,23 @@ defmodule ExWebRTC.Media.IVFWriter do
 
   def write_frame(writer, frame) when frame.data != <<>>, do: do_write_frame(writer, frame)
 
-  defp update_header(writer) do
-    num_frames = <<writer.frames_cnt + writer.update_header_after::little-32>>
+  @doc """
+  Updates a number of frames in the header and closes the writer.
+
+  If a process owning an IVF writer exits, a file open by the IVF writer
+  will be closed automatically but header will not be updated.
+  See also `open/2` for more information on automatic header updates.
+  """
+  @spec close(t()) :: :ok | {:error, File.posix() | term()}
+  def close(writer) do
+    case update_header(writer, writer.frames_cnt) do
+      :ok -> File.close(writer.file)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp update_header(writer, num_frames) do
+    num_frames = <<num_frames::little-32>>
     ret = :file.pwrite(writer.file, 24, num_frames)
     {:ok, _position} = :file.position(writer.file, :eof)
     ret

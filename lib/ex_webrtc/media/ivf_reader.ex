@@ -84,6 +84,9 @@ defmodule ExWebRTC.Media.IVFReader do
 
   @opaque t() :: File.io_device()
 
+  @doc """
+  Opens an IVF file and reads its header.
+  """
   @spec open(Path.t()) :: {:ok, IVFHeader.t(), t()} | {:error, term()}
   def open(path) do
     with {:ok, file} <- File.open(path),
@@ -111,6 +114,9 @@ defmodule ExWebRTC.Media.IVFReader do
     end
   end
 
+  @doc """
+  Reads the next video frame from an IVF file.
+  """
   @spec next_frame(t()) :: {:ok, IVFFrame.t()} | {:error, term()} | :eof
   def next_frame(reader) do
     with <<len_frame::little-integer-size(32), timestamp::little-integer-size(64)>> <-
@@ -123,5 +129,15 @@ defmodule ExWebRTC.Media.IVFReader do
       {:error, _reason} = error -> error
       _other -> {:error, :invalid_file}
     end
+  end
+
+  @doc """
+  Closes an IVF reader.
+
+  When a process owning the IVF reader exits, IVF reader is closed automatically. 
+  """
+  @spec close(t()) :: :ok | {:error, File.posix() | term()}
+  def close(reader) do
+    File.close(reader)
   end
 end
