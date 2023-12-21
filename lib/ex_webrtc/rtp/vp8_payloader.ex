@@ -2,6 +2,8 @@ defmodule ExWebRTC.RTP.VP8Payloader do
   @moduledoc """
   Encapsulates VP8 video frames into RTP packets.
 
+  Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741)
+
   It does not support `X` bit right now, in particular it
   does not pay attention to VP8 partion boundaries (see RFC 7741 sec. 4.4).
   """
