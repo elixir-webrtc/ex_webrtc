@@ -553,14 +553,10 @@ defmodule ExWebRTC.PeerConnection do
          :ok <- SDPUtils.ensure_rtcp_mux(sdp),
          {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
-         {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp) do
-      config = Configuration.update(state.config, sdp)
-      state = %{state | config: config}
-
-      transceivers =
-        state
-        |> update_transceivers(sdp)
-        |> update_transceiver_directions(sdp, :remote, type)
+         {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp),
+         state <- %{state | config: Configuration.update(state.config, sdp)},
+         {:ok, transceivers} <- update_transceivers(state, sdp) do
+      transceivers = update_transceiver_directions(transceivers, sdp, :remote, type)
 
       # TODO: this can result in ICE restart (when it should, e.g. when this is answer)
       :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
@@ -683,21 +679,32 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp update_transceivers(state, sdp) do
-    Enum.reduce(sdp.media, state.transceivers, fn mline, transceivers ->
+    Enum.reduce_while(sdp.media, {:ok, state.transceivers}, fn mline, {:ok, transceivers} ->
       {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
-      # TODO: consider recycled transceivers
+      # TODO: consider recycled transceivers 
       case find_transceiver(transceivers, mid) do
         {idx, %RTPTransceiver{} = tr} ->
-          new_tr = RTPTransceiver.update(tr, mline, state.config)
-          notify_if_new_track(mline, new_tr, state.owner)
+          case RTPTransceiver.update(tr, mline, state.config) do
+            {:ok, new_tr} ->
+              notify_if_new_track(mline, new_tr, state.owner)
+              transceivers = List.replace_at(transceivers, idx, new_tr)
+              {:cont, {:ok, transceivers}}
 
-          List.replace_at(transceivers, idx, new_tr)
+            {:error, _reason} = error ->
+              {:halt, error}
+          end
 
         nil ->
-          new_tr = RTPTransceiver.from_mline(mline, state.config)
-          notify_if_new_track(mline, new_tr, state.owner)
-          transceivers ++ [new_tr]
+          case RTPTransceiver.from_mline(mline, state.config) do
+            {:ok, new_tr} ->
+              notify_if_new_track(mline, new_tr, state.owner)
+              transceivers = transceivers ++ [new_tr]
+              {:cont, {:ok, transceivers}}
+
+            {:error, _reason} = error ->
+              {:halt, error}
+          end
       end
     end)
   end
