@@ -18,6 +18,7 @@ defmodule Peer do
     PeerConnection,
     RTPCodecParameters,
     RTP.VP8Payloader,
+    RTP.OpusPayloader,
     RTPTransceiver,
     SessionDescription
   }
@@ -159,7 +160,8 @@ defmodule Peer do
         # that's why you might hear short pauses in audio playback, when using this example
         Process.send_after(self(), :send_audio_packet, duration)
         # values set to 0 are handled by PeerConnection.set_rtp
-        rtp_packet = ExRTP.Packet.new(packet, 0, 0, state.last_audio_timestamp, 0)
+        rtp_packet = OpusPayloader.payload(packet)
+        rtp_packet = %{rtp_packet | timestamp: state.last_audio_timestamp}
         PeerConnection.send_rtp(state.peer_connection, state.audio_track_id, rtp_packet)
 
         # OggReader.next_packet/1 returns duration in ms
