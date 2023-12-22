@@ -4,7 +4,7 @@ defmodule ExWebRTC.RTP.OpusPayloader do
   """
 
   @doc """
-  Packs Opus packet into an RTP packets.
+  Packs Opus packet into an RTP packet.
 
   Fields from RTP header like ssrc, timestamp etc. are set to 0.
   """
