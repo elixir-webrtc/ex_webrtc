@@ -10,21 +10,10 @@ defmodule ExWebRTC.Media.OggReader do
   * [RFC 6716: Definition of the Opus Audio Codec](https://www.rfc-editor.org/rfc/rfc6716.txt)
   """
 
-  import Bitwise
+  alias ExWebRTC.Media.Ogg.Page
 
-  @crc_params %{
-    extend: :crc_32,
-    poly: 0x04C11DB7,
-    init: 0x0,
-    xorout: 0x0,
-    refin: false,
-    refout: false
-  }
-
-  @signature "OggS"
   @id_signature "OpusHead"
   @comment_signature "OpusTags"
-  @version 0
 
   @opaque t() :: %{
             file: File.io_device(),
@@ -75,7 +64,7 @@ defmodule ExWebRTC.Media.OggReader do
   end
 
   defp do_next_packet(%{packets: []} = reader) do
-    with {:ok, _header, packets, rest} <- read_page(reader.file) do
+    with {:ok, %Page{packets: packets, rest: rest}} <- Page.read(reader.file) do
       case packets do
         [] ->
           do_next_packet(%{reader | packets: [], rest: reader.rest <> rest})
@@ -85,62 +74,6 @@ defmodule ExWebRTC.Media.OggReader do
           reader = %{reader | packets: packets, rest: rest}
           {:ok, packet, reader}
       end
-    end
-  end
-
-  defp read_page(file) do
-    with <<@signature, @version, type, granule_pos::little-64, serial_no::little-32,
-           sequence_no::little-32, _checksum::little-32,
-           segment_no>> = header <- IO.binread(file, 27),
-         raw_segment_table when is_binary(raw_segment_table) <- IO.binread(file, segment_no),
-         segment_table <- :binary.bin_to_list(raw_segment_table),
-         payload_length <- Enum.sum(segment_table),
-         payload when is_binary(payload) <- IO.binread(file, payload_length),
-         :ok <- verify_checksum(header <> raw_segment_table <> payload) do
-      {packets, rest} = split_packets(segment_table, payload)
-
-      type = %{
-        fresh?: (type &&& 0x01) != 0,
-        first?: (type &&& 0x02) != 0,
-        last?: (type &&& 0x04) != 0
-      }
-
-      {:ok,
-       %{
-         type: type,
-         granule_pos: granule_pos,
-         serial_no: serial_no,
-         sequence_no: sequence_no
-       }, packets, rest}
-    else
-      data when is_binary(data) -> {:error, :invalid_page_header}
-      :eof -> :eof
-      {:error, _res} = err -> err
-    end
-  end
-
-  defp verify_checksum(<<start::binary-22, checksum::little-32, rest::binary>>) do
-    actual_checksum =
-      <<start::binary, 0::32, rest::binary>>
-      |> CRC.calculate(@crc_params)
-
-    if checksum == actual_checksum do
-      :ok
-    else
-      {:error, :invalid_checksum}
-    end
-  end
-
-  defp split_packets(segment_table, payload, packets \\ [], packet \\ <<>>)
-  defp split_packets([], <<>>, packets, packet), do: {Enum.reverse(packets), packet}
-
-  defp split_packets([segment_len | segment_table], payload, packets, packet) do
-    <<segment::binary-size(segment_len), rest::binary>> = payload
-    packet = packet <> segment
-
-    case segment_len do
-      255 -> split_packets(segment_table, rest, packets, packet)
-      _len -> split_packets(segment_table, rest, [packet | packets], <<>>)
     end
   end
 
