@@ -44,6 +44,7 @@ defmodule ExWebRTC.PeerConnection do
            | {:signaling_state_change, signaling_state()}
            | {:connection_state_change, connection_state()}
            | {:track, MediaStreamTrack.t()}
+           | {:track_unmuted, MediaStreamTrack.id()}
            | {:rtp, MediaStreamTrack.id(), ExRTP.Packet.t()}}
 
   @typedoc """
@@ -118,10 +119,24 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, {:add_transceiver, kind_or_track, options})
   end
 
-  @spec add_track(peer_connection(), MediaStreamTrack.t()) ::
-          {:ok, RTPSender.t()} | {:error, :TODO}
+  @spec set_transceiver_direction(
+          peer_connection(),
+          RTPTransceiver.id(),
+          RTPTransceiver.direction()
+        ) :: :ok
+  def set_transceiver_direction(peer_connection, transceiver_id, direction)
+      when direction in [:sendrecv, :sendonly, :recvonly, :inactive] do
+    GenServer.call(peer_connection, {:set_transceiver_direction, transceiver_id, direction})
+  end
+
+  @spec add_track(peer_connection(), MediaStreamTrack.t()) :: {:ok, RTPSender.t()}
   def add_track(peer_connection, track) do
     GenServer.call(peer_connection, {:add_track, track})
+  end
+
+  @spec remove_track(peer_connection(), RTPSender.id()) :: :ok
+  def remove_track(peer_connection, sender_id) do
+    GenServer.call(peer_connection, {:remove_track, sender_id})
   end
 
   @spec close(peer_connection()) :: :ok
@@ -346,6 +361,24 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_call({:set_transceiver_direction, tr_id, direction}, _from, state) do
+    idx = Enum.find_index(state.transceivers, fn tr -> tr.id == tr_id end)
+
+    case idx do
+      nil ->
+        {:reply, :ok, state}
+
+      idx ->
+        tr = Enum.at(state.transceivers, idx)
+        tr = %RTPTransceiver{tr | direction: direction}
+        transceivers = List.replace_at(state.transceivers, idx, tr)
+        state = %{state | transceivers: transceivers}
+        state = update_negotiation_needed(state)
+        {:reply, :ok, state}
+    end
+  end
+
+  @impl true
   def handle_call({:add_transceiver, %MediaStreamTrack{} = track, options}, _from, state) do
     options = Keyword.put(options, :ssrc, generate_ssrc(state))
     transceiver = RTPTransceiver.new(track.kind, track, state.config, options)
@@ -400,6 +433,36 @@ defmodule ExWebRTC.PeerConnection do
     state = update_negotiation_needed(state)
 
     {:reply, {:ok, sender}, state}
+  end
+
+  @impl true
+  def handle_call({:remove_track, sender_id}, _from, state) do
+    tr_idx =
+      Enum.find_index(state.transceivers, fn tr ->
+        tr.sender.track != nil and tr.sender.id == sender_id
+      end)
+
+    case tr_idx do
+      nil ->
+        {:reply, :ok, state}
+
+      idx ->
+        tr = Enum.at(state.transceivers, idx)
+        sender = %RTPSender{tr.sender | track: nil}
+
+        direction =
+          case tr.direction do
+            :sendrecv -> :recvonly
+            :sendonly -> :inactive
+            other -> other
+          end
+
+        tr = %RTPTransceiver{tr | sender: sender, direction: direction}
+        transceivers = List.replace_at(state.transceivers, idx, tr)
+        state = %{state | transceivers: transceivers}
+        state = update_negotiation_needed(state)
+        {:reply, :ok, state}
+    end
   end
 
   @impl true
@@ -520,6 +583,24 @@ defmodule ExWebRTC.PeerConnection do
          {:ok, sdp} <- parse_sdp(raw_sdp) do
       if state.ice_gathering_state == :new do
         state.ice_transport.gather_candidates(state.ice_pid)
+      end
+
+      # See W3C WebRTC 4.4.1.5 when "description" 
+      # is not of type "rollback" and "remote" is false.
+      # Consider scenario where the remote side offers
+      # sendonly and we want to reject it by setting
+      # transceiver's direction to inactive after SRD.
+      # This should result in emitting track mute event.
+      if type == :answer do
+        for mline <- sdp.media do
+          {:mid, mid} = ExSDP.get_attribute(mline, :mid)
+          tr = Enum.find(state.transceivers, fn tr -> tr.mid == mid end)
+          direction = SDPUtils.get_media_direction(mline)
+
+          if direction in [:sendonly, :inactive] and tr.fired_direction in [:sendrecv, :recvonly] do
+            notify(state.owner, {:track_muted, tr.receiver.track.id})
+          end
+        end
       end
 
       transceivers = update_transceiver_directions(state.transceivers, sdp, :local, type)
@@ -682,6 +763,7 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
+  # this function is only called when applying remote description
   defp update_transceivers(state, sdp) do
     Enum.reduce(sdp.media, state.transceivers, fn mline, transceivers ->
       {:mid, mid} = ExSDP.get_attribute(mline, :mid)
@@ -690,28 +772,35 @@ defmodule ExWebRTC.PeerConnection do
       case find_transceiver(transceivers, mid) do
         {idx, %RTPTransceiver{} = tr} ->
           new_tr = RTPTransceiver.update(tr, mline, state.config)
-          notify_if_new_track(mline, new_tr, state.owner)
-
+          new_tr = process_remote_track(new_tr, mline, state.owner)
           List.replace_at(transceivers, idx, new_tr)
 
         nil ->
           new_tr = RTPTransceiver.from_mline(mline, state.config)
-          notify_if_new_track(mline, new_tr, state.owner)
+          new_tr = process_remote_track(new_tr, mline, state.owner)
           transceivers ++ [new_tr]
       end
     end)
   end
 
-  defp notify_if_new_track(mline, tr, owner) do
-    # TODO: applying offers back to back (without answer)
-    # will result in multiple messages for the same track
-    # because current_direction is set in set_remote_description
+  # see W3C WebRTC 5.1.1
+  defp process_remote_track(transceiver, mline, owner) do
     direction = SDPUtils.get_media_direction(mline)
 
-    if direction in [:sendrecv, :sendonly] and
-         tr.current_direction not in [:sendrecv, :recvonly] do
-      notify(owner, {:track, tr.receiver.track})
+    cond do
+      direction in [:sendrecv, :recvonly] and
+          transceiver.fired_direction not in [:sendrecv, :recvonly] ->
+        notify(owner, {:track, transceiver.receiver.track})
+
+      direction in [:sendonly, :inactive] and
+          transceiver.fired_direction in [:sendrecv, :recvonly] ->
+        notify(owner, {:track_muted, transceiver.receiver.track.id})
+
+      true ->
+        :ok
     end
+
+    %RTPTransceiver{transceiver | fired_direction: direction}
   end
 
   defp update_transceiver_directions(transceivers, sdp, source, :answer) do
@@ -730,19 +819,6 @@ defmodule ExWebRTC.PeerConnection do
       transceiver = %RTPTransceiver{transceiver | current_direction: direction}
       List.replace_at(transceivers, idx, transceiver)
     end)
-  end
-
-  defp update_transceiver_directions(transceivers, sdp, :remote, :offer) do
-    # TODO: currently, we don't handle remote recvonly mlines
-    # as they need to be handled diffrently (i.e. transceiver set to inactive)
-    # and we have no way to check that when applying answer
-    Enum.each(sdp.media, fn mline ->
-      if SDPUtils.get_media_direction(mline) == :recvonly do
-        raise "Unable to handle remote `recvonly` mline"
-      end
-    end)
-
-    transceivers
   end
 
   defp update_transceiver_directions(transceivers, _sdp, _source, _type),
@@ -841,7 +917,7 @@ defmodule ExWebRTC.PeerConnection do
     do: state
 
   defp update_negotiation_needed(state) do
-    negotiation_needed = is_negotiation_needed(state)
+    negotiation_needed = is_negotiation_needed(state.transceivers, state)
 
     cond do
       negotiation_needed == true and state.negotiation_needed == true ->
@@ -860,13 +936,47 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  defp is_negotiation_needed(state) do
-    # We don't support MSIDs, stopping transceivers
-    # and changing their directions right now, so 
-    # we only check 5.2 from 4.7.3#check-if-negotiation-is-needed
-    # https://www.w3.org/TR/webrtc/#dfn-check-if-negotiation-is-needed
-    tr = Enum.find(state.transceivers, fn tr -> tr.mid == nil end)
-    tr != nil
+  # We don't support MSIDs and stopping transceivers so 
+  # we only check 5.2 and 5.3 from 4.7.3#check-if-negotiation-is-needed
+  # https://www.w3.org/TR/webrtc/#dfn-check-if-negotiation-is-needed
+  defp is_negotiation_needed([], _), do: false
+
+  defp is_negotiation_needed([tr | _transceivers], _state) when tr.mid == nil, do: true
+
+  defp is_negotiation_needed([tr | transceivers], state) do
+    {local_desc_type, local_desc} = state.current_local_desc
+    {_, remote_desc} = state.current_remote_desc
+
+    find_mline_by_mid = fn sdp ->
+      Enum.find(sdp.media, fn mline ->
+        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
+        tr.mid == mid
+      end)
+    end
+
+    local_mline = find_mline_by_mid.(local_desc)
+    remote_mline = find_mline_by_mid.(remote_desc)
+
+    local_mline_direction = SDPUtils.get_media_direction(local_mline)
+    remote_mline_direction = SDPUtils.get_media_direction(remote_mline) |> reverse_direction()
+
+    cond do
+      # Consider the following scenario:
+      # 1. offerer offers sendrecv
+      # 2. answerer answers with recvonly  
+      # 3. offerer changes from sendrecv to sendonly
+      # We don't need to renegotiate in such a case.
+      local_desc_type == :offer and
+          tr.direction not in [local_mline_direction, remote_mline_direction] ->
+        true
+
+      # See https://github.com/w3c/webrtc-pc/issues/2919#issuecomment-1874081199
+      local_desc_type == :answer and tr.direction != local_mline_direction ->
+        true
+
+      true ->
+        is_negotiation_needed(transceivers, state)
+    end
   end
 
   defp generate_ssrc(state) do

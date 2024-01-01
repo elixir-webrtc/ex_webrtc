@@ -9,16 +9,20 @@ defmodule ExWebRTC.RTPTransceiver do
     RTPCodecParameters,
     RTPReceiver,
     RTPSender,
-    SDPUtils
+    SDPUtils,
+    Utils
   }
 
+  @type id() :: integer()
   @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
   @type kind() :: :audio | :video
 
   @type t() :: %__MODULE__{
+          id: id(),
           mid: String.t() | nil,
           direction: direction(),
           current_direction: direction() | nil,
+          fired_direction: direction() | nil,
           kind: kind(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()],
@@ -26,9 +30,12 @@ defmodule ExWebRTC.RTPTransceiver do
           sender: RTPSender.t()
         }
 
-  @enforce_keys [:mid, :direction, :current_direction, :kind, :sender, :receiver]
+  @enforce_keys [:id, :direction, :kind, :sender, :receiver]
   defstruct @enforce_keys ++
               [
+                :mid,
+                :current_direction,
+                :fired_direction,
                 codecs: [],
                 rtp_hdr_exts: []
               ]
@@ -48,7 +55,7 @@ defmodule ExWebRTC.RTPTransceiver do
     # to avoid ambiguity when assigning payload type for RTP packets in RTPSender.
     # In other case, if PeerConnection negotiated multiple codecs,
     # user would have to pass RTP codec when sending RTP packets,
-    # or assing payload type on their own.
+    # or assign payload type on their own.
     codecs =
       if direction in [:sendrecv, :sendonly] do
         Enum.slice(codecs, 0, 1)
@@ -59,9 +66,8 @@ defmodule ExWebRTC.RTPTransceiver do
     track = MediaStreamTrack.new(kind)
 
     %__MODULE__{
-      mid: nil,
+      id: Utils.generate_id(),
       direction: direction,
-      current_direction: nil,
       kind: kind,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
@@ -80,9 +86,9 @@ defmodule ExWebRTC.RTPTransceiver do
     track = MediaStreamTrack.new(mline.type)
 
     %__MODULE__{
+      id: Utils.generate_id(),
       mid: mid,
       direction: :recvonly,
-      current_direction: nil,
       kind: mline.type,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
@@ -114,7 +120,7 @@ defmodule ExWebRTC.RTPTransceiver do
       # see RFC 8299 sec. 5.3.1 and RFC 3264 sec. 6
       %ExSDP.Media{mline | port: 0}
     else
-      offered_direction = ExSDP.get_attribute(mline, :direction)
+      offered_direction = SDPUtils.get_media_direction(mline)
       direction = get_direction(offered_direction, transceiver.direction)
       opts = Keyword.put(opts, :direction, direction)
       to_mline(transceiver, opts)
@@ -181,6 +187,7 @@ defmodule ExWebRTC.RTPTransceiver do
   defp get_direction(_, :inactive), do: :inactive
   defp get_direction(:sendonly, t) when t in [:sendrecv, :recvonly], do: :recvonly
   defp get_direction(:recvonly, t) when t in [:sendrecv, :sendonly], do: :sendonly
+  defp get_direction(:recvonly, :recvonly), do: :inactive
   defp get_direction(o, other) when o in [:sendrecv, nil], do: other
   defp get_direction(:inactive, _), do: :inactive
 

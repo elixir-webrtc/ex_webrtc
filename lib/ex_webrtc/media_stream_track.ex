@@ -3,6 +3,8 @@ defmodule ExWebRTC.MediaStreamTrack do
   MediaStreamTrack
   """
 
+  alias ExWebRTC.Utils
+
   @type id() :: integer()
 
   @type t() :: %__MODULE__{
@@ -14,11 +16,6 @@ defmodule ExWebRTC.MediaStreamTrack do
   defstruct @enforce_keys
 
   def new(kind) do
-    %__MODULE__{kind: kind, id: generate_id()}
-  end
-
-  defp generate_id() do
-    <<id::12*8>> = :crypto.strong_rand_bytes(12)
-    id
+    %__MODULE__{kind: kind, id: Utils.generate_id()}
   end
 end
