@@ -134,6 +134,12 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, {:add_track, track})
   end
 
+  @spec replace_track(peer_connection(), RTPSender.id(), MediaStreamTrack.t()) ::
+          :ok | {:error, :invalid_sender_id | :invalid_track_type}
+  def replace_track(peer_connection, sender_id, track) do
+    GenServer.call(peer_connection, {:replace_track, sender_id, track})
+  end
+
   @spec remove_track(peer_connection(), RTPSender.id()) :: :ok | {:error, :invalid_sender_id}
   def remove_track(peer_connection, sender_id) do
     GenServer.call(peer_connection, {:remove_track, sender_id})
@@ -433,6 +439,37 @@ defmodule ExWebRTC.PeerConnection do
     state = update_negotiation_needed(state)
 
     {:reply, {:ok, sender}, state}
+  end
+
+  @impl true
+  def handle_call({:replace_track, sender_id, track}, _from, state) do
+    tr_idx = Enum.find_index(state.transceivers, fn tr -> tr.sender.id == sender_id end)
+
+    case tr_idx do
+      nil ->
+        {:reply, {:error, :invalid_sender_id}, state}
+
+      tr_idx ->
+        tr = Enum.at(state.transceivers, tr_idx)
+
+        cond do
+          track != nil and tr.kind != track.kind ->
+            {:reply, {:error, :invalid_track_type}, state}
+
+          tr.direction in [:sendrecv, :sendonly] ->
+            ssrc = tr.sender.ssrc || generate_ssrc(state)
+            sender = %RTPSender{tr.sender | track: track, ssrc: ssrc}
+            tr = %RTPTransceiver{tr | sender: sender}
+            transceivers = List.replace_at(state.transceivers, tr_idx, tr)
+            state = %{state | transceivers: transceivers}
+            {:reply, :ok, state}
+
+          true ->
+            # that's not compliant with the W3C but it's safer not 
+            # to allow for this until we have clear use case
+            {:reply, {:error, :invalid_transceiver_direction}, state}
+        end
+    end
   end
 
   @impl true
