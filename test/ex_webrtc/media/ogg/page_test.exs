@@ -29,6 +29,7 @@ defmodule ExWEbRTC.Media.Ogg.PageTest do
     @sequence_no::little-32
   >>
 
+  # TODO: test for packet with length of 255 * X
   @long_packet_seg <<255, 255, 678 - 255 - 255>>
   @long_packet for _ <- 1..678, do: <<42>>, into: <<>>
   @short_packet_seg <<202>>
@@ -37,7 +38,9 @@ defmodule ExWEbRTC.Media.Ogg.PageTest do
   @split_packet for _ <- 1..255, do: <<37>>, into: <<>>
 
   @page %Page{
-    type: %{fresh?: true, first?: false, last?: true},
+    continued?: true,
+    first?: false,
+    last?: true,
     granule_pos: @granule_pos,
     serial_no: @serial_no,
     sequence_no: @sequence_no,
