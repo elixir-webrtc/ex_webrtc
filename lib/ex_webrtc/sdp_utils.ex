@@ -160,8 +160,8 @@ defmodule ExWebRTC.SDPUtils do
           {:ok, {:fingerprint, {:sha256, binary()}}}
           | {:error, :missing_cert_fingerprint | :conflicting_cert_fingerprints}
   def get_cert_fingerprint(sdp) do
-    session_fingerprint = do_get_cert_fingerprint(sdp)
-    mline_fingerprints = Enum.map(sdp.media, fn mline -> do_get_cert_fingerprint(mline) end)
+    session_fingerprint = ExSDP.get_attribute(sdp, :fingerprint)
+    mline_fingerprints = Enum.map(sdp.media, &ExSDP.get_attribute(&1, :fingerprint))
 
     case {session_fingerprint, mline_fingerprints} do
       {nil, []} ->
@@ -174,12 +174,18 @@ defmodule ExWebRTC.SDPUtils do
         with :ok <- ensure_fingerprints_present(mline_fingerprints),
              :ok <- ensure_fingerprints_unique(mline_fingerprints) do
           {:ok, List.first(mline_fingerprints)}
+        else
+          {:error, :no_cert_fingerprints} -> {:error, :missing_cert_fingerprint}
+          other -> other
         end
 
       {session_fingerprint, mline_fingerprints} ->
         with :ok <- ensure_fingerprints_present(mline_fingerprints),
              :ok <- ensure_fingerprints_unique([session_fingerprint | mline_fingerprints]) do
           {:ok, session_fingerprint}
+        else
+          {:error, :no_cert_fingerprints} -> {:ok, session_fingerprint}
+          other -> other
         end
     end
   end
@@ -248,35 +254,19 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   defp do_get_ice_credentials(sdp_or_mline) do
-    get_attr =
-      case sdp_or_mline do
-        %ExSDP{} -> &ExSDP.get_attribute/2
-        %ExSDP.Media{} -> &ExSDP.get_attribute/2
-      end
-
     ice_ufrag =
-      case get_attr.(sdp_or_mline, :ice_ufrag) do
+      case ExSDP.get_attribute(sdp_or_mline, :ice_ufrag) do
         {:ice_ufrag, ice_ufrag} -> ice_ufrag
         nil -> nil
       end
 
     ice_pwd =
-      case get_attr.(sdp_or_mline, :ice_pwd) do
+      case ExSDP.get_attribute(sdp_or_mline, :ice_pwd) do
         {:ice_pwd, ice_pwd} -> ice_pwd
         nil -> nil
       end
 
     {ice_ufrag, ice_pwd}
-  end
-
-  defp do_get_cert_fingerprint(sdp_or_mline) do
-    get_attr =
-      case sdp_or_mline do
-        %ExSDP{} -> &ExSDP.get_attribute/2
-        %ExSDP.Media{} -> &ExSDP.get_attribute/2
-      end
-
-    get_attr.(sdp_or_mline, :fingerprint)
   end
 
   defp ensure_ice_credentials_present(creds) do
@@ -305,10 +295,10 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   defp ensure_fingerprints_present(fingerprints) do
-    if Enum.all?(fingerprints, &(&1 != nil)) do
-      :ok
-    else
-      {:error, :missing_cert_fingerprint}
+    cond do
+      Enum.all?(fingerprints, &(&1 == nil)) -> {:error, :no_cert_fingerprints}
+      Enum.any?(fingerprints, &(&1 == nil)) -> {:error, :missing_cert_fingerprint}
+      true -> :ok
     end
   end
 
