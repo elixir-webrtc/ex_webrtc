@@ -1,6 +1,6 @@
 defmodule ExWebRTC.Media.OggReader do
   @moduledoc """
-  Defines Ogg reader.
+  Reads Opus packets from an Ogg container file.
 
   For now, works only with single Opus stream in the container.
 
@@ -10,10 +10,8 @@ defmodule ExWebRTC.Media.OggReader do
   * [RFC 6716: Definition of the Opus Audio Codec](https://www.rfc-editor.org/rfc/rfc6716.txt)
   """
 
-  alias ExWebRTC.Media.Ogg.Page
-
-  @id_signature "OpusHead"
-  @comment_signature "OpusTags"
+  alias ExWebRTC.Media.Ogg.{Header, Page}
+  alias ExWebRTC.Media.Opus
 
   @opaque t() :: %{
             file: File.io_device(),
@@ -27,17 +25,18 @@ defmodule ExWebRTC.Media.OggReader do
   For now, works only with single Opus stream in the container.
   This function reads the ID and Comment Headers (and, for now, ignores them).
   """
-  @spec open(Path.t()) :: {:ok, t()} | {:error, File.posix() | :invalid_header}
+  @spec open(Path.t()) :: {:ok, t()} | {:error, term()}
   def open(path) do
     with {:ok, file} <- File.open(path),
          reader <- %{file: file, packets: [], rest: <<>>},
-         # for now, we ignore ID Header and Comment Header
-         {:ok, <<@id_signature, _rest::binary>>, reader} <- do_next_packet(reader),
-         {:ok, <<@comment_signature, _rest::binary>>, reader} <- do_next_packet(reader) do
+         {:ok, id_header, reader} <- do_next_packet(reader),
+         {:ok, comment_header, reader} <- do_next_packet(reader),
+         :ok <- Header.decode_id(id_header),
+         :ok <- Header.decode_comment(comment_header) do
       {:ok, reader}
     else
+      :eof -> {:error, :invalid_packet}
       {:error, _res} = err -> err
-      _other -> {:error, :invalid_header}
     end
   end
 
@@ -48,13 +47,10 @@ defmodule ExWebRTC.Media.OggReader do
   This function also returns the duration of the audio in milliseconds, based on Opus packet TOC sequence (see RFC 6716, sec. 3).
   It assumes that all of the Ogg packets belong to the same stream.
   """
-  @spec next_packet(t()) ::
-          {:ok, {binary(), non_neg_integer()}, t()}
-          | {:error, :invalid_page_header | :not_enough_data}
-          | :eof
+  @spec next_packet(t()) :: {:ok, {binary(), non_neg_integer()}, t()} | {:error, term()} | :eof
   def next_packet(reader) do
     with {:ok, packet, reader} <- do_next_packet(reader),
-         {:ok, duration} <- get_packet_duration(packet) do
+         {:ok, duration} <- Opus.duration(packet) do
       {:ok, {packet, duration}, reader}
     end
   end
@@ -76,26 +72,4 @@ defmodule ExWebRTC.Media.OggReader do
       end
     end
   end
-
-  # computes how much audio Opus packet contains (in ms), based on the TOC sequence
-  # RFC 6716, sec. 3
-  defp get_packet_duration(<<config::5, rest::bitstring>>) do
-    with {:ok, frame_count} <- get_frame_count(rest) do
-      {:ok, trunc(frame_count * get_frame_duration(config))}
-    end
-  end
-
-  defp get_packet_duration(_other), do: {:error, :not_enough_data}
-
-  defp get_frame_count(<<_s::1, 0::2, _rest::binary>>), do: {:ok, 1}
-  defp get_frame_count(<<_s::1, c::2, _rest::binary>>) when c in 1..2, do: {:ok, 2}
-  defp get_frame_count(<<_s::1, 3::2, _vp::2, frame_no::5, _rest::binary>>), do: {:ok, frame_no}
-  defp get_frame_count(_other), do: {:error, :not_enough_data}
-
-  defp get_frame_duration(config) when config in [16, 20, 24, 28], do: 2.5
-  defp get_frame_duration(config) when config in [17, 21, 25, 29], do: 5
-  defp get_frame_duration(config) when config in [0, 4, 8, 12, 14, 18, 22, 26, 30], do: 10
-  defp get_frame_duration(config) when config in [1, 5, 9, 13, 15, 19, 23, 27, 31], do: 20
-  defp get_frame_duration(config) when config in [2, 6, 10], do: 40
-  defp get_frame_duration(config) when config in [3, 7, 11], do: 60
 end

@@ -16,14 +16,10 @@ defmodule ExWebRTC.Media.Ogg.Page do
   @signature "OggS"
   @version 0
 
-  @type type() :: %{
-          fresh?: boolean(),
-          first?: boolean(),
-          last?: boolean()
-        }
-
   @type t() :: %__MODULE__{
-          type: type(),
+          continued?: boolean(),
+          first?: boolean(),
+          last?: boolean(),
           granule_pos: non_neg_integer(),
           serial_no: non_neg_integer(),
           sequence_no: non_neg_integer(),
@@ -31,8 +27,15 @@ defmodule ExWebRTC.Media.Ogg.Page do
           rest: binary()
         }
 
-  @enforce_keys [:type, :granule_pos, :serial_no, :sequence_no, :packets, :rest]
-  defstruct @enforce_keys
+  @enforce_keys [:granule_pos, :serial_no, :sequence_no]
+  defstruct @enforce_keys ++
+              [
+                continued?: false,
+                first?: false,
+                last?: false,
+                packets: [],
+                rest: <<>>
+              ]
 
   @spec read(File.io_device()) :: {:ok, t()} | {:error, term()}
   def read(file) do
@@ -46,14 +49,10 @@ defmodule ExWebRTC.Media.Ogg.Page do
          :ok <- verify_checksum(header <> raw_segment_table <> payload) do
       {packets, rest} = split_packets(segment_table, payload)
 
-      type = %{
-        fresh?: (type &&& 0x01) != 0,
-        first?: (type &&& 0x02) != 0,
-        last?: (type &&& 0x04) != 0
-      }
-
       page = %__MODULE__{
-        type: type,
+        continued?: (type &&& 0x01) != 0,
+        first?: (type &&& 0x02) != 0,
+        last?: (type &&& 0x04) != 0,
         granule_pos: granule_pos,
         serial_no: serial_no,
         sequence_no: sequence_no,
@@ -72,10 +71,10 @@ defmodule ExWebRTC.Media.Ogg.Page do
   @spec write(File.io_device(), t()) :: :ok | {:error, term()}
   def write(file, %__MODULE__{} = page) do
     with {:ok, segment_table} <- create_segment_table(page.packets, page.rest) do
-      fresh = if page.type.fresh?, do: 0x01, else: 0
-      first = if page.type.first?, do: 0x02, else: 0
-      last = if page.type.last?, do: 0x04, else: 0
-      type = first ||| fresh ||| last
+      continued = if page.continued?, do: 0x01, else: 0
+      first = if page.first?, do: 0x02, else: 0
+      last = if page.last?, do: 0x04, else: 0
+      type = first ||| continued ||| last
 
       before_crc = <<
         @signature,
@@ -125,12 +124,20 @@ defmodule ExWebRTC.Media.Ogg.Page do
   end
 
   defp create_segment_table(packets, rest) when rem(byte_size(rest), 255) == 0 do
+    # normally packet of length that is a multiple of 255 would end with 0-lenght segment
+    # for the rest (split packet) we don't want that
+    rest_segments =
+      case segment_packet(rest) do
+        [0 | segments] -> segments
+        [] -> []
+      end
+
     segment_table =
       packets
       |> Enum.reduce([], fn packet, segments ->
         segment_packet(packet) ++ segments
       end)
-      |> then(&Enum.concat(segment_packet(rest), &1))
+      |> then(&Enum.concat(rest_segments, &1))
       |> Enum.reverse()
 
     if length(segment_table) > 255 do
@@ -142,11 +149,14 @@ defmodule ExWebRTC.Media.Ogg.Page do
 
   defp create_segment_table(_packets, _rest), do: {:error, :rest_too_short}
 
+  # returned segment table for the packet is reversed
+  # thus the Enum.reverse/1 call in create_segment_table/2
   defp segment_packet(packet, acc \\ [])
+  defp segment_packet(<<>>, [255 | _rest] = acc), do: [0 | acc]
   defp segment_packet(<<>>, acc), do: acc
 
   defp segment_packet(<<_seg::binary-255, rest::binary>>, acc),
     do: segment_packet(rest, [255 | acc])
 
-  defp segment_packet(seg, acc) when is_binary(seg), do: [byte_size(seg) | acc]
+  defp segment_packet(packet, acc) when is_binary(packet), do: [byte_size(packet) | acc]
 end

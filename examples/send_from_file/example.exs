@@ -161,7 +161,7 @@ defmodule Peer do
         Process.send_after(self(), :send_audio_packet, duration)
         # values set to 0 are handled by PeerConnection.set_rtp
         rtp_packet = OpusPayloader.payload(packet)
-        rtp_packet = %{rtp_packet | timestamp: state.last_audio_timestamp}
+        rtp_packet = %{rtp_packet | timestamp: trunc(state.last_audio_timestamp)}
         PeerConnection.send_rtp(state.peer_connection, state.audio_track_id, rtp_packet)
 
         # OggReader.next_packet/1 returns duration in ms
