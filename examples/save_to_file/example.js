@@ -17,6 +17,7 @@ const start_connection = async (ws) => {
     };
 
     const localStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
         video: {
             width: { ideal: 640 },
             height: { ideal: 480 },
