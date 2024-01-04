@@ -35,7 +35,7 @@ defmodule ExWebRTC.Media.Ogg.Header do
   end
 
   @spec create_comment() :: binary()
-  def create_comment() do
+  def create_comment do
     <<
       @comment_signature,
       byte_size(@vendor)::little-32,
