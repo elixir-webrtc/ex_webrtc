@@ -35,7 +35,7 @@ defmodule ExWebRTC.Media.OggReader do
          :ok <- Header.decode_comment(comment_header) do
       {:ok, reader}
     else
-      :eof -> {:error, :invalid_packet}
+      :eof -> {:error, :invalid_file}
       {:error, _res} = err -> err
     end
   end
