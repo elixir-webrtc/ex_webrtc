@@ -44,7 +44,7 @@ defmodule ExWebRTC.PeerConnection do
            | {:signaling_state_change, signaling_state()}
            | {:connection_state_change, connection_state()}
            | {:track, MediaStreamTrack.t()}
-           | {:track_unmuted, MediaStreamTrack.id()}
+           | {:track_muted, MediaStreamTrack.id()}
            | {:rtp, MediaStreamTrack.id(), ExRTP.Packet.t()}}
 
   @typedoc """
