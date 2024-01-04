@@ -17,7 +17,7 @@ defmodule ExWebRTC.PeerConnectionTest do
                |> Utils.hex_dump()
 
   @audio_mline ExSDP.Media.new("audio", 9, "UDP/TLS/RTP/SAVPF", [108])
-               |> ExSDP.add_attribute(:rtcp_mux)
+               |> ExSDP.add_attributes([:rtcp_mux, :sendrecv])
                |> ExSDP.add_attributes(
                  setup: :active,
                  mid: "0",
@@ -27,7 +27,7 @@ defmodule ExWebRTC.PeerConnectionTest do
                )
 
   @video_mline ExSDP.Media.new("video", 9, "UDP/TLS/RTP/SAVPF", [96])
-               |> ExSDP.add_attribute(:rtcp_mux)
+               |> ExSDP.add_attribute([:rtcp_mux, :sendrecv])
                |> ExSDP.add_attributes(
                  setup: :active,
                  mid: "1",
@@ -532,9 +532,9 @@ defmodule ExWebRTC.PeerConnectionTest do
       assert tr2.receiver.track != nil
     end
 
-    test "non-existing sender id" do
+    test "invalid sender id" do
       {:ok, pc} = PeerConnection.start_link()
-      assert :ok == PeerConnection.remove_track(pc, 123)
+      assert {:error, :invalid_sender_id} == PeerConnection.remove_track(pc, 123)
     end
 
     test "sender without track" do

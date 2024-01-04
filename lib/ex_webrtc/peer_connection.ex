@@ -123,7 +123,7 @@ defmodule ExWebRTC.PeerConnection do
           peer_connection(),
           RTPTransceiver.id(),
           RTPTransceiver.direction()
-        ) :: :ok
+        ) :: :ok | {:error, :invalid_transceiver_id}
   def set_transceiver_direction(peer_connection, transceiver_id, direction)
       when direction in [:sendrecv, :sendonly, :recvonly, :inactive] do
     GenServer.call(peer_connection, {:set_transceiver_direction, transceiver_id, direction})
@@ -134,7 +134,7 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, {:add_track, track})
   end
 
-  @spec remove_track(peer_connection(), RTPSender.id()) :: :ok
+  @spec remove_track(peer_connection(), RTPSender.id()) :: :ok | {:error, :invalid_sender_id}
   def remove_track(peer_connection, sender_id) do
     GenServer.call(peer_connection, {:remove_track, sender_id})
   end
@@ -366,7 +366,7 @@ defmodule ExWebRTC.PeerConnection do
 
     case idx do
       nil ->
-        {:reply, :ok, state}
+        {:reply, {:error, :invalid_transceiver_id}, state}
 
       idx ->
         tr = Enum.at(state.transceivers, idx)
@@ -438,16 +438,18 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:remove_track, sender_id}, _from, state) do
     tr_idx =
-      Enum.find_index(state.transceivers, fn tr ->
-        tr.sender.track != nil and tr.sender.id == sender_id
-      end)
+      state.transceivers
+      |> Stream.with_index()
+      |> Enum.find(fn {tr, _idx} -> tr.sender.id == sender_id end)
 
     case tr_idx do
       nil ->
+        {:reply, {:error, :invalid_sender_id}, state}
+
+      {tr, _idx} when tr.sender.track == nil ->
         {:reply, :ok, state}
 
-      idx ->
-        tr = Enum.at(state.transceivers, idx)
+      {tr, idx} ->
         sender = %RTPSender{tr.sender | track: nil}
 
         direction =
@@ -585,8 +587,7 @@ defmodule ExWebRTC.PeerConnection do
         state.ice_transport.gather_candidates(state.ice_pid)
       end
 
-      # See W3C WebRTC 4.4.1.5 when "description" 
-      # is not of type "rollback" and "remote" is false.
+      # See W3C WebRTC 4.4.1.5-4.7.10.1
       # Consider scenario where the remote side offers
       # sendonly and we want to reject it by setting
       # transceiver's direction to inactive after SRD.
@@ -768,25 +769,25 @@ defmodule ExWebRTC.PeerConnection do
     Enum.reduce(sdp.media, state.transceivers, fn mline, transceivers ->
       {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
+      direction = SDPUtils.get_media_direction(mline) |> reverse_direction()
+
       # TODO: consider recycled transceivers
       case find_transceiver(transceivers, mid) do
         {idx, %RTPTransceiver{} = tr} ->
           new_tr = RTPTransceiver.update(tr, mline, state.config)
-          new_tr = process_remote_track(new_tr, mline, state.owner)
+          new_tr = process_remote_track(new_tr, direction, state.owner)
           List.replace_at(transceivers, idx, new_tr)
 
         nil ->
           new_tr = RTPTransceiver.from_mline(mline, state.config)
-          new_tr = process_remote_track(new_tr, mline, state.owner)
+          new_tr = process_remote_track(new_tr, direction, state.owner)
           transceivers ++ [new_tr]
       end
     end)
   end
 
   # see W3C WebRTC 5.1.1
-  defp process_remote_track(transceiver, mline, owner) do
-    direction = SDPUtils.get_media_direction(mline)
-
+  defp process_remote_track(transceiver, direction, owner) do
     cond do
       direction in [:sendrecv, :recvonly] and
           transceiver.fired_direction not in [:sendrecv, :recvonly] ->
