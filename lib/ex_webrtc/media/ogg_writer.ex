@@ -29,6 +29,12 @@ defmodule ExWebRTC.Media.OggWriter do
   @enforce_keys [:file, :page, :seg_count]
   defstruct @enforce_keys
 
+  @doc """
+  Opens a new Ogg writer.
+
+  The writer MUST be closed with close/1,
+  otherwise some of the data might not be written to a file.
+  """
   @spec open(
           Path.t(),
           sample_rate: non_neg_integer(),
@@ -47,6 +53,9 @@ defmodule ExWebRTC.Media.OggWriter do
     end
   end
 
+  @doc """
+  Writes an Opus packet to the Ogg file.
+  """
   @spec write_packet(t(), binary()) :: {:ok, t()} | {:error, term()}
   def write_packet(_writer, packet) when byte_size(packet) > @max_page_len do
     # we dont handle packets that would have to span more than one page
@@ -72,6 +81,11 @@ defmodule ExWebRTC.Media.OggWriter do
     end
   end
 
+  @doc """
+  Closes the writer.
+
+  This function MUST be called as it writes remaining, bufferd data to the Ogg file.
+  """
   @spec close(t()) :: :ok | {:error, term()}
   def close(%__MODULE__{file: file} = writer) do
     with {:ok, _writer} <- write_page(writer, true) do
