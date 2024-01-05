@@ -1,4 +1,4 @@
-defmodule ExWebRTC.Media.OggReader do
+defmodule ExWebRTC.Media.Ogg.Reader do
   @moduledoc """
   Reads Opus packets from an Ogg container file.
 

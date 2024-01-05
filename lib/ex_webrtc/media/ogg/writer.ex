@@ -1,4 +1,4 @@
-defmodule ExWebRTC.Media.OggWriter do
+defmodule ExWebRTC.Media.Ogg.Writer do
   @moduledoc """
   Writes Opus packets to an Ogg container file.
 
