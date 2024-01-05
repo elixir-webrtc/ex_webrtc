@@ -4,22 +4,26 @@ defmodule ExWebRTC.RTPSender do
   """
   import Bitwise
 
-  alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters}
+  alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils}
   alias ExSDP.Attribute.Extmap
 
   @mid_uri "urn:ietf:params:rtp-hdrext:sdes:mid"
 
+  @type id() :: integer()
+
   @type t() :: %__MODULE__{
+          id: id(),
           track: MediaStreamTrack.t() | nil,
-          codec: RTPCodecParameters.t(),
+          codec: RTPCodecParameters.t() | nil,
           rtp_hdr_exts: %{Extmap.extension_id() => Extmap.t()},
           mid: String.t() | nil,
-          pt: non_neg_integer(),
+          pt: non_neg_integer() | nil,
           ssrc: non_neg_integer() | nil,
           last_seq_num: non_neg_integer()
         }
 
-  defstruct [:track, :codec, :rtp_hdr_exts, :mid, :pt, :ssrc, :last_seq_num]
+  @enforce_keys [:id, :last_seq_num]
+  defstruct @enforce_keys ++ [:track, :codec, :mid, :pt, :ssrc, rtp_hdr_exts: %{}]
 
   @doc false
   @spec new(
@@ -36,6 +40,7 @@ defmodule ExWebRTC.RTPSender do
     pt = if codec != nil, do: codec.payload_type, else: nil
 
     %__MODULE__{
+      id: Utils.generate_id(),
       track: track,
       codec: codec,
       rtp_hdr_exts: rtp_hdr_exts,
