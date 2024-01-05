@@ -1,11 +1,11 @@
-defmodule ExWebRTC.Media.IVFReaderTest do
+defmodule ExWebRTC.Media.IVF.ReaderTest do
   use ExUnit.Case, async: true
 
-  alias ExWebRTC.Media.{IVFFrame, IVFHeader, IVFReader}
+  alias ExWebRTC.Media.IVF.{Frame, Header, Reader}
 
   test "correct file" do
     assert {:ok,
-            %IVFHeader{
+            %Header{
               signature: "DKIF",
               version: 0,
               header_size: 32,
@@ -16,26 +16,26 @@ defmodule ExWebRTC.Media.IVFReaderTest do
               timebase_num: 1000,
               num_frames: 29,
               unused: 0
-            }, reader} = IVFReader.open("test/fixtures/ivf/vp8_correct.ivf")
+            }, reader} = Reader.open("test/fixtures/ivf/vp8_correct.ivf")
 
     for i <- 0..28 do
-      assert {:ok, %IVFFrame{} = frame} = IVFReader.next_frame(reader)
+      assert {:ok, %Frame{} = frame} = Reader.next_frame(reader)
       assert frame.timestamp == i
       assert is_binary(frame.data)
       assert frame.data != <<>>
     end
 
-    assert :eof == IVFReader.next_frame(reader)
-    assert :ok == IVFReader.close(reader)
+    assert :eof == Reader.next_frame(reader)
+    assert :ok == Reader.close(reader)
   end
 
   test "empty file" do
-    assert {:error, :invalid_file} = IVFReader.open("test/fixtures/ivf/empty.ivf")
+    assert {:error, :invalid_file} = Reader.open("test/fixtures/ivf/empty.ivf")
   end
 
   test "invalid last frame" do
     assert {:ok,
-            %IVFHeader{
+            %Header{
               signature: "DKIF",
               version: 0,
               header_size: 32,
@@ -46,15 +46,15 @@ defmodule ExWebRTC.Media.IVFReaderTest do
               timebase_num: 1000,
               num_frames: 29,
               unused: 0
-            }, reader} = IVFReader.open("test/fixtures/ivf/vp8_invalid_last_frame.ivf")
+            }, reader} = Reader.open("test/fixtures/ivf/vp8_invalid_last_frame.ivf")
 
     for i <- 0..27 do
-      assert {:ok, %IVFFrame{} = frame} = IVFReader.next_frame(reader)
+      assert {:ok, %Frame{} = frame} = Reader.next_frame(reader)
       assert frame.timestamp == i
       assert is_binary(frame.data)
       assert frame.data != <<>>
     end
 
-    assert {:error, :invalid_file} == IVFReader.next_frame(reader)
+    assert {:error, :invalid_file} == Reader.next_frame(reader)
   end
 end
