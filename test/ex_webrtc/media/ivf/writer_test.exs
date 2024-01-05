@@ -1,4 +1,4 @@
-defmodule ExWebRTC.Media.IVF.WritertTest do
+defmodule ExWebRTC.Media.IVF.WriterTest do
   use ExUnit.Case, async: true
 
   alias ExWebRTC.Media.IVF.{Frame, Header, Reader, Writer}
