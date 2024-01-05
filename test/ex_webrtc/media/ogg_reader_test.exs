@@ -20,7 +20,7 @@ defmodule ExWebRTC.Media.OggReaderTest do
   end
 
   test "empty file" do
-    assert {:error, :invalid_header} = OggReader.open("test/fixtures/ogg/empty.ogg")
+    assert {:error, :invalid_file} = OggReader.open("test/fixtures/ogg/empty.ogg")
   end
 
   test "invalid last page" do
