@@ -1,7 +1,7 @@
-defmodule ExWebRTC.Media.OggWriterTest do
+defmodule ExWebRTC.Media.Ogg.WriterTest do
   use ExUnit.Case, async: true
 
-  alias ExWebRTC.Media.OggWriter
+  alias ExWebRTC.Media.Ogg.Writer
 
   # dummy 200 byte Opus packet with 20 ms TOC sequence
   @packet_size 200
@@ -19,8 +19,8 @@ defmodule ExWebRTC.Media.OggWriterTest do
   test "writes Opus header", %{tmp_dir: tmp_dir} do
     file_name = "#{tmp_dir}/test.ogg"
 
-    assert {:ok, writer} = OggWriter.open(file_name)
-    assert :ok = OggWriter.close(writer)
+    assert {:ok, writer} = Writer.open(file_name)
+    assert :ok = Writer.close(writer)
 
     {:ok, file} = File.open(file_name)
 
@@ -87,15 +87,15 @@ defmodule ExWebRTC.Media.OggWriterTest do
     packets_1 = 255
     packets_2 = 5
 
-    assert {:ok, writer} = OggWriter.open(file_name)
+    assert {:ok, writer} = Writer.open(file_name)
 
     writer =
       Enum.reduce(1..(packets_1 + packets_2), writer, fn _, writer ->
-        assert {:ok, writer} = OggWriter.write_packet(writer, @opus_packet)
+        assert {:ok, writer} = Writer.write_packet(writer, @opus_packet)
         writer
       end)
 
-    assert :ok = OggWriter.close(writer)
+    assert :ok = Writer.close(writer)
 
     {:ok, file} = File.open(file_name)
 

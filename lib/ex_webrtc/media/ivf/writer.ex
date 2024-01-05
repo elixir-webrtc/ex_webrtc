@@ -1,9 +1,9 @@
-defmodule ExWebRTC.Media.IVFWriter do
+defmodule ExWebRTC.Media.IVF.Writer do
   @moduledoc """
   Writes video frames as an IVF file.
   """
 
-  alias ExWebRTC.Media.IVFFrame
+  alias ExWebRTC.Media.IVF.Frame
 
   @opaque t() :: %__MODULE__{
             file: File.io_device(),
@@ -33,7 +33,7 @@ defmodule ExWebRTC.Media.IVFWriter do
           num_frames: pos_integer(),
           timebase_denum: non_neg_integer(),
           timebase_num: pos_integer()
-        ) :: {:ok, t()} | {:error, File.posix() | term()}
+        ) :: {:ok, t()} | {:error, term()}
   def open(path,
         fourcc: fourcc,
         height: height,
@@ -58,7 +58,7 @@ defmodule ExWebRTC.Media.IVFWriter do
   @doc """
   Writes an IVF frame into a file.
   """
-  @spec write_frame(t(), IVFFrame.t()) :: {:ok, t()} | {:error, term()}
+  @spec write_frame(t(), Frame.t()) :: {:ok, t()} | {:error, term()}
   def write_frame(writer, frame) when update_header?(writer) and frame.data != <<>> do
     case update_header(writer, writer.frames_cnt + writer.update_header_after) do
       :ok -> do_write_frame(writer, frame)
@@ -75,7 +75,7 @@ defmodule ExWebRTC.Media.IVFWriter do
   will be closed automatically but header will not be updated.
   See also `open/2` for more information on automatic header updates.
   """
-  @spec close(t()) :: :ok | {:error, File.posix() | term()}
+  @spec close(t()) :: :ok | {:error, term()}
   def close(writer) do
     case update_header(writer, writer.frames_cnt) do
       :ok -> File.close(writer.file)

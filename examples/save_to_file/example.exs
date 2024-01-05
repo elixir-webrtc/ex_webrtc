@@ -17,7 +17,7 @@ defmodule Peer do
   }
 
   alias ExWebRTC.RTP.{OpusDepayloader, VP8Depayloader}
-  alias ExWebRTC.Media.{IVFFrame, IVFWriter, OggWriter}
+  alias ExWebRTC.Media.{IVF, Ogg}
 
   @ice_servers [
     %{urls: "stun:stun.l.google.com:19302"}
@@ -135,8 +135,8 @@ defmodule Peer do
 
   defp handle_ws_message(%{"type" => "peer_left"}, state) do
     # in real scenario you should probably close the PeerConnection explicitly
-    OggWriter.close(state.ogg_writer)
-    IVFWriter.close(state.ivf_writer)
+    Ogg.Writer.close(state.ogg_writer)
+    IVF.Writer.close(state.ivf_writer)
     Logger.info("Remote peer left. Closing files and exiting.")
     exit(:normal)
   end
@@ -169,7 +169,7 @@ defmodule Peer do
     # `num_frames` is set to 900 and it will be updated
     # every `num_frames` by `num_frames`.
     {:ok, ivf_writer} =
-      IVFWriter.open("./video.ivf",
+      IVF.Writer.open("./video.ivf",
         fourcc: fourcc,
         height: 640,
         width: 480,
@@ -183,7 +183,7 @@ defmodule Peer do
 
   defp handle_webrtc_message({:track, %MediaStreamTrack{kind: :audio, id: id}}, state) do
     # by default uses 1 mono channel and 48k clock rate
-    {:ok, ogg_writer} = OggWriter.open("./audio.ogg")
+    {:ok, ogg_writer} = Ogg.Writer.open("./audio.ogg")
     %{state | ogg_writer: ogg_writer, audio_track_id: id}
   end
 
@@ -193,8 +193,8 @@ defmodule Peer do
         %{state | vp8_depayloader: vp8_depayloader}
 
       {:ok, vp8_frame, vp8_depayloader} ->
-        frame = %IVFFrame{timestamp: state.frames_cnt, data: vp8_frame}
-        {:ok, ivf_writer} = IVFWriter.write_frame(state.ivf_writer, frame)
+        frame = %IVF.Frame{timestamp: state.frames_cnt, data: vp8_frame}
+        {:ok, ivf_writer} = IVF.Writer.write_frame(state.ivf_writer, frame)
 
         %{
           state
@@ -207,7 +207,7 @@ defmodule Peer do
 
   defp handle_webrtc_message({:rtp, id, packet}, %{audio_track_id: id} = state) do
     opus_packet = OpusDepayloader.depayload(packet)
-    {:ok, ogg_writer} = OggWriter.write_packet(state.ogg_writer, opus_packet)
+    {:ok, ogg_writer} = Ogg.Writer.write_packet(state.ogg_writer, opus_packet)
     %{state | ogg_writer: ogg_writer}
   end
 

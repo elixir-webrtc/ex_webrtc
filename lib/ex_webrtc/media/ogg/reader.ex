@@ -1,4 +1,4 @@
-defmodule ExWebRTC.Media.OggReader do
+defmodule ExWebRTC.Media.Ogg.Reader do
   @moduledoc """
   Reads Opus packets from an Ogg container file.
 
@@ -53,6 +53,16 @@ defmodule ExWebRTC.Media.OggReader do
          {:ok, duration} <- Opus.duration(packet) do
       {:ok, {packet, duration}, reader}
     end
+  end
+
+  @doc """
+  Closes an Ogg reader.
+
+  When a process owning the Ogg reader exits, Ogg reader is closed automatically. 
+  """
+  @spec close(t()) :: :ok | {:error, term()}
+  def close(%{file: file}) do
+    File.close(file)
   end
 
   defp do_next_packet(%{packets: [first | packets]} = reader) do
