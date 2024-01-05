@@ -63,7 +63,7 @@ defmodule ExWebRTC.Media.IVF.Reader do
 
   When a process owning the IVF reader exits, IVF reader is closed automatically. 
   """
-  @spec close(t()) :: :ok | {:error, File.posix() | term()}
+  @spec close(t()) :: :ok | {:error, term()}
   def close(reader) do
     File.close(reader)
   end

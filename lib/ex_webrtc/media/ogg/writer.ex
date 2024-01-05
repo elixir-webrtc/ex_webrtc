@@ -39,7 +39,7 @@ defmodule ExWebRTC.Media.Ogg.Writer do
           Path.t(),
           sample_rate: non_neg_integer(),
           channel_count: non_neg_integer()
-        ) :: {:ok, t()} | {:error, File.posix()}
+        ) :: {:ok, t()} | {:error, term()}
   def open(path, opts \\ []) do
     page = %Page{
       serial_no: Enum.random(0..@max_serial_no),

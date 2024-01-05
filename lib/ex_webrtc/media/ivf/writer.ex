@@ -33,7 +33,7 @@ defmodule ExWebRTC.Media.IVF.Writer do
           num_frames: pos_integer(),
           timebase_denum: non_neg_integer(),
           timebase_num: pos_integer()
-        ) :: {:ok, t()} | {:error, File.posix() | term()}
+        ) :: {:ok, t()} | {:error, term()}
   def open(path,
         fourcc: fourcc,
         height: height,
@@ -75,7 +75,7 @@ defmodule ExWebRTC.Media.IVF.Writer do
   will be closed automatically but header will not be updated.
   See also `open/2` for more information on automatic header updates.
   """
-  @spec close(t()) :: :ok | {:error, File.posix() | term()}
+  @spec close(t()) :: :ok | {:error, term()}
   def close(writer) do
     case update_header(writer, writer.frames_cnt) do
       :ok -> File.close(writer.file)
