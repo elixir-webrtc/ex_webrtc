@@ -1,6 +1,6 @@
 defmodule ExWebRTC.RTP.OpusDepayloader do
   @moduledoc """
-  Desapsualtes Opus audio out of RTP packet.
+  Decapsualtes Opus audio out of RTP packet.
   """
 
   alias ExRTP.Packet

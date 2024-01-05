@@ -10,4 +10,5 @@ Receive video from a browser and save it to a file.
 
 ```console
 ffplay audio.ogg
+ffplay video.ivf
 ```
