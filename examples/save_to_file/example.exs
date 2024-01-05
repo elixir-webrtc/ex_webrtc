@@ -10,14 +10,14 @@ defmodule Peer do
 
   alias ExWebRTC.{
     IceCandidate,
+    MediaStreamTrack,
     PeerConnection,
     SessionDescription,
-    RTPTransceiver,
     RTPCodecParameters
   }
 
-  alias ExWebRTC.RTP.VP8Depayloader
-  alias ExWebRTC.Media.{IVFFrame, IVFHeader, IVFWriter}
+  alias ExWebRTC.RTP.{OpusDepayloader, VP8Depayloader}
+  alias ExWebRTC.Media.{IVFFrame, IVFWriter, OggWriter}
 
   @ice_servers [
     %{urls: "stun:stun.l.google.com:19302"}
@@ -55,8 +55,11 @@ defmodule Peer do
            conn: conn,
            stream: stream,
            peer_connection: pc,
+           video_track_id: nil,
+           audio_track_id: nil,
            vp8_depayloader: nil,
            ivf_writer: nil,
+           ogg_writer: nil,
            frames_cnt: 0
          }}
 
@@ -130,6 +133,14 @@ defmodule Peer do
     :ok = PeerConnection.add_ice_candidate(state.peer_connection, candidate)
   end
 
+  defp handle_ws_message(%{"type" => "peer_left"}, state) do
+    # in real scenario you should probably close the PeerConnection explicitly
+    OggWriter.close(state.ogg_writer)
+    IVFWriter.close(state.ivf_writer)
+    Logger.info("Remote peer left. Closing files and exiting.")
+    exit(:normal)
+  end
+
   defp handle_ws_message(msg, _state) do
     Logger.info("Received unexpected message: #{inspect(msg)}")
   end
@@ -147,7 +158,7 @@ defmodule Peer do
     state
   end
 
-  defp handle_webrtc_message({:track, _track}, state) do
+  defp handle_webrtc_message({:track, %MediaStreamTrack{kind: :video, id: id}}, state) do
     <<fourcc::little-32>> = "VP80"
 
     # Width, height and FPS (timebase_denum/num)
@@ -158,7 +169,7 @@ defmodule Peer do
     # `num_frames` is set to 900 and it will be updated
     # every `num_frames` by `num_frames`.
     {:ok, ivf_writer} =
-      IVFWriter.open("./output.ivf",
+      IVFWriter.open("./video.ivf",
         fourcc: fourcc,
         height: 640,
         width: 480,
@@ -167,10 +178,16 @@ defmodule Peer do
         timebase_num: 1
       )
 
-    %{state | vp8_depayloader: VP8Depayloader.new(), ivf_writer: ivf_writer}
+    %{state | vp8_depayloader: VP8Depayloader.new(), ivf_writer: ivf_writer, video_track_id: id}
   end
 
-  defp handle_webrtc_message({:rtp, _mid, packet}, state) do
+  defp handle_webrtc_message({:track, %MediaStreamTrack{kind: :audio, id: id}}, state) do
+    # by default uses 1 mono channel and 48k clock rate
+    {:ok, ogg_writer} = OggWriter.open("./audio.ogg")
+    %{state | ogg_writer: ogg_writer, audio_track_id: id}
+  end
+
+  defp handle_webrtc_message({:rtp, id, packet}, %{video_track_id: id} = state) do
     case VP8Depayloader.write(state.vp8_depayloader, packet) do
       {:ok, vp8_depayloader} ->
         %{state | vp8_depayloader: vp8_depayloader}
@@ -186,6 +203,12 @@ defmodule Peer do
             frames_cnt: state.frames_cnt + 1
         }
     end
+  end
+
+  defp handle_webrtc_message({:rtp, id, packet}, %{audio_track_id: id} = state) do
+    opus_packet = OpusDepayloader.depayload(packet)
+    {:ok, ogg_writer} = OggWriter.write_packet(state.ogg_writer, opus_packet)
+    %{state | ogg_writer: ogg_writer}
   end
 
   defp handle_webrtc_message(msg, state) do

@@ -74,11 +74,11 @@ defmodule Peer do
            stream: stream,
            peer_connection: pc,
            video_track_id: nil,
-           video_reader: nil,
-           video_payloader: nil,
+           ivf_reader: nil,
+           vp8_payloader: nil,
            last_video_timestamp: Enum.random(0..@max_rtp_timestamp),
            audio_track_id: nil,
-           audio_reader: nil,
+           ogg_reader: nil,
            last_audio_timestamp: Enum.random(0..@max_rtp_timestamp)
          }}
 
@@ -127,9 +127,9 @@ defmodule Peer do
   def handle_info(:send_video_frame, state) do
     Process.send_after(self(), :send_video_frame, 30)
 
-    case IVFReader.next_frame(state.video_reader) do
+    case IVFReader.next_frame(state.ivf_reader) do
       {:ok, frame} ->
-        {rtp_packets, payloader} = VP8Payloader.payload(state.video_payloader, frame.data)
+        {rtp_packets, payloader} = VP8Payloader.payload(state.vp8_payloader, frame.data)
 
         # the video has 30 FPS, VP8 clock rate is 90_000, so we have:
         # 90_000 / 30 = 3_000
@@ -142,26 +142,25 @@ defmodule Peer do
           PeerConnection.send_rtp(state.peer_connection, state.video_track_id, rtp_packet)
         end)
 
-        {:noreply, %{state | video_payloader: payloader, last_video_timestamp: last_timestamp}}
+        {:noreply, %{state | vp8_payloader: payloader, last_video_timestamp: last_timestamp}}
 
       :eof ->
         Logger.info("video.ivf ended. Looping...")
         {:ok, _header, reader} = IVFReader.open("./video.ivf")
-        {:noreply, %{state | video_reader: reader}}
+        {:noreply, %{state | ivf_reader: reader}}
     end
   end
 
   @impl true
   def handle_info(:send_audio_packet, state) do
-    case OggReader.next_packet(state.audio_reader) do
+    case OggReader.next_packet(state.ogg_reader) do
       {:ok, {packet, duration}, reader} ->
         # in real-life scenario, you will need to conpensate for `Process.send_after/3` error
         # and time spent on reading and parsing the file
-        # that's why you might hear short pauses in audio playback, when using this example
         Process.send_after(self(), :send_audio_packet, duration)
-        # values set to 0 are handled by PeerConnection.set_rtp
+
         rtp_packet = OpusPayloader.payload(packet)
-        rtp_packet = %{rtp_packet | timestamp: trunc(state.last_audio_timestamp)}
+        rtp_packet = %{rtp_packet | timestamp: state.last_audio_timestamp}
         PeerConnection.send_rtp(state.peer_connection, state.audio_track_id, rtp_packet)
 
         # OggReader.next_packet/1 returns duration in ms
@@ -171,7 +170,7 @@ defmodule Peer do
         {:noreply,
          %{
            state
-           | audio_reader: reader,
+           | ogg_reader: reader,
              last_audio_timestamp: state.last_audio_timestamp + timestamp_delta
          }}
 
@@ -179,7 +178,7 @@ defmodule Peer do
         send(self(), :send_audio_packet)
         Logger.info("audio.ogg ended. Looping...")
         {:ok, reader} = OggReader.open("./audio.ogg")
-        {:noreply, %{state | audio_reader: reader}}
+        {:noreply, %{state | ogg_reader: reader}}
 
       {:error, reason} ->
         Logger.error("Error when reading Ogg, reason: #{inspect(reason)}")
@@ -261,7 +260,7 @@ defmodule Peer do
 
     send(self(), :send_video_frame)
     send(self(), :send_audio_packet)
-    %{state | video_reader: ivf_reader, video_payloader: vp8_payloader, audio_reader: ogg_reader}
+    %{state | ivf_reader: ivf_reader, vp8_payloader: vp8_payloader, ogg_reader: ogg_reader}
   end
 
   defp handle_webrtc_message(msg, state) do

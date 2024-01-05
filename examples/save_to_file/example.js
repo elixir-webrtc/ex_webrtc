@@ -17,6 +17,7 @@ const start_connection = async (ws) => {
     };
 
     const localStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
         video: {
             width: { ideal: 640 },
             height: { ideal: 480 },
@@ -49,6 +50,13 @@ const start_connection = async (ws) => {
     ws.send(JSON.stringify(desc))
 };
 
-const ws = new WebSocket("ws://127.0.0.1:4000/websocket");
-ws.onclose = event => console.log("WebSocket was closed", event);
-ws.onopen = _ => start_connection(ws);
+const button = document.getElementById("button");
+let ws;
+button.onclick = () => {
+    ws = new WebSocket("ws://127.0.0.1:4000/websocket");
+    ws.onclose = event => console.log("WebSocket was closed", event);
+    ws.onopen = _ => start_connection(ws);
+
+    button.textContent = "Stop";
+    button.onclick = () => ws.close();
+}
