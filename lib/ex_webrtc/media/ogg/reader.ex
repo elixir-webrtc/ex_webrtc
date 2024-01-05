@@ -55,6 +55,16 @@ defmodule ExWebRTC.Media.Ogg.Reader do
     end
   end
 
+  @doc """
+  Closes an Ogg reader.
+
+  When a process owning the Ogg reader exits, Ogg reader is closed automatically. 
+  """
+  @spec close(t()) :: :ok | {:error, term()}
+  def close(%{file: file}) do
+    File.close(file)
+  end
+
   defp do_next_packet(%{packets: [first | packets]} = reader) do
     {:ok, first, %{reader | packets: packets}}
   end
