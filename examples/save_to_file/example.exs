@@ -16,7 +16,7 @@ defmodule Peer do
     RTPCodecParameters
   }
 
-  alias ExWebRTC.RTP.VP8Depayloader
+  alias ExWebRTC.RTP.{OpusDepayloader, VP8Depayloader}
   alias ExWebRTC.Media.{IVFFrame, IVFWriter, OggWriter}
 
   @ice_servers [
@@ -206,7 +206,8 @@ defmodule Peer do
   end
 
   defp handle_webrtc_message({:rtp, id, packet}, %{audio_track_id: id} = state) do
-    {:ok, ogg_writer} = OggWriter.write_packet(state.ogg_writer, packet.payload)
+    opus_packet = OpusDepayloader.depayload(packet)
+    {:ok, ogg_writer} = OggWriter.write_packet(state.ogg_writer, opus_packet)
     %{state | ogg_writer: ogg_writer}
   end
 
