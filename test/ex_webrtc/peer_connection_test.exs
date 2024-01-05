@@ -501,6 +501,43 @@ defmodule ExWebRTC.PeerConnectionTest do
     end
   end
 
+  describe "replace_track/3" do
+    test "correct sender id" do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      track1 = MediaStreamTrack.new(:audio)
+      track2 = MediaStreamTrack.new(:audio)
+
+      {:ok, sender} = PeerConnection.add_track(pc1, track1)
+      assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+      :ok = negotiate(pc1, pc2)
+
+      assert :ok == PeerConnection.replace_track(pc1, sender.id, track2)
+      refute_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+    end
+
+    test "invalid sender id" do
+      {:ok, pc} = PeerConnection.start_link()
+      assert {:error, :invalid_sender_id} = PeerConnection.replace_track(pc, 123, nil)
+    end
+
+    test "invalid transceiver direction" do
+      {:ok, pc} = PeerConnection.start_link()
+      {:ok, tr} = PeerConnection.add_transceiver(pc, :audio, direction: :recvonly)
+
+      assert {:error, :invalid_transceiver_direction} =
+               PeerConnection.replace_track(pc, tr.sender.id, nil)
+    end
+
+    test "invalid track type" do
+      {:ok, pc} = PeerConnection.start_link()
+      track1 = MediaStreamTrack.new(:audio)
+      track2 = MediaStreamTrack.new(:video)
+      {:ok, sender} = PeerConnection.add_track(pc, track1)
+      assert {:error, :invalid_track_type} == PeerConnection.replace_track(pc, sender.id, track2)
+    end
+  end
+
   describe "remove_track/2" do
     test "correct sender id" do
       {:ok, pc1} = PeerConnection.start_link()
@@ -544,22 +581,48 @@ defmodule ExWebRTC.PeerConnectionTest do
     end
   end
 
-  test "can exchange data on single transceiver" do
-    # setup track pc1 -> pc2
-    {:ok, pc1} = PeerConnection.start_link()
-    {:ok, pc2} = PeerConnection.start_link()
+  describe "send data in both directions on a single transceiver" do
+    test "using one negotiation" do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
 
-    track1 = MediaStreamTrack.new(:audio)
-    {:ok, _sender} = PeerConnection.add_track(pc1, track1)
+      track1 = MediaStreamTrack.new(:audio)
+      track2 = MediaStreamTrack.new(:audio)
 
-    :ok = negotiate(pc1, pc2)
+      {:ok, _sender} = PeerConnection.add_track(pc1, track1)
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      :ok = PeerConnection.set_local_description(pc1, offer)
+      :ok = PeerConnection.set_remote_description(pc2, offer)
 
-    # setup track pc2 -> pc1
-    track2 = MediaStreamTrack.new(:audio)
-    {:ok, _sender} = PeerConnection.add_track(pc2, track2)
+      [tr] = PeerConnection.get_transceivers(pc2)
+      :ok = PeerConnection.set_transceiver_direction(pc2, tr.id, :sendrecv)
+      :ok = PeerConnection.replace_track(pc2, tr.sender.id, track2)
 
-    :ok = negotiate(pc2, pc1)
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+      :ok = PeerConnection.set_remote_description(pc1, answer)
 
+      test_send_data(pc1, pc2, track1, track2)
+    end
+
+    test "using renegotiation" do
+      # setup track pc1 -> pc2
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      track1 = MediaStreamTrack.new(:audio)
+      {:ok, _sender} = PeerConnection.add_track(pc1, track1)
+      :ok = negotiate(pc1, pc2)
+      # setup track pc2 -> pc1
+      track2 = MediaStreamTrack.new(:audio)
+      {:ok, _sender} = PeerConnection.add_track(pc2, track2)
+
+      :ok = negotiate(pc2, pc1)
+
+      test_send_data(pc1, pc2, track1, track2)
+    end
+  end
+
+  defp test_send_data(pc1, pc2, track1, track2) do
     # exchange ICE candidates
     assert_receive {:ex_webrtc, ^pc1, {:ice_candidate, candidate}}
     :ok = PeerConnection.add_ice_candidate(pc2, candidate)
