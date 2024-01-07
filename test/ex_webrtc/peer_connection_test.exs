@@ -1,6 +1,8 @@
 defmodule ExWebRTC.PeerConnectionTest do
   use ExUnit.Case, async: true
 
+  import ExWebRTC.Support.TestUtils
+
   alias ExWebRTC.{
     RTPTransceiver,
     RTPSender,
@@ -441,6 +443,104 @@ defmodule ExWebRTC.PeerConnectionTest do
     end
   end
 
+  describe "stop_transceiver/2" do
+    test "with renegotiation" do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      {:ok, tr} = PeerConnection.add_transceiver(pc1, :audio)
+
+      assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+
+      :ok = negotiate(pc1, pc2)
+
+      :ok = PeerConnection.stop_transceiver(pc1, tr.id)
+
+      assert [
+               %RTPTransceiver{
+                 current_direction: :sendonly,
+                 direction: :inactive,
+                 stopping: true,
+                 stopped: false
+               }
+             ] = PeerConnection.get_transceivers(pc1)
+
+      assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      :ok = PeerConnection.set_local_description(pc1, offer)
+
+      # nothing should change
+      assert [
+               %RTPTransceiver{
+                 current_direction: :sendonly,
+                 direction: :inactive,
+                 stopping: true,
+                 stopped: false
+               }
+             ] = PeerConnection.get_transceivers(pc1)
+
+      # on the remote side, transceiver should be stopped
+      # immediately after setting remote description
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+
+      assert [
+               %RTPTransceiver{
+                 current_direction: nil,
+                 direction: :inactive,
+                 stopping: false,
+                 stopped: true
+               }
+             ] = PeerConnection.get_transceivers(pc2)
+
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+
+      assert [] == PeerConnection.get_transceivers(pc2)
+
+      :ok = PeerConnection.set_remote_description(pc1, answer)
+
+      assert [] == PeerConnection.get_transceivers(pc1)
+
+      # renegotiate without changes
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      sdp = ExSDP.parse!(offer.sdp)
+      assert Enum.count(sdp.media) == 1
+
+      :ok = PeerConnection.set_local_description(pc1, offer)
+      assert [] == PeerConnection.get_transceivers(pc1)
+
+      # on setting remote description, a stopped transceiver
+      # should be created and on setting local description
+      # it should be removed
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+
+      [
+        %RTPTransceiver{
+          current_direction: nil,
+          direction: :inactive,
+          stopped: true,
+          stopping: false
+        }
+      ] = PeerConnection.get_transceivers(pc2)
+
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      sdp = ExSDP.parse!(answer.sdp)
+      assert Enum.count(sdp.media) == 1
+
+      :ok = PeerConnection.set_local_description(pc2, answer)
+      assert [] == PeerConnection.get_transceivers(pc2)
+
+      :ok = PeerConnection.set_remote_description(pc1, answer)
+      assert [] == PeerConnection.get_transceivers(pc1)
+    end
+
+    test "with invalid transceiver id" do
+      {:ok, pc} = PeerConnection.start_link()
+      {:ok, tr} = PeerConnection.add_transceiver(pc, :audio)
+      assert {:error, :invalid_transceiver_id} == PeerConnection.stop_transceiver(pc, tr.id + 1)
+    end
+  end
+
   describe "add_track/2" do
     test "with no available transceivers" do
       {:ok, pc} = PeerConnection.start_link()
@@ -784,15 +884,5 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert [%RTPTransceiver{direction: :inactive, current_direction: :inactive}] =
              PeerConnection.get_transceivers(pc2)
-  end
-
-  defp negotiate(pc1, pc2) do
-    {:ok, offer} = PeerConnection.create_offer(pc1)
-    :ok = PeerConnection.set_local_description(pc1, offer)
-    :ok = PeerConnection.set_remote_description(pc2, offer)
-    {:ok, answer} = PeerConnection.create_answer(pc2)
-    :ok = PeerConnection.set_local_description(pc2, answer)
-    :ok = PeerConnection.set_remote_description(pc1, answer)
-    :ok
   end
 end
