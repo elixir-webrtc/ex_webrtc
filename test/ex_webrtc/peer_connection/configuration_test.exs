@@ -58,7 +58,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
     offer = %SessionDescription{
       type: :offer,
-      sdp: File.read!("test/fixtures/audio_video_sdp.txt")
+      sdp: File.read!("test/fixtures/sdp/chromium_audio_video_sdp.txt")
     }
 
     assert :ok = PeerConnection.set_remote_description(pc, offer)
@@ -95,7 +95,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
     offer = %SessionDescription{
       type: :offer,
-      sdp: File.read!("test/fixtures/audio_video_sdp.txt")
+      sdp: File.read!("test/fixtures/sdp/chromium_audio_video_sdp.txt")
     }
 
     assert :ok = PeerConnection.set_remote_description(pc, offer)

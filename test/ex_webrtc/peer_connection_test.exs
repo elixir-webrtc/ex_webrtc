@@ -36,139 +36,49 @@ defmodule ExWebRTC.PeerConnectionTest do
                  fingerprint: {:sha256, @fingerprint}
                )
 
-  test "negotiation needed" do
-    # is fired on add_transceiver
-    {:ok, pc} = PeerConnection.start_link()
-    {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    :ok = PeerConnection.close(pc)
+  # NOTIFICATION TESTS
 
-    # is fired on add_trasceiver with track
-    {:ok, pc} = PeerConnection.start_link()
-    track = MediaStreamTrack.new(:video)
-    {:ok, _tr} = PeerConnection.add_transceiver(pc, track)
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    :ok = PeerConnection.close(pc)
+  # Most notifications are tested in API TESTS.
+  # Here, we only put those test cases that are hard to
+  # classify into other category.
 
-    # is fired on set_transceiver_direction
-    {:ok, pc} = PeerConnection.start_link()
-    {:ok, pc2} = PeerConnection.start_link()
-    {:ok, tr} = PeerConnection.add_transceiver(pc, :audio)
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    :ok = negotiate(pc, pc2)
-    :ok = PeerConnection.set_transceiver_direction(pc, tr.id, :sendonly)
-    refute_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    :ok = PeerConnection.set_transceiver_direction(pc, tr.id, :recvonly)
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+  describe "negotiation needed" do
+    test "is not fired when adding transceiver during negotiation" do
+      {:ok, pc} = PeerConnection.start_link()
+      {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
+      assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+      {:ok, offer} = PeerConnection.create_offer(pc)
+      :ok = PeerConnection.set_local_description(pc, offer)
+      {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
 
-    # is fired on add_track
-    {:ok, pc} = PeerConnection.start_link()
-    {:ok, _tr} = PeerConnection.add_track(pc, track)
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    :ok = PeerConnection.close(pc)
+      {:ok, pc2} = PeerConnection.start_link()
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+      {:ok, _tr} = PeerConnection.add_transceiver(pc2, :audio)
 
-    # is fired on remove_track
-    {:ok, pc} = PeerConnection.start_link()
-    {:ok, pc2} = PeerConnection.start_link()
-    {:ok, sender} = PeerConnection.add_track(pc, MediaStreamTrack.new(:audio))
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    :ok = negotiate(pc, pc2)
-    assert :ok = PeerConnection.remove_track(pc, sender.id)
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    :ok = PeerConnection.close(pc)
-    :ok = PeerConnection.close(pc2)
+      # we do this refute_receive here, instead of after 
+      # adding the second audio transceiver on pc to save time
+      refute_receive {:ex_webrtc, ^pc, :negotiation_needed}
+      refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
 
-    # is not fired two times in a row
-    {:ok, pc} = PeerConnection.start_link()
-    {:ok, _tr} = PeerConnection.add_transceiver(pc, :video)
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    {:ok, _tr} = PeerConnection.add_transceiver(pc, :video)
-    refute_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    :ok = PeerConnection.close(pc)
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+      :ok = PeerConnection.set_remote_description(pc, answer)
 
-    # is not fired when adding transceiver during negotiation
-    {:ok, pc} = PeerConnection.start_link()
-    {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    {:ok, offer} = PeerConnection.create_offer(pc)
-    :ok = PeerConnection.set_local_description(pc, offer)
-    {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
+      assert_receive {:ex_webrtc, ^pc2, :negotiation_needed}
+      assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+    end
 
-    {:ok, pc2} = PeerConnection.start_link()
-    :ok = PeerConnection.set_remote_description(pc2, offer)
-    {:ok, _tr} = PeerConnection.add_transceiver(pc2, :audio)
+    test "is not fired after successful negotiation" do
+      {:ok, pc} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
+      assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
 
-    # we do this refute_receive here, instead of after 
-    # adding the second audio transceiver on pc to save time
-    refute_receive {:ex_webrtc, ^pc, :negotiation_needed}
-    refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
+      :ok = negotiate(pc, pc2)
 
-    {:ok, answer} = PeerConnection.create_answer(pc2)
-    :ok = PeerConnection.set_local_description(pc2, answer)
-    :ok = PeerConnection.set_remote_description(pc, answer)
-
-    assert_receive {:ex_webrtc, ^pc2, :negotiation_needed}
-    assert_receive {:ex_webrtc, pc, :negotiation_needed}
-
-    :ok = PeerConnection.close(pc)
-    :ok = PeerConnection.close(pc2)
-
-    # is not fired after successful negotiation
-    {:ok, pc} = PeerConnection.start_link()
-    {:ok, pc2} = PeerConnection.start_link()
-    {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
-    assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
-
-    :ok = negotiate(pc, pc2)
-
-    refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}
-    refute_receive {:ex_webrtc, ^pc, :negotiation_needed}, 0
-
-    :ok = PeerConnection.close(pc)
-    :ok = PeerConnection.close(pc2)
-  end
-
-  test "track notification" do
-    {:ok, pc} = PeerConnection.start_link()
-
-    offer = %SessionDescription{type: :offer, sdp: File.read!("test/fixtures/audio_sdp.txt")}
-    :ok = PeerConnection.set_remote_description(pc, offer)
-
-    assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :audio}}}
-
-    {:ok, answer} = PeerConnection.create_answer(pc)
-    :ok = PeerConnection.set_local_description(pc, answer)
-
-    offer = %SessionDescription{
-      type: :offer,
-      sdp: File.read!("test/fixtures/audio_video_sdp.txt")
-    }
-
-    :ok = PeerConnection.set_remote_description(pc, offer)
-
-    assert_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{kind: :video}}}
-    refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
-
-    # assert that re-setting offer does not emit track event again
-    :ok = PeerConnection.set_remote_description(pc, offer)
-    refute_receive {:ex_webrtc, ^pc, {:track, %MediaStreamTrack{}}}
-  end
-
-  test "track muted" do
-    {:ok, pc1} = PeerConnection.start_link()
-    {:ok, pc2} = PeerConnection.start_link()
-    {:ok, _tr} = PeerConnection.add_transceiver(pc1, :audio)
-    {:ok, offer} = PeerConnection.create_offer(pc1)
-
-    :ok = PeerConnection.set_remote_description(pc2, offer)
-    assert_receive {:ex_webrtc, ^pc2, {:track, track}}
-    [tr] = PeerConnection.get_transceivers(pc2)
-    :ok = PeerConnection.set_transceiver_direction(pc2, tr.id, :inactive)
-    {:ok, answer} = PeerConnection.create_answer(pc2)
-    :ok = PeerConnection.set_local_description(pc2, answer)
-
-    assert_receive {:ex_webrtc, ^pc2, {:track_muted, track_id}}
-    assert track.id == track_id
+      refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}
+      refute_receive {:ex_webrtc, ^pc, :negotiation_needed}, 0
+    end
   end
 
   test "signaling state change" do
@@ -283,6 +193,8 @@ defmodule ExWebRTC.PeerConnectionTest do
         raise "Unexpectedly received: #{inspect(msg)}, when pc_states is: #{inspect(pc2_states)}"
     end
   end
+
+  # API TESTS
 
   describe "set_remote_description/2" do
     test "MID" do
@@ -405,6 +317,7 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       [
         {{:sha256, @fingerprint}, {:sha256, @fingerprint}, {:sha256, @fingerprint}, :ok},
+        {{:sha256, @fingerprint}, nil, nil, :ok},
         {nil, {:sha256, @fingerprint}, {:sha256, @fingerprint}, :ok},
         {{:sha256, @fingerprint}, nil, {:sha256, @fingerprint},
          {:error, :missing_cert_fingerprint}},
@@ -451,12 +364,90 @@ defmodule ExWebRTC.PeerConnectionTest do
     end
   end
 
+  describe "add_transceiver/3" do
+    test "with kind" do
+      {:ok, pc} = PeerConnection.start_link()
+
+      {:ok, %RTPTransceiver{current_direction: nil, direction: :sendrecv, kind: :audio} = tr1} =
+        PeerConnection.add_transceiver(pc, :audio)
+
+      assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+
+      {:ok, %RTPTransceiver{current_direction: nil, direction: :sendrecv, kind: :video} = tr2} =
+        PeerConnection.add_transceiver(pc, :video)
+
+      refute_receive {:ex_webrtc, ^pc, :negotiation_needed}
+      assert [tr1, tr2] == PeerConnection.get_transceivers(pc)
+    end
+
+    test "with track" do
+      {:ok, pc} = PeerConnection.start_link()
+      track = MediaStreamTrack.new(:video)
+
+      {:ok, %RTPTransceiver{current_direction: nil, direction: :sendrecv, kind: :video} = tr} =
+        PeerConnection.add_transceiver(pc, track)
+
+      assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
+      assert [tr] == PeerConnection.get_transceivers(pc)
+    end
+
+    test "with direction" do
+      {:ok, pc} = PeerConnection.start_link()
+
+      {:ok, %RTPTransceiver{current_direction: nil, direction: :recvonly, kind: :audio} = tr} =
+        PeerConnection.add_transceiver(pc, :audio, direction: :recvonly)
+
+      assert [tr] == PeerConnection.get_transceivers(pc)
+    end
+  end
+
+  describe "set_transceiver_direction/3" do
+    test "as offerer" do
+      # When current local description is of type offer,
+      # some changes in the direction does not require renegotiation
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      {:ok, tr} = PeerConnection.add_transceiver(pc1, :audio)
+      assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+      :ok = negotiate(pc1, pc2)
+      :ok = PeerConnection.set_transceiver_direction(pc1, tr.id, :sendonly)
+      refute_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+      :ok = PeerConnection.set_transceiver_direction(pc1, tr.id, :recvonly)
+      assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+    end
+
+    test "as answerer" do
+      # When current local description is of type answer, 
+      # every change in the direction requires renegotiation.
+      # Here, we check two cases: recvonly -> sendrecv, sendrecv -> recvonly
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      {:ok, _tr} = PeerConnection.add_transceiver(pc1, :audio)
+      :ok = negotiate(pc1, pc2)
+      [tr] = PeerConnection.get_transceivers(pc2)
+      :ok = PeerConnection.set_transceiver_direction(pc2, tr.id, :sendrecv)
+      assert_receive {:ex_webrtc, ^pc2, :negotiation_needed}
+      :ok = negotiate(pc1, pc2)
+      :ok = PeerConnection.set_transceiver_direction(pc2, tr.id, :recvonly)
+      assert_receive {:ex_webrtc, ^pc2, :negotiation_needed}
+    end
+
+    test "with invalid transceiver id" do
+      {:ok, pc} = PeerConnection.start_link()
+      {:ok, tr} = PeerConnection.add_transceiver(pc, :audio)
+
+      assert {:error, :invalid_transceiver_id} ==
+               PeerConnection.set_transceiver_direction(pc, tr.id + 1, :recvonly)
+    end
+  end
+
   describe "add_track/2" do
     test "with no available transceivers" do
       {:ok, pc} = PeerConnection.start_link()
       track = MediaStreamTrack.new(:audio)
 
       assert {:ok, sender} = PeerConnection.add_track(pc, track)
+      assert_receive {:ex_webrtc, ^pc, :negotiation_needed}
       assert sender.track == track
 
       assert [transceiver] = PeerConnection.get_transceivers(pc)
@@ -499,6 +490,34 @@ defmodule ExWebRTC.PeerConnectionTest do
       assert [^tr, transceiver] = PeerConnection.get_transceivers(pc)
       assert %RTPTransceiver{sender: ^sender, direction: :sendrecv} = transceiver
     end
+
+    test "track notification" do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      audio_track = MediaStreamTrack.new(:audio)
+
+      {:ok, _tr} = PeerConnection.add_track(pc1, audio_track)
+
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      :ok = PeerConnection.set_local_description(pc1, offer)
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+      assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :audio}}}
+
+      # assert that re-setting offer does not emit track event again
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+      refute_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{}}}
+
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+      :ok = PeerConnection.set_remote_description(pc1, answer)
+
+      # assert that after renegotiation, we only notify about a new track
+      video_track = MediaStreamTrack.new(:video)
+      {:ok, _tr} = PeerConnection.add_track(pc1, video_track)
+      :ok = negotiate(pc1, pc2)
+      assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :video}}}
+      refute_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{}}}
+    end
   end
 
   describe "replace_track/3" do
@@ -518,7 +537,8 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     test "invalid sender id" do
       {:ok, pc} = PeerConnection.start_link()
-      assert {:error, :invalid_sender_id} = PeerConnection.replace_track(pc, 123, nil)
+      {:ok, sender} = PeerConnection.add_track(pc, MediaStreamTrack.new(:audio))
+      assert {:error, :invalid_sender_id} = PeerConnection.replace_track(pc, sender.id + 1, nil)
     end
 
     test "invalid transceiver direction" do
@@ -571,15 +591,36 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     test "invalid sender id" do
       {:ok, pc} = PeerConnection.start_link()
-      assert {:error, :invalid_sender_id} == PeerConnection.remove_track(pc, 123)
+      {:ok, sender} = PeerConnection.add_track(pc, MediaStreamTrack.new(:audio))
+      assert {:error, :invalid_sender_id} == PeerConnection.remove_track(pc, sender.id + 1)
     end
 
     test "sender without track" do
-      {:ok, pc} = PeerConnection.start_link()
-      {:ok, tr} = PeerConnection.add_transceiver(pc, :audio)
-      assert :ok == PeerConnection.remove_track(pc, tr.sender.id)
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      {:ok, tr} = PeerConnection.add_transceiver(pc1, :audio)
+      assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+      :ok = negotiate(pc1, pc2)
+      assert :ok == PeerConnection.remove_track(pc1, tr.sender.id)
+      refute_receive {:ex_webrtc, ^pc1, :negotiation_needed}
     end
   end
+
+  test "close/1" do
+    {:ok, pc} = PeerConnection.start()
+    {:links, links} = Process.info(pc, :links)
+    assert :ok == PeerConnection.close(pc)
+    assert false == Process.alive?(pc)
+    Enum.each(links, fn link -> assert false == Process.alive?(link) end)
+
+    {:ok, pc} = PeerConnection.start()
+    {:links, links} = Process.info(pc, :links)
+    assert true == Process.exit(pc, :shutdown)
+    assert false == Process.alive?(pc)
+    Enum.each(links, fn link -> assert false == Process.alive?(link) end)
+  end
+
+  # MISC TESTS
 
   describe "send data in both directions on a single transceiver" do
     test "using one negotiation" do
@@ -630,8 +671,8 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = PeerConnection.add_ice_candidate(pc1, candidate)
 
     # wait to establish connection
-    assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}
-    assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :connected}}
+    assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}, 1000
+    assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :connected}}, 1000
 
     # receive track info
     assert_receive {:ex_webrtc, ^pc1, {:track, %MediaStreamTrack{kind: :audio, id: id1}}}
@@ -719,18 +760,30 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = PeerConnection.close(pc2)
   end
 
-  test "close/1" do
-    {:ok, pc} = PeerConnection.start()
-    {:links, links} = Process.info(pc, :links)
-    assert :ok == PeerConnection.close(pc)
-    assert false == Process.alive?(pc)
-    Enum.each(links, fn link -> assert false == Process.alive?(link) end)
+  test "reject incoming track" do
+    {:ok, pc1} = PeerConnection.start_link()
+    {:ok, pc2} = PeerConnection.start_link()
+    {:ok, _tr} = PeerConnection.add_transceiver(pc1, :audio)
+    {:ok, offer} = PeerConnection.create_offer(pc1)
+    :ok = PeerConnection.set_local_description(pc1, offer)
 
-    {:ok, pc} = PeerConnection.start()
-    {:links, links} = Process.info(pc, :links)
-    assert true == Process.exit(pc, :shutdown)
-    assert false == Process.alive?(pc)
-    Enum.each(links, fn link -> assert false == Process.alive?(link) end)
+    :ok = PeerConnection.set_remote_description(pc2, offer)
+    assert_receive {:ex_webrtc, ^pc2, {:track, track}}
+    [tr] = PeerConnection.get_transceivers(pc2)
+    :ok = PeerConnection.set_transceiver_direction(pc2, tr.id, :inactive)
+    {:ok, answer} = PeerConnection.create_answer(pc2)
+    :ok = PeerConnection.set_local_description(pc2, answer)
+
+    :ok = PeerConnection.set_remote_description(pc1, answer)
+
+    assert_receive {:ex_webrtc, ^pc2, {:track_muted, track_id}}
+    assert track.id == track_id
+
+    assert [%RTPTransceiver{direction: :sendrecv, current_direction: :inactive}] =
+             PeerConnection.get_transceivers(pc1)
+
+    assert [%RTPTransceiver{direction: :inactive, current_direction: :inactive}] =
+             PeerConnection.get_transceivers(pc2)
   end
 
   defp negotiate(pc1, pc2) do

@@ -28,11 +28,7 @@ defmodule ExWebRTC.PeerConnection do
   @type offer_options() :: [ice_restart: boolean()]
   @type answer_options() :: []
 
-  @type transceiver_options() :: [
-          direction: RTPTransceiver.direction(),
-          send_encodings: [:TODO],
-          streams: [:TODO]
-        ]
+  @type transceiver_options() :: [direction: RTPTransceiver.direction()]
 
   @typedoc """
   Messages sent by the ExWebRTC.
@@ -113,8 +109,7 @@ defmodule ExWebRTC.PeerConnection do
           peer_connection(),
           RTPTransceiver.kind() | MediaStreamTrack.t(),
           transceiver_options()
-        ) ::
-          {:ok, RTPTransceiver.t()} | {:error, :TODO}
+        ) :: {:ok, RTPTransceiver.t()}
   def add_transceiver(peer_connection, kind_or_track, options \\ []) do
     GenServer.call(peer_connection, {:add_transceiver, kind_or_track, options})
   end
