@@ -68,7 +68,7 @@ defmodule ExWebRTC.MixProject do
   defp docs() do
     [
       main: "readme",
-      extras: ["README.md"],
+      extras: ["README.md", "guides/transceiver_guide.md"],
       source_ref: "v#{@version}",
       formatters: ["html"],
       nest_modules_by_prefix: [ExWebRTC]
