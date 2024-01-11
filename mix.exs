@@ -71,7 +71,24 @@ defmodule ExWebRTC.MixProject do
       extras: ["README.md", "guides/transceiver_guide.md"],
       source_ref: "v#{@version}",
       formatters: ["html"],
+      before_closing_body_tag: &before_closing_body_tag/1,
       nest_modules_by_prefix: [ExWebRTC]
     ]
+  end
+
+  defp before_closing_body_tag(:html) do
+    # highlight JS code blocks
+    """
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        for (const codeEl of document.querySelectorAll("pre code.js")) {
+          codeEl.innerHTML = hljs.highlight('js', codeEl.innerHTML).value;
+        }
+      });
+    </script>
+    """
   end
 end
