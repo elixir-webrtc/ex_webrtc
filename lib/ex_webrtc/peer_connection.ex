@@ -675,19 +675,21 @@ defmodule ExWebRTC.PeerConnection do
 
     {transceivers, _next_mid} =
       Enum.map_reduce(state.transceivers, next_mid, fn
-        %RTPTransceiver{stopped: true, mid: nil} = tr, nm ->
+        # In the initial offer, we can't have stopped transceivers, only stopping ones.
+        # Also, stopped transceivers are immediately removed.
+        %RTPTransceiver{stopping: true, mid: nil} = tr, nm ->
           {tr, nm}
 
-        %RTPTransceiver{stopped: false, mid: nil} = tr, nm ->
+        %RTPTransceiver{stopping: false, mid: nil} = tr, nm ->
           tr = RTPTransceiver.assign_mid(tr, to_string(nm))
-          # in the first offer, mline_idx is the same as mid
+          # in the initial offer, mline_idx is the same as mid
           tr = %RTPTransceiver{tr | mline_idx: nm}
           {tr, nm + 1}
       end)
 
     mlines =
       transceivers
-      |> Enum.reject(fn tr -> tr.stopped == true end)
+      |> Enum.reject(fn tr -> tr.stopping == true end)
       |> Enum.map(&RTPTransceiver.to_offer_mline(&1, opts))
 
     {transceivers, mlines}

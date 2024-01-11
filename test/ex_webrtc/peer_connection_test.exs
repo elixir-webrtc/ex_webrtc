@@ -444,6 +444,16 @@ defmodule ExWebRTC.PeerConnectionTest do
   end
 
   describe "stop_transceiver/2" do
+    test "before the first offer" do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, _pc2} = PeerConnection.start_link()
+      {:ok, tr} = PeerConnection.add_transceiver(pc1, :audio)
+      :ok = PeerConnection.stop_transceiver(pc1, tr.id)
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      sdp = ExSDP.parse!(offer.sdp)
+      assert sdp.media == []
+    end
+
     test "with renegotiation" do
       {:ok, pc1} = PeerConnection.start_link()
       {:ok, pc2} = PeerConnection.start_link()
