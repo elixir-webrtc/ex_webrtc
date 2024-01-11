@@ -162,17 +162,22 @@ defmodule ExWebRTC.RTPTransceiver do
     %__MODULE__{transceiver | mid: mid, sender: sender}
   end
 
-  @spec stop(t()) :: t()
-  def stop(transceiver) do
-    tr = if transceiver.stopping, do: transceiver, else: stop_sending_and_receiving(transceiver)
+  @spec stop(t(), (-> term())) :: t()
+  def stop(transceiver, on_track_ended) do
+    tr =
+      if transceiver.stopping,
+        do: transceiver,
+        else: stop_sending_and_receiving(transceiver, on_track_ended)
+
     # should we reset stopping or leave it as true?
     %__MODULE__{tr | stopped: true, stopping: false, current_direction: nil}
   end
 
-  @spec stop_sending_and_receiving(t()) :: t()
-  def stop_sending_and_receiving(transceiver) do
+  @spec stop_sending_and_receiving(t(), (-> term())) :: t()
+  def stop_sending_and_receiving(transceiver, on_track_ended) do
     # TODO send RTCP BYE for each RTP stream
     # TODO stop receiving media
+    on_track_ended.()
     %__MODULE__{transceiver | direction: :inactive, stopping: true}
   end
 

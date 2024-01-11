@@ -441,7 +441,8 @@ defmodule ExWebRTC.PeerConnection do
         if tr.stopping do
           {:reply, :ok, state}
         else
-          tr = RTPTransceiver.stop_sending_and_receiving(tr)
+          on_track_ended = on_track_ended(state.owner, tr.receiver.track.id)
+          tr = RTPTransceiver.stop_sending_and_receiving(tr, on_track_ended)
           transceivers = List.replace_at(state.transceivers, idx, tr)
           state = %{state | transceivers: transceivers}
           state = update_negotiation_needed(state)
@@ -1026,7 +1027,11 @@ defmodule ExWebRTC.PeerConnection do
 
     tr = process_remote_track(tr, direction, owner)
     tr = if sdp_type == :answer, do: %RTPTransceiver{tr | current_direction: direction}, else: tr
-    tr = if SDPUtils.is_rejected(mline), do: RTPTransceiver.stop(tr), else: tr
+
+    tr =
+      if SDPUtils.is_rejected(mline),
+        do: RTPTransceiver.stop(tr, on_track_ended(owner, tr.receiver.track.id)),
+        else: tr
 
     case idx do
       nil ->
@@ -1209,6 +1214,8 @@ defmodule ExWebRTC.PeerConnection do
     ssrc = Enum.random(0..((1 <<< 32) - 1))
     if ssrc in ssrcs, do: do_generate_ssrc(ssrcs, max_attempts - 1), else: ssrc
   end
+
+  defp on_track_ended(owner, track_id), do: fn -> notify(owner, {:track_ended, track_id}) end
 
   defp notify(pid, msg), do: send(pid, {:ex_webrtc, self(), msg})
 end

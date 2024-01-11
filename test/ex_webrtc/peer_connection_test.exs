@@ -446,9 +446,10 @@ defmodule ExWebRTC.PeerConnectionTest do
   describe "stop_transceiver/2" do
     test "before the first offer" do
       {:ok, pc1} = PeerConnection.start_link()
-      {:ok, _pc2} = PeerConnection.start_link()
       {:ok, tr} = PeerConnection.add_transceiver(pc1, :audio)
       :ok = PeerConnection.stop_transceiver(pc1, tr.id)
+      assert_receive {:ex_webrtc, ^pc1, {:track_ended, track_id}}
+      assert tr.receiver.track.id == track_id
       {:ok, offer} = PeerConnection.create_offer(pc1)
       sdp = ExSDP.parse!(offer.sdp)
       assert sdp.media == []
@@ -465,6 +466,10 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       :ok = PeerConnection.stop_transceiver(pc1, tr.id)
 
+      assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+      assert_receive {:ex_webrtc, ^pc1, {:track_ended, track_id}}
+      assert tr.receiver.track.id == track_id
+
       assert [
                %RTPTransceiver{
                  current_direction: :sendonly,
@@ -473,8 +478,6 @@ defmodule ExWebRTC.PeerConnectionTest do
                  stopped: false
                }
              ] = PeerConnection.get_transceivers(pc1)
-
-      assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
 
       {:ok, offer} = PeerConnection.create_offer(pc1)
       :ok = PeerConnection.set_local_description(pc1, offer)
@@ -492,6 +495,8 @@ defmodule ExWebRTC.PeerConnectionTest do
       # on the remote side, transceiver should be stopped
       # immediately after setting remote description
       :ok = PeerConnection.set_remote_description(pc2, offer)
+
+      assert_receive {:ex_webrtc, ^pc2, {:track_ended, _track_id}}
 
       assert [
                %RTPTransceiver{
