@@ -717,14 +717,10 @@ defmodule ExWebRTC.PeerConnection do
       |> Stream.with_index()
       |> Enum.map(fn {local_mline, idx} ->
         case Enum.find(transceivers, &(&1.mline_idx == idx)) do
-          nil when state.current_remote_desc == nil ->
-            local_mline
-
-          nil when state.current_remote_desc != nil ->
-            {_, current_remote_desc} = state.current_remote_desc
-            remote_mline = Enum.at(current_remote_desc.media, idx)
-            # credo:disable-for-next-line Credo.Check.Refactor.Nesting
-            if remote_mline.port == 0, do: %{local_mline | port: 0}, else: local_mline
+          # if there is no transceiver, the mline must have been rejected
+          # in the past (in the offer or answer) so we always set the port to 0
+          nil ->
+            %{local_mline | port: 0}
 
           tr ->
             RTPTransceiver.to_offer_mline(tr, opts)
@@ -876,6 +872,9 @@ defmodule ExWebRTC.PeerConnection do
     # See W3C WebRTC 4.4.1.5-4.7.12
     transceivers =
       Enum.reject(state.transceivers, fn
+        # This might result in unremovable transceiver when
+        # we add and stop it before the first offer.
+        # See https://github.com/w3c/webrtc-pc/issues/2923
         %RTPTransceiver{mid: nil} ->
           false
 

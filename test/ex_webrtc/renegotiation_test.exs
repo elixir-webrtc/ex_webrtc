@@ -33,7 +33,7 @@ defmodule ExWebRTC.RenegotiationTest do
     sdp = ExSDP.parse!(offer.sdp)
     assert [%{type: :video, port: 9}, %{type: :video, port: 0}] = sdp.media
 
-    assert :ok = continue_negotiation(pc1, pc2)
+    assert :ok = continue_negotiation(pc1, pc2, offer)
 
     pc1_tr3_id = pc1_tr3.id
 
@@ -87,7 +87,7 @@ defmodule ExWebRTC.RenegotiationTest do
     assert [%{type: :video, port: 9}, %{type: :video, port: 9}, %{type: :audio, port: 9}] =
              sdp.media
 
-    assert :ok = continue_negotiation(pc1, pc2)
+    assert :ok = continue_negotiation(pc1, pc2, offer)
 
     pc1_tr2_id = pc1_tr2.id
     pc1_tr3_id = pc1_tr3.id
@@ -152,8 +152,7 @@ defmodule ExWebRTC.RenegotiationTest do
     assert tr3.id != pc2_tr1.id
   end
 
-  defp continue_negotiation(pc1, pc2) do
-    {:ok, offer} = PeerConnection.create_offer(pc1)
+  defp continue_negotiation(pc1, pc2, offer) do
     :ok = PeerConnection.set_local_description(pc1, offer)
     :ok = PeerConnection.set_remote_description(pc2, offer)
     {:ok, answer} = PeerConnection.create_answer(pc2)
