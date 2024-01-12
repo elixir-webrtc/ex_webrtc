@@ -12,7 +12,7 @@ defmodule ExWebRTC.RTP.VP8DepayloaderTest do
     vp8_payload = %VP8Payload{n: 0, s: 1, pid: 0, payload: data}
     vp8_payload = VP8Payload.serialize(vp8_payload)
 
-    packet = ExRTP.Packet.new(vp8_payload, 0, 0, 0, 0, marker: true)
+    packet = ExRTP.Packet.new(vp8_payload, marker: true)
 
     assert {:ok, ^data, %{current_frame: nil, current_timestamp: nil} = depayloader} =
              VP8Depayloader.write(depayloader, packet)
@@ -21,7 +21,7 @@ defmodule ExWebRTC.RTP.VP8DepayloaderTest do
     vp8_payload = %VP8Payload{n: 0, s: 0, pid: 0, payload: data}
     vp8_payload = VP8Payload.serialize(vp8_payload)
 
-    packet = ExRTP.Packet.new(vp8_payload, 0, 0, 0, 0)
+    packet = ExRTP.Packet.new(vp8_payload)
 
     assert {:ok, %{current_frame: nil, current_timestamp: nil} = depayloader} =
              VP8Depayloader.write(depayloader, packet)
@@ -30,7 +30,7 @@ defmodule ExWebRTC.RTP.VP8DepayloaderTest do
     vp8_payload = %VP8Payload{n: 0, s: 1, pid: 0, payload: data}
     vp8_payload = VP8Payload.serialize(vp8_payload)
 
-    packet = ExRTP.Packet.new(vp8_payload, 0, 0, 0, 0)
+    packet = ExRTP.Packet.new(vp8_payload)
 
     assert {:ok, %{current_frame: ^data, current_timestamp: 0} = depayloader} =
              VP8Depayloader.write(depayloader, packet)
@@ -39,7 +39,7 @@ defmodule ExWebRTC.RTP.VP8DepayloaderTest do
     vp8_payload = %VP8Payload{n: 0, s: 1, pid: 0, payload: data2}
     vp8_payload = VP8Payload.serialize(vp8_payload)
 
-    packet = ExRTP.Packet.new(vp8_payload, 0, 0, 3000, 0)
+    packet = ExRTP.Packet.new(vp8_payload, timestamp: 3000)
 
     assert {:ok, %{current_frame: ^data2, current_timestamp: 3000} = depayloader} =
              VP8Depayloader.write(depayloader, packet)
@@ -49,7 +49,7 @@ defmodule ExWebRTC.RTP.VP8DepayloaderTest do
     vp8_payload = %VP8Payload{n: 0, s: 0, pid: 0, payload: data2}
     vp8_payload = VP8Payload.serialize(vp8_payload)
 
-    packet = ExRTP.Packet.new(vp8_payload, 0, 0, 6000, 0)
+    packet = ExRTP.Packet.new(vp8_payload, timestamp: 6000)
 
     assert {:ok, %{current_frame: nil, current_timestamp: nil}} =
              VP8Depayloader.write(depayloader, packet)

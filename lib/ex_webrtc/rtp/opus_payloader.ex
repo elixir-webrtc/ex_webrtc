@@ -10,6 +10,6 @@ defmodule ExWebRTC.RTP.OpusPayloader do
   """
   @spec payload(binary()) :: ExRTP.Packet.t()
   def payload(packet) when packet != <<>> do
-    ExRTP.Packet.new(packet, 0, 0, 0, 0)
+    ExRTP.Packet.new(packet)
   end
 end

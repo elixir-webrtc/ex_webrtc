@@ -36,11 +36,11 @@ defmodule ExWebRTC.RTP.VP8Payloader do
 
     [first_rtp_payload | next_rtp_payloads] = rtp_payloads
 
-    first_rtp_packet = ExRTP.Packet.new(@first_chunk_descriptor <> first_rtp_payload, 0, 0, 0, 0)
+    first_rtp_packet = ExRTP.Packet.new(@first_chunk_descriptor <> first_rtp_payload)
 
     next_rtp_packets =
       for rtp_payload <- next_rtp_payloads do
-        ExRTP.Packet.new(@next_chunk_descriptor <> rtp_payload, 0, 0, 0, 0)
+        ExRTP.Packet.new(@next_chunk_descriptor <> rtp_payload)
       end
 
     rtp_packets = [first_rtp_packet | next_rtp_packets]

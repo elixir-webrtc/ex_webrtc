@@ -803,13 +803,13 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     # send data
     payload = <<3, 2, 5>>
-    packet = ExRTP.Packet.new(payload, 111, 50_000, 3_000, 5_000)
+    packet = ExRTP.Packet.new(payload)
     :ok = PeerConnection.send_rtp(pc1, track1.id, packet)
 
     assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, %ExRTP.Packet{payload: ^payload}}}
 
     payload = <<7, 8, 9>>
-    packet = ExRTP.Packet.new(payload, 111, 50_000, 3_000, 5_000)
+    packet = ExRTP.Packet.new(payload)
     :ok = PeerConnection.send_rtp(pc2, track2.id, packet)
 
     assert_receive {:ex_webrtc, ^pc1, {:rtp, ^id1, %ExRTP.Packet{payload: ^payload}}}

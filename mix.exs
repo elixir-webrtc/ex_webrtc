@@ -53,7 +53,7 @@ defmodule ExWebRTC.MixProject do
       {:ex_ice, "~> 0.4.0"},
       {:ex_dtls, "~> 0.15.0"},
       {:ex_libsrtp, "~> 0.7.1"},
-      {:ex_rtp, "~> 0.2.0"},
+      {:ex_rtp, "~> 0.3.0"},
       {:ex_rtcp, "~> 0.1.0"},
       {:crc, "~> 0.10"},
 

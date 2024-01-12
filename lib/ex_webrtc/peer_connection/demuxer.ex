@@ -67,14 +67,14 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
 
   defp update_ssrc_mapping(%__MODULE__{mid_ext_id: id} = demuxer, %Packet{ssrc: ssrc} = packet) do
     mid =
-      Enum.find_value(packet.extensions, fn
-        %Extension{id: ^id} = ext ->
+      case Packet.fetch_extension(packet, id) do
+        {:ok, %Extension{id: ^id} = ext} ->
           {:ok, mid_ext} = SourceDescription.from_raw(ext)
           mid_ext.text
 
-        _ ->
+        :error ->
           nil
-      end)
+      end
 
     case Map.fetch(demuxer.ssrc_to_mid, ssrc) do
       {:ok, last_mid} when mid != nil and mid != last_mid ->
