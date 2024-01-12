@@ -253,6 +253,25 @@ defmodule ExWebRTC.SDPUtils do
     |> Map.new()
   end
 
+  @spec find_mline_by_mid(ExSDP.t(), binary()) :: ExSDP.Media.t() | nil
+  def find_mline_by_mid(sdp, mid) do
+    Enum.find(sdp.media, fn mline ->
+      {:mid, mline_mid} = ExSDP.get_attribute(mline, :mid)
+      mline_mid == mid
+    end)
+  end
+
+  @spec find_free_mline_idx(ExSDP.t(), [non_neg_integer()]) :: non_neg_integer() | nil
+  def find_free_mline_idx(sdp, indices) do
+    sdp.media
+    |> Stream.with_index()
+    |> Enum.find_index(fn {mline, idx} -> mline.port == 0 and idx not in indices end)
+  end
+
+  @spec is_rejected(ExSDP.Media.t()) :: boolean()
+  def is_rejected(%ExSDP.Media{port: 0}), do: true
+  def is_rejected(%ExSDP.Media{}), do: false
+
   defp do_get_ice_credentials(sdp_or_mline) do
     ice_ufrag =
       case ExSDP.get_attribute(sdp_or_mline, :ice_ufrag) do

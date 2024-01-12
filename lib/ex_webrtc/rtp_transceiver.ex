@@ -20,6 +20,7 @@ defmodule ExWebRTC.RTPTransceiver do
   @type t() :: %__MODULE__{
           id: id(),
           mid: String.t() | nil,
+          mline_idx: non_neg_integer() | nil,
           direction: direction(),
           current_direction: direction() | nil,
           fired_direction: direction() | nil,
@@ -27,17 +28,22 @@ defmodule ExWebRTC.RTPTransceiver do
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()],
           receiver: RTPReceiver.t(),
-          sender: RTPSender.t()
+          sender: RTPSender.t(),
+          stopping: boolean(),
+          stopped: boolean()
         }
 
   @enforce_keys [:id, :direction, :kind, :sender, :receiver]
   defstruct @enforce_keys ++
               [
                 :mid,
+                :mline_idx,
                 :current_direction,
                 :fired_direction,
                 codecs: [],
-                rtp_hdr_exts: []
+                rtp_hdr_exts: [],
+                stopping: false,
+                stopped: false
               ]
 
   @doc false
@@ -77,8 +83,8 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec from_mline(ExSDP.Media.t(), Configuration.t()) :: t()
-  def from_mline(mline, config) do
+  @spec from_mline(ExSDP.Media.t(), non_neg_integer(), Configuration.t()) :: t()
+  def from_mline(mline, mline_idx, config) do
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
@@ -88,6 +94,7 @@ defmodule ExWebRTC.RTPTransceiver do
     %__MODULE__{
       id: Utils.generate_id(),
       mid: mid,
+      mline_idx: mline_idx,
       direction: :recvonly,
       kind: mline.type,
       codecs: codecs,
@@ -115,22 +122,36 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec to_answer_mline(t(), ExSDP.Media.t(), Keyword.t()) :: ExSDP.Media.t()
   def to_answer_mline(transceiver, mline, opts) do
-    if transceiver.codecs == [] do
-      # reject mline and skip further processing
-      # see RFC 8299 sec. 5.3.1 and RFC 3264 sec. 6
-      %ExSDP.Media{mline | port: 0}
-    else
-      offered_direction = SDPUtils.get_media_direction(mline)
-      direction = get_direction(offered_direction, transceiver.direction)
-      opts = Keyword.put(opts, :direction, direction)
-      to_mline(transceiver, opts)
+    offered_direction = SDPUtils.get_media_direction(mline)
+    direction = get_direction(offered_direction, transceiver.direction)
+    opts = Keyword.put(opts, :direction, direction)
+
+    # Reject mline. See RFC 8829 sec. 5.3.1 and RFC 3264 sec. 6.
+    # We could reject earlier (as RFC suggests) but we generate
+    # answer mline at first to have consistent fingerprint, ice_ufrag and
+    # ice_pwd values across mlines.
+    cond do
+      transceiver.codecs == [] ->
+        # there has to be at least one format so take it from the offer
+        codecs = SDPUtils.get_rtp_codec_parameters(mline)
+        transceiver = %__MODULE__{transceiver | codecs: codecs}
+        mline = to_mline(transceiver, opts)
+        %ExSDP.Media{mline | port: 0}
+
+      transceiver.stopping == true or transceiver.stopped == true ->
+        mline = to_mline(transceiver, opts)
+        %ExSDP.Media{mline | port: 0}
+
+      true ->
+        to_mline(transceiver, opts)
     end
   end
 
   @doc false
   @spec to_offer_mline(t(), Keyword.t()) :: ExSDP.Media.t()
   def to_offer_mline(transceiver, opts) do
-    to_mline(transceiver, opts)
+    mline = to_mline(transceiver, opts)
+    if transceiver.stopping, do: %ExSDP.Media{mline | port: 0}, else: mline
   end
 
   @doc false
@@ -138,7 +159,26 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec assign_mid(t(), String.t()) :: t()
   def assign_mid(transceiver, mid) do
     sender = %RTPSender{transceiver.sender | mid: mid}
-    %{transceiver | mid: mid, sender: sender}
+    %__MODULE__{transceiver | mid: mid, sender: sender}
+  end
+
+  @spec stop(t(), (-> term())) :: t()
+  def stop(transceiver, on_track_ended) do
+    tr =
+      if transceiver.stopping,
+        do: transceiver,
+        else: stop_sending_and_receiving(transceiver, on_track_ended)
+
+    # should we reset stopping or leave it as true?
+    %__MODULE__{tr | stopped: true, stopping: false, current_direction: nil}
+  end
+
+  @spec stop_sending_and_receiving(t(), (-> term())) :: t()
+  def stop_sending_and_receiving(transceiver, on_track_ended) do
+    # TODO send RTCP BYE for each RTP stream
+    # TODO stop receiving media
+    on_track_ended.()
+    %__MODULE__{transceiver | direction: :inactive, stopping: true}
   end
 
   defp to_mline(transceiver, opts) do
