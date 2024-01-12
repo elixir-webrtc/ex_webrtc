@@ -1,32 +1,36 @@
 # Transceiver Guide
 
-Transceiver represents an entity responsible both for sending and receiving media data.
-It consist of RTP sender and RTP receiver.
-Each transceiver maps to one mline in the SDP offer/answer.
+A transceiver is an entity responsible both for sending and receiving media data.
+It consist of an RTP sender and RTP receiver.
+Each transceiver maps to one m-line in the SDP offer/answer.
 
 Why do we need transceivers and cannot just operate on tracks?
-* We can establish P2P connection even before obtaining access to media devices (see [Warmup](#warmup)).
-In the previous version of the API this was also possible but required creating
-a dummy track and replacing it with the real one once it was finally available.
-* They map directly to the SDP offer/answer giving high control over what is sent on which
+* We can establish a P2P connection even before obtaining access to media devices (see [Warmup](#warmup)).
+In the previous version of the API, this was also possible but required creating
+a dummy track and replacing it with the real one once it became available.
+* Transceivers map directly to the SDP offer/answer, providing high control over what is sent on which
 transceiver.
-This might have been especially important in the old days when media migh have not been bundled on
-a single ICE socket.
-In such a case, every mline could use a separate pair of ports.
-On the other hand, `addTrack` always picks the first free transceiver, which limits this control.
-* They allow for offering to receive media in a consistent to offering to send media method way.
-In the previous version of the API, user had to call `addTrack` to offer to send media and 
+This might have been especially important in the old days when media often wasn't bundled on a single ICE socket.
+In such a case, every m-line could use a separate pair of ports.
+On the other hand, `addTrack` always selects the first free transceiver, limiting this control.
+* They allow for offering to receive media in a manner consistent with offering to send media.
+In the previous version of the API, the user had to call `addTrack` to offer to send media and 
 `createOffer` with `{offerToReceiveVideo: 3}` to offer to only receive media, which was asymmetric and
 counter-intuitve.
 
-When speaking of transceivers there are also a couple of other notes worth mentioning before moving forward.
-* `direction` is our (local), preffered direction of the transceiver and can never be changed by applying remote offer/answer.
-When adding a transceiver, it is by default created with `sendrecv` direction.
-When applying a remote offer that contains new mline(s), a new transceiver(s) is created with `recvonly` direction, even when the offer offers to receive media.
-* `currentDirection` is a direction negotiated between local and remote side and it changes when applying local or remote SDP
-* Transceiver is always created with `RTCRtpReceiver` with a `MediaStreamTrack`. 
+There're also a couple of other notes worth mentioning before moving forward.
+* `direction` is our (local) preffered direction of the transceiver and can never be changed by applying a remote offer/answer.
+When adding a transceiver, it is created with `sendrecv` direction by default.
+When applying a remote offer that contains new m-lines, a new transceiver is created with the `recvonly` direction,
+even when the offerer wants to receive media.
+This direction can later be changed with `addTrack`, which sends media data on the first available transceiver, 
+provided this transceiver wasn't initially created by `addTransceiver`.
+See [Stealing Transceiver](#stealing-transceiver).
+* `currentDirection` is a direction negotiated between the local and remote side, 
+and it changes when applying local or remote SDP.
+* A transceiver is always created with an `RTCRtpReceiver` with a `MediaStreamTrack`. 
 See [Early Media](#early-media).
-* Applying a remote offer never steals explicitly created transceiver (i.e. added via `addTransceiver`).
+* Applying a remote offer never steals explicitly created transceiver (i.e., added via `addTransceiver`).
 However, keep in mind this can happen when using `addTrack`.
 See [Stealing Transceiver](#stealing-transceiver).
 
@@ -37,10 +41,10 @@ We also recommend reading those articles:
 
 ## Warmup
 
-Warmup is a technic where we establish or start establishing WebRTC connection
-before we get access to media devices.
-Once media becomes available, we attach `MediaStreamTrack` to the peer connection using `replaceTrack`.
-This allows us to speed-up connection establishment time.
+*Warmup* is a technique where we establish or begin to establish WebRTC connection
+before gaining access to media devices.
+Once the media becomes available, we attach a `MediaStreamTrack` to the peer connection using `replaceTrack`.
+This process allows us to speed up the connection establishment time.
 
 Read more at: https://www.w3.org/TR/webrtc/#advanced-peer-to-peer-example-with-warm-up
 
@@ -94,8 +98,8 @@ track = MediaStreamTrack.new(:audio)
 
 ## Bidirectional connection using a single negotiation
 
-This section outlines how you can establish bidirectional connection
-using a single negotiation and a warmup technic. 
+This section outlines how you can establish a bidirectional connection
+using a single negotiation and the *Warmup* technique. 
 
 <!-- tabs-open -->
 
@@ -141,13 +145,13 @@ await pc1.setRemoteDescription(answer);
 
 <!-- tabs-close -->
 
-## Reject incoming track
+## Reject Incoming Track
 
-To reject incoming track, we simply change transceiver's direction to "inactive".
+To reject incoming track, we simply change the transceiver's direction to "inactive".
 Things to note:
-* track events are always emitted after applying remote offer
-* if we change transceiver (that was created by applying remote offer) direction
-to "inactive", we will get mute event on track emitted when applying remote offer
+* Track events are always emitted after applying the remote offer.
+* If we change the transceiver's direction to "inactive", 
+we will get a mute event on the track emitted when applying the remote offer.
 
 <!-- tabs-open -->
 
@@ -197,19 +201,18 @@ await pc1.setRemoteDescription(answer);
 
 <!-- tabs-close -->
 
-## Stopping transceivers
+## Stopping Transceivers
 
-Stopping a transceiver immediately results in stopping sending and receivng media data but 
-it still requires renegotiation, after wich the transceiver is removed from connection's
-set of transceivers.
+Stopping a transceiver immediately results in ceasing media transmission, 
+but it still requires renegotiation - after which the transceiver is removed from the connection's set of transceivers.
 
 Notes:
-* after stopping a transceiver, SDP offer/answer will still contain its mline but with port
-number set to 0, indicating that this mline is unused
-* when applying remote offer with unused mlines, transceivers for those mlines will be created
+* After stopping a transceiver, the SDP offer/answer will still contain its m-line, 
+but with the port number set to 0, indicating that this m-line is unused.
+* When applying a remote offer with unused m-lines, transceivers for those m-lines will be created, 
 but no track events will be emitted. 
-Once an answer is generated and applied (i.e. we finialize negotiation process), 
-transceivers created in the previous step will be removed.
+Once an answer is generated and applied (i.e., we finalize the negotiation process), 
+the transceivers created in the previous step will be removed.
 
 <!-- tabs-open -->
 
@@ -243,7 +246,7 @@ await pc1.setRemoteDescription(answer);
 offer = await pc1.createOffer();
 await pc1.setLocalDescription(offer);
 
-// observe that after setting remote offer with unused mlines,
+// observe that after setting remote offer with unused m-lines,
 // stopped transceivers are created...
 await pc2.setRemoteDescription(offer);
 console.log(pc2.getTransceivers());
@@ -298,19 +301,19 @@ dbg(PeerConnection.get_transceivers(pc2))
 
 <!-- tabs-close -->
 
-## Recycling mlines
+## Recycling m-lines
 
-When calling stop on `RTCRtpTransceiver`, it will be eventually removed from
-a connection's set of transceivers.
-However, the number of mlines in SDP offer/answer can never decrease.
-`mlines` corresponding to stopped transceivers can be reused when a new transceiver appears.
-This process is known as recycling mlines and it prevents SDP from becoming too large.
+When calling stop on an `RTCRtpTransceiver`, it will eventually be removed from
+the connection's set of transceivers.
+However, the number of m-lines in SDP offer/answer can never decrease.
+`m-lines` corresponding to stopped transceivers can be reused when a new transceiver appears.
+This process is known as recycling m-lines, and it prevents SDP from becoming excessively large.
 
 Things to note:
-* a new transceiver will always try to reuse the first free mline, no matter of its kind i.e.
-whether it is audio or video
-* the order of transceivers in a connection's set of transceivers matches the order in which
-transceivers were added but may be different than the order of mlines in SDP offer/answer
+* A new transceiver will always attempt to reuse the first free m-line, regardless of its kind i.e.,
+whether it's audio or video
+* The order of transceivers in a connection's set of transceivers matches the order in which
+the transceivers were added, but it may be different than the order of m-lines in SDP offer/answer.
 
 <!-- tabs-open -->
 
@@ -346,11 +349,11 @@ await pc1.setRemoteDescription(answer);
 tr3 = pc1.addTransceiver("video");
 
 // Notice that createOffer will reuse (recycle)
-// free mline, even though its initiall type was audio.
+// free m-line, even though its initiall type was audio.
 // However, pc1.getTransceivers() will return [tr1, tr3].
 // That's important as the order of transceivers doesn't
-// have to match the order of mlines i.e. tr3 maps to mline
-// with index 0 and tr1 maps to mline with index 1.
+// have to match the order of m-lines i.e. tr3 maps to m-line
+// with index 0 and tr1 maps to m-line with index 1.
 offer = await pc1.createOffer();
 await pc1.setLocalDescription(offer);
 await pc2.setRemoteDescription(offer);
@@ -396,16 +399,15 @@ await pc1.setRemoteDescription(answer);
 
 <!-- tabs-close -->
 
-## Stealing transceiver
+## Stealing Transceiver
 
-When applying a remote offer that contains a new mline, peer connection
-will try to find a transceiver it can use to associate with this mline
-assuming this transceiver was created with `addTrack` and no `addTransceiver`.
-Why so?
-The assumption is that when user calls `addTrack` (and as a result creates a transceiver
-under the hood), they don't pay attention to how this track is sent to the other side,
-which is not the case when user explicitly creates transceiver with `addTransceiver`.
-
+When a remote offer that contains a new m-line is applied, 
+the peer connection will attempt to find a transceiver it can use to associate with this m-line. 
+This is provided that the transceiver was created with `addTrack` and not with `addTransceiver`. 
+But why is this so? 
+The assumption is that when the user calls `addTrack` (and thereby creates a transceiver under the hood), 
+they might not pay attention to how this track is sent to the other side. 
+However, this is not the case when a user explicitly creates a transceiver with `addTransceiver`.
 
 <!-- tabs-open -->
 
@@ -500,13 +502,15 @@ dbg(PeerConnection.get_transceivers(pc2))
 
 ## Early Media
 
-When you create a new transceiver, it is always created with `RTCRtpReceiver` with `MediaStreamTrack`.
+A new transceiver is always created with an `RTCRtpReceiver` with a `MediaStreamTrack`.
 This track is never removed.
-Even when the remote side calls `removeTrack`, only `mute` event will be emitted.
-One of the purposes of `MediaStreamTrack` to be always present in `RTCRtpReceiver` was to support so called Early Media.
-After the initial negotiation, when one side offers to receive new media, the other side may generate an answer and immediately start sending data.
-The first peer (thanks to the `MediaStreamTrack` being created beforehand) will be able to receive incoming data 
-and display it even before receiving and applying the answer.
-However, support for early media has been removed (see [here](https://github.com/w3c/webrtc-pc/issues/2880#issuecomment-1875121429)).
+Even when the remote side calls `removeTrack`, only a `mute` event will be emitted.
 
-It is unclear what are other use-cases for `MediaStreamTrack` to be always present and not removed when e.g. the other side calls `removeTrack`.
+One of the reasons of `MediaStreamTrack` to be always present in the `RTCRtpReceiver` was to support *Early Media*.
+After the initial negotiation, when one side offers to receive new media, the other side might generate an answer 
+and immediately start sending data.
+The first peer (thanks to the `MediaStreamTrack` being created beforehand) would be able to receive incoming data 
+and display it even before the answer was received and applied.
+However, support for *Early Media* has been removed (see [here](https://github.com/w3c/webrtc-pc/issues/2880#issuecomment-1875121429)).
+
+It is unclear what are other use-cases for the `MediaStreamTrack` to be always present and not removed when e.g. the other side calls `removeTrack`.
