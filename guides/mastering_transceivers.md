@@ -28,7 +28,7 @@ There're also a couple of other notes worth mentioning before moving forward.
 * `direction` is our (local) preffered direction of the transceiver and can never be changed by applying a remote offer/answer.
 When adding a transceiver, it is created with `sendrecv` direction by default.
 When applying a remote offer that contains new m-lines, a new transceiver is created with the `recvonly` direction,
-even when the offerer wants to receive media.
+even when the offerer only wants to receive media.
 This direction can later be changed with `addTrack`, which sends media data on the first available transceiver, 
 provided this transceiver wasn't initially created by `addTransceiver`.
 See [Stealing Transceiver](#stealing-transceiver).
@@ -155,7 +155,7 @@ await pc1.setRemoteDescription(answer);
 
 <!-- tabs-close -->
 
-## Reject Incoming Track
+## Rejecting Incoming Track
 
 To reject incoming track, we simply change the transceiver's direction to "inactive".
 Things to note:
