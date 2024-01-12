@@ -1,4 +1,10 @@
-# Transceiver Guide
+# Mastering Transceivers
+
+> #### Before You Start {: .info}
+> This guide assumes you have a basic understanding of the WebRTC API
+> and are looking for more advanced examples that demonstrate what you can accomplish with transceivers.
+> If you are new to this, a good starting point might be to first look at the 
+> [MDN WebRTC tutorial](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API)
 
 A transceiver is an entity responsible both for sending and receiving media data.
 It consist of an RTP sender and RTP receiver.
@@ -51,6 +57,8 @@ Read more at: https://www.w3.org/TR/webrtc/#advanced-peer-to-peer-example-with-w
 <!-- tabs-open -->
 
 ### JavaScript
+
+[![JS FIDDLE](https://img.shields.io/badge/-JS%20FIDDLE-blueviolet)](https://jsfiddle.net/mickel8/46nozkbj/)
 
 ```js
 pc1 = new RTCPeerConnection();
@@ -105,6 +113,8 @@ using a single negotiation and the *Warmup* technique.
 
 ### JavaScript
 
+[![JS FIDDLE](https://img.shields.io/badge/-JS%20FIDDLE-blueviolet)](https://jsfiddle.net/mickel8/om0fk1ve/)
+
 ```js
 pc1 = new RTCPeerConnection();
 pc2 = new RTCPeerConnection();
@@ -156,6 +166,8 @@ we will get a mute event on the track emitted when applying the remote offer.
 <!-- tabs-open -->
 
 ### JavaScript
+
+[![JS FIDDLE](https://img.shields.io/badge/-JS%20FIDDLE-blueviolet)](https://jsfiddle.net/mickel8/qp9mLeag/)
 
 ```js
 pc1 = new RTCPeerConnection();
@@ -217,6 +229,8 @@ the transceivers created in the previous step will be removed.
 <!-- tabs-open -->
 
 ### JavaScript
+
+[![JS FIDDLE](https://img.shields.io/badge/-JS%20FIDDLE-blueviolet)](https://jsfiddle.net/mickel8/r096z8o4/)
 
 ```js
 pc1 = new RTCPeerConnection();
@@ -319,6 +333,8 @@ the transceivers were added, but it may be different than the order of m-lines i
 
 ### JavaScript
 
+[![JS FIDDLE](https://img.shields.io/badge/-JS%20FIDDLE-blueviolet)](https://jsfiddle.net/mickel8/m7yq3fv0/)
+
 ```js
 pc1 = new RTCPeerConnection();
 pc2 = new RTCPeerConnection();
@@ -413,6 +429,8 @@ However, this is not the case when a user explicitly creates a transceiver with 
 
 ### JavaScript
 
+[![JS FIDDLE](https://img.shields.io/badge/-JS%20FIDDLE-blueviolet)](https://jsfiddle.net/mickel8/to4g8erf/)
+
 ```js
 pc1 = new RTCPeerConnection();
 pc2 = new RTCPeerConnection();
@@ -456,6 +474,8 @@ dbg(PeerConnection.get_transceivers(pc2))
 <!-- tabs-open -->
 
 ### Java Script
+
+[![JS FIDDLE](https://img.shields.io/badge/-JS%20FIDDLE-blueviolet)](https://jsfiddle.net/mickel8/agLzxuo9/)
 
 ```js
 const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false});
