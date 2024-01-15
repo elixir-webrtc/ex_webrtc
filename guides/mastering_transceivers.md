@@ -451,8 +451,8 @@ However, this is not the case when a user explicitly creates a transceiver with 
 pc1 = new RTCPeerConnection();
 pc2 = new RTCPeerConnection();
 
-pc1_tr1 = pc1.addTransceiver("audio");
-pc2_tr1 = pc2.addTransceiver("audio");
+pc1Tr1 = pc1.addTransceiver("audio");
+pc2Tr1 = pc2.addTransceiver("audio");
 
 offer = await pc1.createOffer();
 await pc1.setLocalDescription(offer);
@@ -501,8 +501,8 @@ const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, vid
 pc1 = new RTCPeerConnection();
 pc2 = new RTCPeerConnection();
 
-pc1_tr1 = pc1.addTransceiver("audio");
-pc2_sender = pc2.addTrack(localStream.getTracks()[0]);
+pc1Tr1 = pc1.addTransceiver("audio");
+pc2Sender = pc2.addTrack(localStream.getTracks()[0]);
 
 offer = await pc1.createOffer();
 await pc1.setLocalDescription(offer);
