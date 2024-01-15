@@ -2,7 +2,7 @@ defmodule ExWebRTC.RTP.VP8Payload do
   @moduledoc """
   Defines VP8 payload structure stored in RTP packet payload.
 
-  Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741)
+  Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741).
   """
 
   @type t() :: %__MODULE__{

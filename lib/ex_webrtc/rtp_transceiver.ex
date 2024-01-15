@@ -1,6 +1,6 @@
 defmodule ExWebRTC.RTPTransceiver do
   @moduledoc """
-  RTPTransceiver
+  Implementation of the [RTCRtpTransceiver](https://www.w3.org/TR/webrtc/#dom-rtcrtptransceiver).
   """
 
   alias ExWebRTC.{
@@ -162,6 +162,7 @@ defmodule ExWebRTC.RTPTransceiver do
     %__MODULE__{transceiver | mid: mid, sender: sender}
   end
 
+  @doc false
   @spec stop(t(), (-> term())) :: t()
   def stop(transceiver, on_track_ended) do
     tr =
@@ -173,6 +174,7 @@ defmodule ExWebRTC.RTPTransceiver do
     %__MODULE__{tr | stopped: true, stopping: false, current_direction: nil}
   end
 
+  @doc false
   @spec stop_sending_and_receiving(t(), (-> term())) :: t()
   def stop_sending_and_receiving(transceiver, on_track_ended) do
     # TODO send RTCP BYE for each RTP stream

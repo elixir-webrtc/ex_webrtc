@@ -1,6 +1,6 @@
 defmodule ExWebRTC.RTPReceiver do
   @moduledoc """
-  RTPReceiver
+  Implementation of the [RTCRtpReceiver](https://www.w3.org/TR/webrtc/#rtcrtpreceiver-interface).
   """
 
   alias ExWebRTC.MediaStreamTrack

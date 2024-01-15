@@ -11,7 +11,7 @@ defmodule ExWebRTC.MixProject do
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
-      description: "Implementation of WebRTC",
+      description: "Implementation of the W3C WebRTC API",
       package: package(),
       deps: deps(),
 
@@ -59,7 +59,7 @@ defmodule ExWebRTC.MixProject do
 
       # dev/test
       {:excoveralls, "~> 0.17.0", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.30.0", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.31.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
@@ -72,7 +72,11 @@ defmodule ExWebRTC.MixProject do
       source_ref: "v#{@version}",
       formatters: ["html"],
       before_closing_body_tag: &before_closing_body_tag/1,
-      nest_modules_by_prefix: [ExWebRTC]
+      nest_modules_by_prefix: [ExWebRTC],
+      groups_for_modules: [
+        MEDIA: ~r"ExWebRTC\.Media\..*",
+        RTP: ~r"ExWebRTC\.RTP\..*"
+      ]
     ]
   end
 

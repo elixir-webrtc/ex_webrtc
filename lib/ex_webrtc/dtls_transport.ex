@@ -1,7 +1,5 @@
 defmodule ExWebRTC.DTLSTransport do
-  @moduledoc """
-  DTLSTransport
-  """
+  @moduledoc false
 
   use GenServer
 
@@ -11,25 +9,30 @@ defmodule ExWebRTC.DTLSTransport do
 
   @type dtls_transport() :: pid()
 
-  # Messages sent by the DTLSTransport
-  @typedoc false
-  @type signal() :: {:dtls_transport, pid(), state_change() | rtp_data()}
+  @typedoc """
+  Messages sent by the DTLSTransport.
+  """
+  @type signal() :: {:dtls_transport, pid(), state_change() | rtp_rtcp()}
 
-  # Message sent when DTLSTransport changes its state
-  @typedoc false
+  @typedoc """
+  Message sent when DTLSTransport changes its state.
+  """
   @type state_change() :: {:state_change, dtls_state()}
 
-  # Message sent when a new RTP packet arrives.
-  # Packet is decrypted.
-  @typedoc false
-  @type rtp_data() :: {:rtp_data, binary()}
+  @typedoc """
+  Message sent when a new RTP/RTCP packet arrives.
 
-  # Possible DTLSTransport states.
-  # For the exact meaning, refer to the [WebRTC W3C, sec. 5.5.1](https://www.w3.org/TR/webrtc/#rtcdtlstransportstate-enum)
-  @typedoc false
+  Packet is decrypted.
+  """
+  @type rtp_rtcp() :: {:rtp | :rtcp, binary()}
+
+  @typedoc """
+  Possible DTLSTransport states.
+
+  For the exact meaning, refer to the [WebRTC W3C, sec. 5.5.1](https://www.w3.org/TR/webrtc/#rtcdtlstransportstate-enum)
+  """
   @type dtls_state() :: :new | :connecting | :connected | :closed | :failed
 
-  @doc false
   @spec start_link(ICETransport.t(), pid()) :: GenServer.on_start()
   def start_link(ice_transport \\ DefaultICETransport, ice_pid) do
     behaviour = ice_transport.__info__(:attributes)[:behaviour] || []
@@ -41,38 +44,32 @@ defmodule ExWebRTC.DTLSTransport do
     GenServer.start_link(__MODULE__, [ice_transport, ice_pid, self()])
   end
 
-  @doc false
   @spec set_ice_connected(dtls_transport()) :: :ok
   def set_ice_connected(dtls_transport) do
     GenServer.call(dtls_transport, :set_ice_connected)
   end
 
-  @doc false
   @spec get_fingerprint(dtls_transport()) :: binary()
   def get_fingerprint(dtls_transport) do
     GenServer.call(dtls_transport, :get_fingerprint)
   end
 
-  @doc false
   @spec start_dtls(dtls_transport(), :active | :passive, binary()) ::
           :ok | {:error, :already_started}
   def start_dtls(dtls_transport, mode, peer_fingerprint) do
     GenServer.call(dtls_transport, {:start_dtls, mode, peer_fingerprint})
   end
 
-  @doc false
   @spec send_rtp(dtls_transport(), binary()) :: :ok
   def send_rtp(dtls_transport, data) do
     GenServer.cast(dtls_transport, {:send_rtp, data})
   end
 
-  @doc false
   @spec send_rtcp(dtls_transport(), binary()) :: :ok
   def send_rtcp(dtls_transport, data) do
     GenServer.cast(dtls_transport, {:send_rtcp, data})
   end
 
-  @doc false
   @spec stop(dtls_transport()) :: :ok
   def stop(dtls_transport) do
     GenServer.stop(dtls_transport)
