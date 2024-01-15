@@ -4,7 +4,7 @@
 > This guide assumes you have a basic understanding of the WebRTC API
 > and are looking for more advanced examples that demonstrate what you can accomplish with transceivers.
 > If you are new to this, a good starting point might be to first look at the 
-> [MDN WebRTC tutorial](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API)
+> [MDN WebRTC tutorial](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API).
 
 A transceiver is an entity responsible both for sending and receiving media data.
 It consist of an RTP sender and RTP receiver.
@@ -40,7 +40,7 @@ See [Early Media](#early-media).
 However, keep in mind this can happen when using `addTrack`.
 See [Stealing Transceiver](#stealing-transceiver).
 
-We also recommend reading those articles:
+We also recommend reading these articles:
 * [Plan B vs Unified Plan](https://docs.google.com/document/d/1-ZfikoUtoJa9k-GZG1daN0BU3IjIanQ_JSscHxQesvU/edit#heading=h.wuu7dx8tnifl)
 * [The evolution of WebRTC 1.0](https://blog.mozilla.org/webrtc/the-evolution-of-webrtc/)
 * [Exploring RTCRtpTransceiver](https://blog.mozilla.org/webrtc/rtcrtptransceiver-explored/)
@@ -320,7 +320,7 @@ dbg(PeerConnection.get_transceivers(pc2))
 When calling stop on an `RTCRtpTransceiver`, it will eventually be removed from
 the connection's set of transceivers.
 However, the number of m-lines in SDP offer/answer can never decrease.
-`m-lines` corresponding to stopped transceivers can be reused when a new transceiver appears.
+m-lines corresponding to stopped transceivers can be reused when a new transceiver appears.
 This process is known as recycling m-lines, and it prevents SDP from becoming excessively large.
 
 Things to note:
