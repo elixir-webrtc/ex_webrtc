@@ -173,6 +173,11 @@ we will get a mute event on the track emitted when applying the remote offer.
 pc1 = new RTCPeerConnection();
 pc2 = new RTCPeerConnection();
 
+pc2.ontrack = ev => {
+  ev.track.onmute = _ => console.log("pc2 track onmute");
+  console.log("pc2 ontrack");
+}
+
 tr = pc1.addTransceiver("audio");
 
 offer = await pc1.createOffer();
@@ -184,6 +189,7 @@ await pc2.setRemoteDescription(offer);
 pc2.getTransceivers()[0].direction = "inactive";
 
 answer = await pc2.createAnswer();
+console.log("Setting local description on pc2");
 // this will trigger mute event 
 await pc2.setLocalDescription(answer);
 await pc1.setRemoteDescription(answer);
@@ -198,16 +204,21 @@ await pc1.setRemoteDescription(answer);
 {:ok, _tr} = PeerConnection.add_transceiver(pc1, :audio)
 
 {:ok, offer} = PeerConnection.create_offer(pc1)
-# this will trigger :track message
 :ok = PeerConnection.set_local_description(pc1, offer)
 :ok = PeerConnection.set_remote_description(pc2, offer)
+
+receive do {:ex_webrtc, _pc, {:track, _track}} = msg -> IO.inspect(msg) end
 
 [pc2_tr] = PeerConnection.get_transceivers(pc2)
 :ok = PeerConnection.set_transceiver_direction(pc2, pc2_tr.id, :inactive)
 
 {:ok, answer} = PeerConnection.create_answer(pc2)
-# this will trigger :track_muted message
+
+IO.inspect("Setting local description on pc2");
 :ok = PeerConnection.set_local_description(pc2, answer)
+
+receive do {:ex_webrtc, _pc, {:track_muted, _track_id}} = msg -> IO.inspect(msg) end
+
 :ok = PeerConnection.set_remote_description(pc1, answer)
 ```
 
@@ -303,12 +314,14 @@ await pc1.setRemoteDescription(answer);
 :ok = PeerConnection.set_local_description(pc1, offer)
 :ok = PeerConnection.set_remote_description(pc2, offer)
 
-dbg(PeerConnection.get_transceivers(pc2))
+IO.inspect(PeerConnection.get_transceivers(pc2))
 
 {:ok, answer} = PeerConnection.create_answer(pc2)
 :ok = PeerConnection.set_local_description(pc2, answer)
 
-dbg(PeerConnection.get_transceivers(pc2))
+transceivers = PeerConnection.get_transceivers(pc2)
+[] = transceivers
+IO.inspect(transceivers)
 
 :ok = PeerConnection.set_remote_description(pc1, answer)
 ```
@@ -358,10 +371,6 @@ answer = await pc2.createAnswer();
 await pc2.setLocalDescription(answer);
 await pc1.setRemoteDescription(answer);
 
-// notice that after renegotiation
-// pc1.getTransceivers() will only
-// return one (video) transceiver
-
 tr3 = pc1.addTransceiver("video");
 
 // Notice that createOffer will reuse (recycle)
@@ -376,6 +385,11 @@ await pc2.setRemoteDescription(offer);
 answer = await pc2.createAnswer();
 await pc2.setLocalDescription(answer);
 await pc1.setRemoteDescription(answer);
+
+// notice that after renegotiation
+// pc1.getTransceivers() will only
+// return two (video) transceivers
+console.log(pc1.getTransceivers());
 ```
 
 ### Elixir WebRTC
@@ -411,6 +425,8 @@ await pc1.setRemoteDescription(answer);
 {:ok, answer} = PeerConnection.create_answer(pc2)
 :ok = PeerConnection.set_local_description(pc2, answer)
 :ok = PeerConnection.set_remote_description(pc1, answer)
+
+[%{kind: :video}, %{kind: :video}] = PeerConnection.get_transceivers(pc1)
 ```
 
 <!-- tabs-close -->
@@ -465,7 +481,9 @@ console.log(pc2.getTransceivers());
 :ok = PeerConnection.set_local_description(pc2, answer)
 :ok = PeerConnection.set_remote_description(pc1, answer)
 
-dbg(PeerConnection.get_transceivers(pc2))
+transceivers = PeerConnection.get_transceivers(pc2)
+2 = Enum.count(transceivers)
+IO.inspect(transceivers)
 ```
 
 <!-- tabs-close -->
@@ -515,7 +533,7 @@ track = MediaStreamTrack.new(:audio)
 :ok = PeerConnection.set_local_description(pc2, answer)
 :ok = PeerConnection.set_remote_description(pc1, answer)
 
-dbg(PeerConnection.get_transceivers(pc2))
+IO.inspect(PeerConnection.get_transceivers(pc2))
 ```
 
 <!-- tabs-close -->
