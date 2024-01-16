@@ -90,7 +90,7 @@ defmodule ExWebRTC.MixProject do
       
       document.addEventListener("DOMContentLoaded", function () {
         for (const codeEl of document.querySelectorAll("pre code.js")) {
-          codeEl.innerHTML = hljs.highlight('js', codeEl.innerHTML).value;
+          codeEl.innerHTML = hljs.highlight(codeEl.innerText, {language: 'js'}).value;
         }
       });
     </script>
