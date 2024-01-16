@@ -68,10 +68,32 @@ defmodule ExWebRTC.MixProject do
   defp docs() do
     [
       main: "readme",
-      extras: ["README.md"],
+      extras: ["README.md", "guides/mastering_transceivers.md"],
       source_ref: "v#{@version}",
       formatters: ["html"],
+      before_closing_body_tag: &before_closing_body_tag/1,
       nest_modules_by_prefix: [ExWebRTC]
     ]
+  end
+
+  defp before_closing_body_tag(:html) do
+    # highlight JS code blocks
+    """
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>    
+
+    <script>
+      if (document.getElementsByTagName('body')[0].className.includes('dark') == true) {
+        document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.css">')
+      } else {
+        document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.css">')  
+      }
+      
+      document.addEventListener("DOMContentLoaded", function () {
+        for (const codeEl of document.querySelectorAll("pre code.js")) {
+          codeEl.innerHTML = hljs.highlight(codeEl.innerText, {language: 'js'}).value;
+        }
+      });
+    </script>
+    """
   end
 end
