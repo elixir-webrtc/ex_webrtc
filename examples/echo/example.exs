@@ -106,8 +106,8 @@ defmodule Peer do
     msg = %{"type" => "answer", "sdp" => answer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
-    video_track = ExWebRTC.MediaStreamTrack.new(:video)
-    audio_track = ExWebRTC.MediaStreamTrack.new(:audio)
+    video_track = MediaStreamTrack.new(:video)
+    audio_track = MediaStreamTrack.new(:audio)
     {:ok, _} = PeerConnection.add_track(pc, video_track)
     {:ok, _} = PeerConnection.add_track(pc, audio_track)
     {:ok, offer} = PeerConnection.create_offer(pc)
