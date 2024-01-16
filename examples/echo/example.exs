@@ -12,16 +12,15 @@ defmodule Peer do
     ICECandidate,
     PeerConnection,
     MediaStreamTrack,
-    SessionDescription,
-    RTPTransceiver
+    SessionDescription
   }
 
   @ice_servers [
     %{urls: "stun:stun.l.google.com:19302"}
   ]
 
-  def start_link() do
-    GenServer.start_link(__MODULE__, nil)
+  def start() do
+    GenServer.start(__MODULE__, nil)
   end
 
   @impl true
@@ -189,12 +188,12 @@ defmodule Peer do
   end
 end
 
-{:ok, pid} = Peer.start_link()
+{:ok, pid} = Peer.start()
 ref = Process.monitor(pid)
 
 receive do
-  {:DOWN, ^ref, _, _, _} ->
-    Logger.info("Peer process closed. Exiting")
+  {:DOWN, ^ref, _, _, reason} ->
+    Logger.info("Peer process closed, reason: #{inspect(reason)}. Exiting")
 
   other ->
     Logger.warning("Unexpected msg. Exiting. Msg: #{inspect(other)}")
