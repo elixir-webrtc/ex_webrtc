@@ -1,6 +1,10 @@
 const pcConfig = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' },] };
 
 const start_connection = async (ws) => {
+  // setup default MediaStream for the player
+  const videoPlayer = document.getElementById("videoPlayer");
+  videoPlayer.srcObject = new MediaStream();
+
   const pc = new RTCPeerConnection(pcConfig);
 
   pc.onconnectionstatechange = _ => console.log("Connection state changed:", pc.connectionState);
@@ -9,12 +13,7 @@ const start_connection = async (ws) => {
   pc.onicegatheringstatechange = _ => console.log("ICE gathering state changed:", pc.iceGatheringState);
   pc.onsignalingstatechange = _ => console.log("Signaling state changed:", pc.signalingState);
   pc.ontrack = event => {
-    const videoPlayer = document.createElement("video");
-    videoPlayer.srcObject = event.streams[0];
-    videoPlayer.onloadedmetadata = () => {
-      videoPlayer.play();
-    };
-    document.body.appendChild(videoPlayer);
+    videoPlayer.srcObject.addTrack(event.track);
   };
   pc.onicecandidate = event => {
     console.log("New local ICE candidate:", event.candidate);
@@ -24,14 +23,7 @@ const start_connection = async (ws) => {
     }
   };
 
-  const localStream = await navigator.mediaDevices.getUserMedia({ video: true });
-  const localVideoPlayer = document.createElement("video");
-  localVideoPlayer.srcObject = localStream;
-  localVideoPlayer.onloadedmetadata = () => {
-    localVideoPlayer.play();
-  };
-  document.body.appendChild(localVideoPlayer);
-
+  const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   for (const track of localStream.getTracks()) {
     pc.addTrack(track, localStream);
   }

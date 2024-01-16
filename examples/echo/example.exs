@@ -8,7 +8,13 @@ defmodule Peer do
 
   require Logger
 
-  alias ExWebRTC.{IceCandidate, PeerConnection, SessionDescription, RTPTransceiver}
+  alias ExWebRTC.{
+    IceCandidate,
+    PeerConnection,
+    MediaStreamTrack,
+    SessionDescription,
+    RTPTransceiver
+  }
 
   @ice_servers [
     %{urls: "stun:stun.l.google.com:19302"}
@@ -31,7 +37,17 @@ defmodule Peer do
 
         {:ok, pc} = PeerConnection.start_link(ice_servers: @ice_servers)
 
-        {:ok, %{conn: conn, stream: stream, peer_connection: pc, track_id: nil}}
+        state = %{
+          conn: conn,
+          stream: stream,
+          peer_connection: pc,
+          out_audio_track_id: nil,
+          out_video_track_id: nil,
+          in_audio_track_id: nil,
+          in_video_track_id: nil
+        }
+
+        {:ok, state}
 
       other ->
         Logger.error("Couldn't connect to the signalling server: #{inspect(other)}")
@@ -70,7 +86,7 @@ defmodule Peer do
 
   @impl true
   def handle_info({:ex_webrtc, _pid, msg}, state) do
-    handle_webrtc_message(msg, state)
+    state = handle_webrtc_message(msg, state)
     {:noreply, state}
   end
 
@@ -90,15 +106,17 @@ defmodule Peer do
     msg = %{"type" => "answer", "sdp" => answer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
-    track = ExWebRTC.MediaStreamTrack.new(:video)
-    {:ok, _} = PeerConnection.add_track(pc, track)
+    video_track = ExWebRTC.MediaStreamTrack.new(:video)
+    audio_track = ExWebRTC.MediaStreamTrack.new(:audio)
+    {:ok, _} = PeerConnection.add_track(pc, video_track)
+    {:ok, _} = PeerConnection.add_track(pc, audio_track)
     {:ok, offer} = PeerConnection.create_offer(pc)
     :ok = PeerConnection.set_local_description(pc, offer)
     Logger.info("Sent SDP offer: #{inspect(offer.sdp)}")
     msg = %{"type" => "offer", "sdp" => offer.sdp}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
 
-    %{state | track_id: track.id}
+    %{state | out_audio_track_id: audio_track.id, out_video_track_id: video_track.id}
   end
 
   defp handle_ws_message(%{"type" => "answer", "sdp" => sdp}, state) do
@@ -138,19 +156,36 @@ defmodule Peer do
 
     msg = %{"type" => "ice", "data" => candidate}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
+    state
   end
 
-  defp handle_webrtc_message({:rtp, _mid, _packet}, %{track_id: nil}) do
-    Logger.warning("Received RTP, but out transceiver has not beed created")
+  defp handle_webrtc_message({:track, track}, state) do
+    %MediaStreamTrack{kind: kind, id: id} = track
+
+    case kind do
+      :audio -> %{state | in_audio_track_id: id}
+      :video -> %{state | in_video_track_id: id}
+    end
   end
 
-  defp handle_webrtc_message({:rtp, _mid, packet}, state) do
-    Logger.info("Received RTP: #{inspect(packet)}")
-    PeerConnection.send_rtp(state.peer_connection, state.track_id, packet)
+  defp handle_webrtc_message({:rtp, id, packet}, %{in_audio_track_id: id} = state) do
+    PeerConnection.send_rtp(state.peer_connection, state.out_audio_track_id, packet)
+    state
   end
 
-  defp handle_webrtc_message(msg, _state) do
-    Logger.warning("Received unknown ex_webrtc message: #{inspect(msg)}")
+  defp handle_webrtc_message({:rtp, id, packet}, %{in_video_track_id: id} = state) do
+    PeerConnection.send_rtp(state.peer_connection, state.out_video_track_id, packet)
+    state
+  end
+
+  defp handle_webrtc_message({:rtcp, packet}, state) do
+    Logger.info("Received RCTP: #{inspect(packet)}")
+    state
+  end
+
+  defp handle_webrtc_message(msg, state) do
+    Logger.warning("Received other ex_webrtc message: #{inspect(msg)}")
+    state
   end
 end
 
