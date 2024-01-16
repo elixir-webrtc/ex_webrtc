@@ -27,7 +27,7 @@ defmodule ExWebRTC.RTPSenderTest do
     sender = RTPSender.new(track, codec, rtp_hdr_exts, "1", @ssrc)
     sender = %RTPSender{sender | last_seq_num: 10_000}
 
-    packet = ExRTP.Packet.new(<<>>, 0, 0, 0, 0)
+    packet = ExRTP.Packet.new(<<>>)
 
     {packet, sender} = RTPSender.send(sender, packet)
 
@@ -45,7 +45,7 @@ defmodule ExWebRTC.RTPSenderTest do
 
     # check sequence number rollover and marker flag
     sender = %RTPSender{sender | last_seq_num: @max_seq_num}
-    packet = ExRTP.Packet.new(<<>>, 0, 1, 0, 0, marker: true)
+    packet = ExRTP.Packet.new(<<>>, sequence_number: 1, marker: true)
     {packet, _sender} = RTPSender.send(sender, packet)
     {:ok, packet} = ExRTP.Packet.decode(packet)
     assert packet.sequence_number == 0

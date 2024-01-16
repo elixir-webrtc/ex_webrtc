@@ -78,7 +78,7 @@ defmodule ExWebRTC.RTPSender do
 
     packet =
       packet
-      |> ExRTP.Packet.set_extension(:two_byte, [mid_ext])
+      |> ExRTP.Packet.add_extension(mid_ext)
       |> ExRTP.Packet.encode()
 
     sender = %{sender | last_seq_num: next_seq_num}

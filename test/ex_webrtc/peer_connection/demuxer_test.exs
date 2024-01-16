@@ -19,7 +19,7 @@ defmodule ExWebRTC.PeerConnection.DemuxerTest do
 
   @packet Packet.encode(@deserialized_packet)
   @packet_mid @deserialized_packet
-              |> Packet.set_extension(:two_byte, [%Extension{id: 15, data: @mid}])
+              |> Packet.add_extension(%Extension{id: 15, data: @mid})
               |> Packet.encode()
 
   @demuxer %Demuxer{mid_ext_id: 15}
