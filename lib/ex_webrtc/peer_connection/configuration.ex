@@ -1,6 +1,6 @@
 defmodule ExWebRTC.PeerConnection.Configuration do
   @moduledoc """
-  PeerConnection configuration
+  `ExWebRTC.PeerConnection` configuration.
   """
 
   alias ExWebRTC.{RTPCodecParameters, SDPUtils}

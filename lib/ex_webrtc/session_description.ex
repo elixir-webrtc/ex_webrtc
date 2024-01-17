@@ -1,6 +1,6 @@
 defmodule ExWebRTC.SessionDescription do
   @moduledoc """
-  SessionDescription
+  Implementation of the [RTCSessionDescription](https://www.w3.org/TR/webrtc/#rtcsessiondescription-class).
   """
 
   @type description_type() ::

@@ -9,7 +9,7 @@ defmodule Peer do
   require Logger
 
   alias ExWebRTC.{
-    IceCandidate,
+    ICECandidate,
     PeerConnection,
     MediaStreamTrack,
     SessionDescription,
@@ -129,7 +129,7 @@ defmodule Peer do
   defp handle_ws_message(%{"type" => "ice", "data" => data}, state) do
     Logger.info("Received remote ICE candidate: #{inspect(data)}")
 
-    candidate = %IceCandidate{
+    candidate = %ICECandidate{
       candidate: data["candidate"],
       sdp_mid: data["sdpMid"],
       sdp_m_line_index: data["sdpMLineIndex"],

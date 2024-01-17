@@ -1,6 +1,6 @@
 defmodule ExWebRTC.RTPSender do
   @moduledoc """
-  Prepares RTP packets for sending.
+  Implementation of the [RTCRtpSender](https://www.w3.org/TR/webrtc/#rtcrtpsender-interface).
   """
   import Bitwise
 
@@ -51,6 +51,7 @@ defmodule ExWebRTC.RTPSender do
     }
   end
 
+  @doc false
   @spec update(t(), RTPCodecParameters.t(), [Extmap.t()]) :: t()
   def update(sender, codec, rtp_hdr_exts) do
     # convert to a map to be able to find extension id using extension uri

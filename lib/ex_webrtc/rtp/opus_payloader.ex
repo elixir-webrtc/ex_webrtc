@@ -1,6 +1,8 @@
 defmodule ExWebRTC.RTP.OpusPayloader do
   @moduledoc """
   Encapsulates Opus audio packet into an RTP packet.
+
+  Based on [RFC 7587: RTP Payload Format for the Opus Speech and Audio Codec](https://datatracker.ietf.org/doc/html/rfc7587).
   """
 
   @doc """

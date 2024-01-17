@@ -1,14 +1,13 @@
-defmodule ExWebRTC.IceCandidate do
+defmodule ExWebRTC.ICECandidate do
   @moduledoc """
-  ICE candidate
+  Implementation of the [RTCIceCandidate](https://www.w3.org/TR/webrtc/#rtcicecandidate-interface).
   """
 
-  # not exacly the same as W3 IceCandidate
   @type t() :: %__MODULE__{
-          candidate: term() | nil,
-          sdp_mid: term() | nil,
-          sdp_m_line_index: term() | nil,
-          username_fragment: term() | nil
+          candidate: binary(),
+          sdp_mid: non_neg_integer() | nil,
+          sdp_m_line_index: non_neg_integer() | nil,
+          username_fragment: binary() | nil
         }
 
   defstruct [:candidate, :username_fragment, :sdp_mid, :sdp_m_line_index]

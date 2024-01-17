@@ -1,6 +1,6 @@
 defmodule ExWebRTC.PeerConnection do
   @moduledoc """
-  PeerConnection
+  Implementation of the [RTCPeerConnection](https://www.w3.org/TR/webrtc/#dom-rtcpeerconnection).
   """
 
   use GenServer
@@ -14,7 +14,7 @@ defmodule ExWebRTC.PeerConnection do
   alias ExWebRTC.{
     DefaultICETransport,
     DTLSTransport,
-    IceCandidate,
+    ICECandidate,
     MediaStreamTrack,
     RTPTransceiver,
     RTPSender,
@@ -36,7 +36,7 @@ defmodule ExWebRTC.PeerConnection do
   @type signal() ::
           {:ex_webrtc, pid(),
            :negotiation_needed
-           | {:ice_candidate, IceCandidate.t()}
+           | {:ice_candidate, ICECandidate.t()}
            | {:signaling_state_change, signaling_state()}
            | {:connection_state_change, connection_state()}
            | {:track, MediaStreamTrack.t()}
@@ -72,19 +72,19 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @spec create_offer(peer_connection(), offer_options()) ::
-          {:ok, SessionDescription.t()} | {:error, :TODO}
+          {:ok, SessionDescription.t()} | {:error, :invalid_state}
   def create_offer(peer_connection, options \\ []) do
     GenServer.call(peer_connection, {:create_offer, options})
   end
 
   @spec create_answer(peer_connection(), answer_options()) ::
-          {:ok, SessionDescription.t()} | {:error, :TODO}
+          {:ok, SessionDescription.t()} | {:error, :invalid_state}
   def create_answer(peer_connection, options \\ []) do
     GenServer.call(peer_connection, {:create_answer, options})
   end
 
   @spec set_local_description(peer_connection(), SessionDescription.t()) ::
-          :ok | {:error, :TODO}
+          :ok | {:error, atom()}
   def set_local_description(peer_connection, description) do
     GenServer.call(peer_connection, {:set_local_description, description})
   end
@@ -95,7 +95,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @spec set_remote_description(peer_connection(), SessionDescription.t()) ::
-          :ok | {:error, :TODO}
+          :ok | {:error, atom()}
   def set_remote_description(peer_connection, description) do
     GenServer.call(peer_connection, {:set_remote_description, description})
   end
@@ -105,8 +105,8 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, :get_current_remote_description)
   end
 
-  @spec add_ice_candidate(peer_connection(), IceCandidate.t()) ::
-          :ok | {:error, :TODO}
+  @spec add_ice_candidate(peer_connection(), ICECandidate.t()) ::
+          :ok | {:error, :no_remote_description}
   def add_ice_candidate(peer_connection, candidate) do
     GenServer.call(peer_connection, {:add_ice_candidate, candidate})
   end
@@ -157,14 +157,14 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, {:remove_track, sender_id})
   end
 
-  @spec close(peer_connection()) :: :ok
-  def close(peer_connection) do
-    GenServer.stop(peer_connection)
-  end
-
   @spec send_rtp(peer_connection(), String.t(), ExRTP.Packet.t()) :: :ok
   def send_rtp(peer_connection, track_id, packet) do
     GenServer.cast(peer_connection, {:send_rtp, track_id, packet})
+  end
+
+  @spec close(peer_connection()) :: :ok
+  def close(peer_connection) do
+    GenServer.stop(peer_connection)
   end
 
   #### CALLBACKS ####
@@ -617,7 +617,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:ex_ice, _from, {:new_candidate, candidate}}, state) do
-    candidate = %IceCandidate{
+    candidate = %ICECandidate{
       candidate: "candidate:" <> candidate,
       sdp_mid: 0,
       sdp_m_line_index: 0
@@ -795,7 +795,7 @@ defmodule ExWebRTC.PeerConnection do
 
   defp apply_local_description(%SessionDescription{type: type}, _state)
        when type in [:rollback, :pranswer],
-       do: {:error, :not_implemented}
+       do: {:error, :"#{type}_not_implemented"}
 
   defp apply_local_description(%SessionDescription{type: type, sdp: raw_sdp}, state) do
     with {:ok, next_sig_state} <- next_signaling_state(state.signaling_state, :local, type),
@@ -829,7 +829,7 @@ defmodule ExWebRTC.PeerConnection do
 
   defp apply_remote_description(%SessionDescription{type: type}, _state)
        when type in [:rollback, :pranswer],
-       do: {:error, :not_implemented}
+       do: {:error, :"#{type}_not_implemented"}
 
   defp apply_remote_description(%SessionDescription{type: type, sdp: raw_sdp}, state) do
     with {:ok, next_sig_state} <- next_signaling_state(state.signaling_state, :remote, type),

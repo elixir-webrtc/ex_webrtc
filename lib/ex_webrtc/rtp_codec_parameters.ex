@@ -1,7 +1,9 @@
 defmodule ExWebRTC.RTPCodecParameters do
   @moduledoc """
-  RTPCodecParameters
+  Implementation of the [RTCRtpCodecParameters](https://www.w3.org/TR/webrtc/#rtcrtpcodecparameters).
   """
+
+  alias ExSDP.Attribute.{FMTP, RTPMapping, RTCPFeedback}
 
   @type t() :: %__MODULE__{
           payload_type: non_neg_integer(),
@@ -15,6 +17,7 @@ defmodule ExWebRTC.RTPCodecParameters do
   @enforce_keys [:payload_type, :mime_type, :clock_rate]
   defstruct @enforce_keys ++ [:channels, :sdp_fmtp_line, rtcp_fbs: []]
 
+  @spec new(:audio | :video, RTPMapping.t(), FMTP.t() | nil, [RTCPFeedback.t()]) :: t()
   def new(type, rtp_mapping, fmtp, rtcp_fbs) do
     %__MODULE__{
       payload_type: rtp_mapping.payload_type,
