@@ -1005,6 +1005,13 @@ defmodule ExWebRTC.PeerConnection do
     end
 
     tr = %RTPTransceiver{tr | current_direction: direction, fired_direction: direction}
+
+    # This is not defined in the W3C but see https://github.com/w3c/webrtc-pc/issues/2927
+    tr =
+      if SDPUtils.is_rejected(mline),
+        do: RTPTransceiver.stop(tr, on_track_ended(owner, tr.receiver.track.id)),
+        else: tr
+
     transceivers = List.replace_at(transceivers, idx, tr)
     process_mlines_local(mlines, transceivers, :answer, owner)
   end
