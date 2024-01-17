@@ -217,8 +217,6 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call({:create_offer, options}, _from, state) do
-    # TODO: handle subsequent offers
-
     if Keyword.get(options, :ice_restart, false) do
       :ok = state.ice_transport.restart(state.ice_pid)
     end

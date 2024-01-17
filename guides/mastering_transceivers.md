@@ -29,8 +29,8 @@ There're also a couple of other notes worth mentioning before moving forward.
 When adding a transceiver, it is created with `sendrecv` direction by default.
 When applying a remote offer that contains new m-lines, a new transceiver is created with the `recvonly` direction,
 even when the offerer only wants to receive media.
-This direction can later be changed with `addTrack`, which sends media data on the first available transceiver, 
-provided this transceiver wasn't initially created by `addTransceiver`.
+The `direction` can later be changed by `addTrack` or `removeTrack`. 
+Specifically, `addTrack` sends media on the first available transceiver, provided this transceiver wasn't initially created by `addTransceiver`.
 See [Stealing Transceiver](#stealing-transceiver).
 * `currentDirection` is a direction negotiated between the local and remote side, 
 and it changes when applying local or remote SDP.
@@ -438,8 +438,8 @@ the peer connection will attempt to find a transceiver it can use to associate w
 This is provided that the transceiver was created with `addTrack` and not with `addTransceiver`. 
 But why is this so? 
 The assumption is that when the user calls `addTrack` (and thereby creates a transceiver under the hood), 
-they might not pay attention to how this track is sent to the other side. 
-However, this is not the case when a user explicitly creates a transceiver with `addTransceiver`.
+they don't pay attention to how this track is sent to the other side. 
+However, this is not the case when the user explicitly creates a transceiver with `addTransceiver`.
 
 <!-- tabs-open -->
 

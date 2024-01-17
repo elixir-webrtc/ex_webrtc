@@ -3,7 +3,7 @@ defmodule ExWebRTC.RenegotiationTest do
 
   import ExWebRTC.Support.TestUtils
 
-  alias ExWebRTC.{PeerConnection, RTPTransceiver}
+  alias ExWebRTC.{MediaStreamTrack, PeerConnection, RTPTransceiver}
 
   test "stop two and add one with different kind" do
     # 1. add audio and video transceiver
@@ -150,6 +150,80 @@ defmodule ExWebRTC.RenegotiationTest do
     # make sure we didn't reuse stopped transceiver
     assert tr2.id != pc2_tr1.id
     assert tr3.id != pc2_tr1.id
+  end
+
+  test "add and remove tracks in a loop" do
+    # Simulate the most basic videoconference scenario
+    # where both sides join with audio and video,
+    # start screensharing and remove screensharing. 
+    # pc1 adds audio and video tracks
+    # pc2 adds audio and video tracks
+    # pc1 adds screenshare track
+    # pc1 removes screenshare track
+    # pc2 adds screenshare track
+    # pc2 removes screenshare track
+
+    {:ok, pc1} = PeerConnection.start_link()
+    {:ok, pc2} = PeerConnection.start_link()
+
+    pc1_audio_track = MediaStreamTrack.new(:audio)
+    pc1_video_track = MediaStreamTrack.new(:video)
+
+    pc2_audio_track = MediaStreamTrack.new(:audio)
+    pc2_video_track = MediaStreamTrack.new(:video)
+
+    {:ok, _} = PeerConnection.add_track(pc1, pc1_audio_track)
+    {:ok, _} = PeerConnection.add_track(pc1, pc1_video_track)
+
+    :ok = negotiate(pc1, pc2)
+
+    {:ok, _} = PeerConnection.add_track(pc2, pc2_audio_track)
+    {:ok, _} = PeerConnection.add_track(pc2, pc2_video_track)
+
+    :ok = negotiate(pc2, pc1)
+
+    assert [%{kind: :audio}, %{kind: :video}] = PeerConnection.get_transceivers(pc1)
+
+    assert [%{kind: :audio}, %{kind: :video}] = PeerConnection.get_transceivers(pc2)
+
+    for _i <- 0..5 do
+      add_and_remove_screenshare(pc1, pc2)
+
+      assert [
+               %{kind: :audio, direction: :sendrecv, current_direction: :sendrecv},
+               %{kind: :video, direction: :sendrecv, current_direction: :sendrecv},
+               %{kind: :video, direction: :recvonly, current_direction: :inactive}
+             ] =
+               PeerConnection.get_transceivers(pc1)
+
+      assert [
+               %{kind: :audio, direction: :sendrecv, current_direction: :sendrecv},
+               %{kind: :video, direction: :sendrecv, current_direction: :sendrecv},
+               %{kind: :video, direction: :recvonly, current_direction: :inactive}
+             ] =
+               PeerConnection.get_transceivers(pc2)
+    end
+  end
+
+  defp add_and_remove_screenshare(pc1, pc2) do
+    pc1_screenshare_track = MediaStreamTrack.new(:video)
+    pc2_screenshare_track = MediaStreamTrack.new(:video)
+
+    {:ok, pc1_screenshare_sender} = PeerConnection.add_track(pc1, pc1_screenshare_track)
+
+    :ok = negotiate(pc1, pc2)
+
+    :ok = PeerConnection.remove_track(pc1, pc1_screenshare_sender.id)
+
+    :ok = negotiate(pc1, pc2)
+
+    {:ok, pc2_screenshare_sender} = PeerConnection.add_track(pc2, pc2_screenshare_track)
+
+    :ok = negotiate(pc2, pc1)
+
+    :ok = PeerConnection.remove_track(pc2, pc2_screenshare_sender.id)
+
+    :ok = negotiate(pc2, pc1)
   end
 
   defp continue_negotiation(pc1, pc2, offer) do
