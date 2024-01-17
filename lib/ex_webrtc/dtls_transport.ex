@@ -208,8 +208,11 @@ defmodule ExWebRTC.DTLSTransport do
 
   @impl true
   def handle_info({:ex_ice, _from, {:data, _data} = msg}, state) do
-    state = handle_ice_data(msg, state)
-    {:noreply, state}
+    case handle_ice_data(msg, state) do
+      {:ok, state} -> {:noreply, state}
+      # we use shutdown to avoid logging an error
+      {:error, reason} -> {:stop, {:shutdown, reason}, state}
+    end
   end
 
   @impl true
@@ -224,12 +227,12 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   defp handle_ice_data({:data, <<f, _rest::binary>> = data}, state) when f in 20..64 do
-    # TODO: handle {:connection_closed, _}
     case ExDTLS.handle_data(state.dtls, data) do
       {:handshake_packets, packets, timeout} when state.ice_connected ->
         :ok = state.ice_transport.send_data(state.ice_pid, packets)
         Process.send_after(self(), :dtls_timeout, timeout)
-        update_dtls_state(state, :connecting)
+        state = update_dtls_state(state, :connecting)
+        {:ok, state}
 
       {:handshake_packets, packets, timeout} ->
         Logger.debug("""
@@ -239,7 +242,8 @@ defmodule ExWebRTC.DTLSTransport do
 
         Process.send_after(self(), :dtls_timeout, timeout)
         state = %{state | buffered_packets: packets}
-        update_dtls_state(state, :connecting)
+        state = update_dtls_state(state, :connecting)
+        {:ok, state}
 
       {:handshake_finished, lkm, rkm, profile, packets} ->
         Logger.debug("DTLS handshake finished")
@@ -253,19 +257,26 @@ defmodule ExWebRTC.DTLSTransport do
 
         if peer_fingerprint == state.peer_fingerprint do
           :ok = setup_srtp(state, lkm, rkm, profile)
-          update_dtls_state(state, :connected)
+          state = update_dtls_state(state, :connected)
+          {:ok, state}
         else
           Logger.debug("Non-matching peer cert fingerprint.")
-          update_dtls_state(state, :failed)
+          state = update_dtls_state(state, :failed)
+          {:ok, state}
         end
 
       {:handshake_finished, lkm, rkm, profile} ->
         Logger.debug("DTLS handshake finished")
         :ok = setup_srtp(state, lkm, rkm, profile)
-        update_dtls_state(state, :connected)
+        state = update_dtls_state(state, :connected)
+        {:ok, state}
 
       :handshake_want_read ->
-        state
+        {:ok, state}
+
+      {:error, reason} = error ->
+        Logger.debug("DTLS error: #{reason}")
+        error
     end
   end
 
@@ -285,7 +296,7 @@ defmodule ExWebRTC.DTLSTransport do
         Logger.error("Failed to decrypt SRTP/SRTCP, reason: #{inspect(reason)}")
     end
 
-    state
+    {:ok, state}
   end
 
   defp handle_ice_data({:data, _data}, state) do
@@ -293,7 +304,7 @@ defmodule ExWebRTC.DTLSTransport do
       "Received RTP/RTCP packets, but DTLS handshake hasn't been finished yet. Ignoring."
     )
 
-    state
+    {:ok, state}
   end
 
   defp setup_srtp(state, local_keying_material, remote_keying_material, profile) do

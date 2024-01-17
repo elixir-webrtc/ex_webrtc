@@ -23,8 +23,8 @@ defmodule Peer do
     %{urls: "stun:stun.l.google.com:19302"}
   ]
 
-  def start_link() do
-    GenServer.start_link(__MODULE__, nil)
+  def start() do
+    GenServer.start(__MODULE__, nil)
   end
 
   @impl true
@@ -135,9 +135,9 @@ defmodule Peer do
 
   defp handle_ws_message(%{"type" => "peer_left"}, state) do
     # in real scenario you should probably close the PeerConnection explicitly
-    Ogg.Writer.close(state.ogg_writer)
-    IVF.Writer.close(state.ivf_writer)
     Logger.info("Remote peer left. Closing files and exiting.")
+    if state.ogg_writer, do: Ogg.Writer.close(state.ogg_writer)
+    if state.ivf_writer, do: IVF.Writer.close(state.ivf_writer)
     exit(:normal)
   end
 
@@ -217,12 +217,12 @@ defmodule Peer do
   end
 end
 
-{:ok, pid} = Peer.start_link()
+{:ok, pid} = Peer.start()
 ref = Process.monitor(pid)
 
 receive do
-  {:DOWN, ^ref, _, _, _} ->
-    Logger.info("Peer process closed. Exiting")
+  {:DOWN, ^ref, _, _, reason} ->
+    Logger.info("Peer process closed, reason: #{inspect(reason)}. Exiting")
 
   other ->
     Logger.warning("Unexpected msg. Exiting. Msg: #{inspect(other)}")
