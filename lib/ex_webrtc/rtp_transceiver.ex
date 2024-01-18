@@ -239,11 +239,11 @@ defmodule ExWebRTC.RTPTransceiver do
   defp get_codecs(mline, config) do
     mline
     |> SDPUtils.get_rtp_codec_parameters()
-    |> Stream.filter(&Configuration.is_supported_codec(config, &1))
+    |> Stream.filter(&Configuration.supported_codec?(config, &1))
     |> Enum.map(fn codec ->
       rtcp_fbs =
         Enum.filter(codec.rtcp_fbs, fn rtcp_fb ->
-          Configuration.is_supported_rtcp_fb(config, rtcp_fb)
+          Configuration.supported_rtcp_fb?(config, rtcp_fb)
         end)
 
       %RTPCodecParameters{codec | rtcp_fbs: rtcp_fbs}
@@ -253,6 +253,6 @@ defmodule ExWebRTC.RTPTransceiver do
   defp get_rtp_hdr_extensions(mline, config) do
     mline
     |> ExSDP.get_attributes(ExSDP.Attribute.Extmap)
-    |> Enum.filter(&Configuration.is_supported_rtp_hdr_extension(config, &1, mline.type))
+    |> Enum.filter(&Configuration.supported_rtp_hdr_extension?(config, &1, mline.type))
   end
 end

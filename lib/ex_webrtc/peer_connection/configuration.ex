@@ -157,10 +157,10 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   end
 
   @doc false
-  @spec is_supported_codec(t(), RTPCodecParameters.t()) :: boolean()
-  def is_supported_codec(config, codec) do
+  @spec supported_codec?(t(), RTPCodecParameters.t()) :: boolean()
+  def supported_codec?(config, codec) do
     # This function doesn't check if rtcp-fb is supported.
-    # Instead, `is_supported_rtcp_fb` has to be used to filter out
+    # Instead, `supported_rtcp_fb?` has to be used to filter out
     # rtcp-fb that are not supported.
     Enum.any?(config.audio_codecs ++ config.video_codecs, fn supported_codec ->
       %{supported_codec | rtcp_fbs: codec.rtcp_fbs} == codec
@@ -168,9 +168,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   end
 
   @doc false
-  @spec is_supported_rtp_hdr_extension(t(), Extmap.t(), :audio | :video) ::
+  @spec supported_rtp_hdr_extension?(t(), Extmap.t(), :audio | :video) ::
           boolean()
-  def is_supported_rtp_hdr_extension(config, rtp_hdr_extension, media_type) do
+  def supported_rtp_hdr_extension?(config, rtp_hdr_extension, media_type) do
     supported_uris =
       case media_type do
         :audio -> Map.keys(config.audio_rtp_hdr_exts)
@@ -181,8 +181,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   end
 
   @doc false
-  @spec is_supported_rtcp_fb(t(), RTCPFeedback.t()) :: boolean()
-  def is_supported_rtcp_fb(_config, _rtcp_fb), do: false
+  @spec supported_rtcp_fb?(t(), RTCPFeedback.t()) :: boolean()
+  def supported_rtcp_fb?(_config, _rtcp_fb), do: false
 
   @doc false
   @spec update(t(), ExSDP.t()) :: t()

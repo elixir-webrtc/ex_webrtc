@@ -3,11 +3,11 @@ defmodule ExWebRTC.SDPUtilsTest do
 
   alias ExWebRTC.SDPUtils
 
-  test "is_rejected/1" do
+  test "rejected?/1" do
     mline = ExSDP.Media.new(:audio, 0, "UDP/TLS/RTP/SAVPF", [8])
-    assert true == SDPUtils.is_rejected(mline)
+    assert true == SDPUtils.rejected?(mline)
 
     mline = ExSDP.Media.new(:audio, 9, "UDP/TLS/RTP/SAVPF", [8])
-    assert false == SDPUtils.is_rejected(mline)
+    assert false == SDPUtils.rejected?(mline)
   end
 end
