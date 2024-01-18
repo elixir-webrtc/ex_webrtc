@@ -268,9 +268,9 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.find_index(fn {mline, idx} -> mline.port == 0 and idx not in indices end)
   end
 
-  @spec is_rejected(ExSDP.Media.t()) :: boolean()
-  def is_rejected(%ExSDP.Media{port: 0}), do: true
-  def is_rejected(%ExSDP.Media{}), do: false
+  @spec rejected?(ExSDP.Media.t()) :: boolean()
+  def rejected?(%ExSDP.Media{port: 0}), do: true
+  def rejected?(%ExSDP.Media{}), do: false
 
   defp do_get_ice_credentials(sdp_or_mline) do
     ice_ufrag =

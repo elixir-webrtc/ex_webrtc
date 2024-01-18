@@ -8,6 +8,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     RTPSender,
     MediaStreamTrack,
     PeerConnection,
+    RTPCodecParameters,
     SessionDescription,
     Utils
   }
@@ -899,5 +900,48 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert [%RTPTransceiver{direction: :inactive, current_direction: :inactive}] =
              PeerConnection.get_transceivers(pc2)
+  end
+
+  test "no supported codecs" do
+    {:ok, pc1} =
+      PeerConnection.start_link(
+        video_codecs: [
+          %RTPCodecParameters{
+            payload_type: 96,
+            mime_type: "video/VP8",
+            clock_rate: 90_000
+          }
+        ]
+      )
+
+    {:ok, pc2} =
+      PeerConnection.start_link(
+        video_codecs: [
+          %RTPCodecParameters{
+            payload_type: 45,
+            mime_type: "video/AV1",
+            clock_rate: 90_000
+          }
+        ]
+      )
+
+    {:ok, _tr} = PeerConnection.add_transceiver(pc1, :video)
+
+    assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+
+    :ok = negotiate(pc1, pc2)
+
+    assert [] == PeerConnection.get_transceivers(pc1)
+    assert [] == PeerConnection.get_transceivers(pc2)
+
+    assert_receive {:ex_webrtc, ^pc1, {:track_ended, _track_id}}
+    assert_receive {:ex_webrtc, ^pc2, {:track, pc2_track}}
+    pc2_track_id = pc2_track.id
+    assert_receive {:ex_webrtc, ^pc2, {:track_muted, ^pc2_track_id}}
+    assert_receive {:ex_webrtc, ^pc2, {:track_ended, ^pc2_track_id}}
+
+    # make sure there was only one negotiation_needed fired
+    refute_receive {:ex_webrtc, ^pc1, :negotiation_needed}
+    refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
   end
 end

@@ -122,27 +122,30 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec to_answer_mline(t(), ExSDP.Media.t(), Keyword.t()) :: ExSDP.Media.t()
   def to_answer_mline(transceiver, mline, opts) do
-    offered_direction = SDPUtils.get_media_direction(mline)
-    direction = get_direction(offered_direction, transceiver.direction)
-    opts = Keyword.put(opts, :direction, direction)
-
     # Reject mline. See RFC 8829 sec. 5.3.1 and RFC 3264 sec. 6.
     # We could reject earlier (as RFC suggests) but we generate
     # answer mline at first to have consistent fingerprint, ice_ufrag and
     # ice_pwd values across mlines.
+    # We also set direction to inactive, even though JSEP doesn't require it.
+    # See see https://github.com/w3c/webrtc-pc/issues/2927
     cond do
       transceiver.codecs == [] ->
         # there has to be at least one format so take it from the offer
         codecs = SDPUtils.get_rtp_codec_parameters(mline)
         transceiver = %__MODULE__{transceiver | codecs: codecs}
+        opts = Keyword.put(opts, :direction, :inactive)
         mline = to_mline(transceiver, opts)
         %ExSDP.Media{mline | port: 0}
 
       transceiver.stopping == true or transceiver.stopped == true ->
+        opts = Keyword.put(opts, :direction, :inactive)
         mline = to_mline(transceiver, opts)
         %ExSDP.Media{mline | port: 0}
 
       true ->
+        offered_direction = SDPUtils.get_media_direction(mline)
+        direction = get_direction(offered_direction, transceiver.direction)
+        opts = Keyword.put(opts, :direction, direction)
         to_mline(transceiver, opts)
     end
   end
@@ -236,11 +239,11 @@ defmodule ExWebRTC.RTPTransceiver do
   defp get_codecs(mline, config) do
     mline
     |> SDPUtils.get_rtp_codec_parameters()
-    |> Stream.filter(&Configuration.is_supported_codec(config, &1))
+    |> Stream.filter(&Configuration.supported_codec?(config, &1))
     |> Enum.map(fn codec ->
       rtcp_fbs =
         Enum.filter(codec.rtcp_fbs, fn rtcp_fb ->
-          Configuration.is_supported_rtcp_fb(config, rtcp_fb)
+          Configuration.supported_rtcp_fb?(config, rtcp_fb)
         end)
 
       %RTPCodecParameters{codec | rtcp_fbs: rtcp_fbs}
@@ -250,6 +253,6 @@ defmodule ExWebRTC.RTPTransceiver do
   defp get_rtp_hdr_extensions(mline, config) do
     mline
     |> ExSDP.get_attributes(ExSDP.Attribute.Extmap)
-    |> Enum.filter(&Configuration.is_supported_rtp_hdr_extension(config, &1, mline.type))
+    |> Enum.filter(&Configuration.supported_rtp_hdr_extension?(config, &1, mline.type))
   end
 end

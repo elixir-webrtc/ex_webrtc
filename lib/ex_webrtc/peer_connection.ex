@@ -1005,6 +1005,13 @@ defmodule ExWebRTC.PeerConnection do
     end
 
     tr = %RTPTransceiver{tr | current_direction: direction, fired_direction: direction}
+
+    # This is not defined in the W3C but see https://github.com/w3c/webrtc-pc/issues/2927
+    tr =
+      if SDPUtils.rejected?(mline),
+        do: RTPTransceiver.stop(tr, on_track_ended(owner, tr.receiver.track.id)),
+        else: tr
+
     transceivers = List.replace_at(transceivers, idx, tr)
     process_mlines_local(mlines, transceivers, :answer, owner)
   end
@@ -1021,7 +1028,7 @@ defmodule ExWebRTC.PeerConnection do
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
     direction =
-      if SDPUtils.is_rejected(mline),
+      if SDPUtils.rejected?(mline),
         do: :inactive,
         else: SDPUtils.get_media_direction(mline) |> reverse_direction()
 
@@ -1037,7 +1044,7 @@ defmodule ExWebRTC.PeerConnection do
     tr = if sdp_type == :answer, do: %RTPTransceiver{tr | current_direction: direction}, else: tr
 
     tr =
-      if SDPUtils.is_rejected(mline),
+      if SDPUtils.rejected?(mline),
         do: RTPTransceiver.stop(tr, on_track_ended(owner, tr.receiver.track.id)),
         else: tr
 
@@ -1153,7 +1160,7 @@ defmodule ExWebRTC.PeerConnection do
     do: state
 
   defp update_negotiation_needed(state) do
-    negotiation_needed = is_negotiation_needed(state.transceivers, state)
+    negotiation_needed = negotiation_needed?(state.transceivers, state)
 
     cond do
       negotiation_needed == true and state.negotiation_needed == true ->
@@ -1175,11 +1182,11 @@ defmodule ExWebRTC.PeerConnection do
   # We don't support MSIDs and stopping transceivers so 
   # we only check 5.2 and 5.3 from 4.7.3#check-if-negotiation-is-needed
   # https://www.w3.org/TR/webrtc/#dfn-check-if-negotiation-is-needed
-  defp is_negotiation_needed([], _), do: false
+  defp negotiation_needed?([], _), do: false
 
-  defp is_negotiation_needed([tr | _transceivers], _state) when tr.mid == nil, do: true
+  defp negotiation_needed?([tr | _transceivers], _state) when tr.mid == nil, do: true
 
-  defp is_negotiation_needed([tr | transceivers], state) do
+  defp negotiation_needed?([tr | transceivers], state) do
     {local_desc_type, local_desc} = state.current_local_desc
     {_, remote_desc} = state.current_remote_desc
 
@@ -1204,7 +1211,7 @@ defmodule ExWebRTC.PeerConnection do
         true
 
       true ->
-        is_negotiation_needed(transceivers, state)
+        negotiation_needed?(transceivers, state)
     end
   end
 
