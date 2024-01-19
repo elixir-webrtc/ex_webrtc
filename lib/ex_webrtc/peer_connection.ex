@@ -656,8 +656,12 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info({:dtls_transport, _pid, {:rtcp, data}}, state) do
     case ExRTCP.CompoundPacket.decode(data) do
-      {:ok, packets} -> notify(state.owner, {:rtcp, packets})
-      {:error, _res} -> Logger.info("Failed to decode RTCP packet")
+      {:ok, packets} ->
+        notify(state.owner, {:rtcp, packets})
+
+      {:error, _res} ->
+        <<2::2, _::1, count::5, ptype::8, _::binary>> = data
+        Logger.warning("Failed to decode RTCP packet, type: #{ptype}, count: #{count}")
     end
 
     {:noreply, state}
