@@ -45,15 +45,22 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     :audio_level => %{
       media_type: :audio,
       ext: %Extmap{id: 2, uri: "urn:ietf:params:rtp-hdrext:ssrc-audio-level"}
+    },
+    :twcc => %{
+      media_type: :all,
+      ext: %Extmap{
+        id: 3,
+        uri: "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+      }
     }
   }
 
-  @mandatory_audio_rtp_hdr_exts Map.new([:mid], fn ext_shortcut ->
+  @mandatory_audio_rtp_hdr_exts Map.new([:mid, :twcc], fn ext_shortcut ->
                                   extmap = Map.fetch!(@rtp_hdr_extensions, ext_shortcut).ext
                                   {extmap.uri, extmap}
                                 end)
 
-  @mandatory_video_rtp_hdr_exts Map.new([:mid], fn ext_shortcut ->
+  @mandatory_video_rtp_hdr_exts Map.new([:mid, :twcc], fn ext_shortcut ->
                                   extmap = Map.fetch!(@rtp_hdr_extensions, ext_shortcut).ext
                                   {extmap.uri, extmap}
                                 end)
