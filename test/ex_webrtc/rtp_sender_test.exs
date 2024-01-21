@@ -11,7 +11,7 @@ defmodule ExWebRTC.RTPSenderTest do
   @max_seq_num (1 <<< 32) - 1
   @ssrc 354_947
 
-  test "send/2" do
+  setup do
     track = MediaStreamTrack.new(:audio)
 
     codec = %RTPCodecParameters{
@@ -25,6 +25,11 @@ defmodule ExWebRTC.RTPSenderTest do
     rtp_hdr_exts = [%Extmap{id: 1, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}]
 
     sender = RTPSender.new(track, codec, rtp_hdr_exts, "1", @ssrc)
+
+    %{sender: sender}
+  end
+
+  test "send/2", %{sender: sender} do
     sender = %RTPSender{sender | last_seq_num: 10_000}
 
     packet = ExRTP.Packet.new(<<>>)
@@ -51,5 +56,46 @@ defmodule ExWebRTC.RTPSenderTest do
     assert packet.sequence_number == 0
     # marker flag shouldn't be overwritten
     assert packet.marker == true
+  end
+
+  test "get_stats/2", %{sender: sender} do
+    timestamp = System.os_time(:millisecond)
+    payload = <<1, 2, 3>>
+
+    assert %{
+             timestamp: timestamp,
+             type: :outbound_rtp,
+             id: sender.id,
+             ssrc: sender.ssrc,
+             packets_sent: 0,
+             bytes_sent: 0,
+             markers_sent: 0
+           } == RTPSender.get_stats(sender, timestamp)
+
+    packet = ExRTP.Packet.new(payload)
+    {data1, sender} = RTPSender.send(sender, packet)
+
+    assert %{
+             timestamp: timestamp,
+             type: :outbound_rtp,
+             id: sender.id,
+             ssrc: sender.ssrc,
+             packets_sent: 1,
+             bytes_sent: byte_size(data1),
+             markers_sent: 0
+           } == RTPSender.get_stats(sender, timestamp)
+
+    packet = ExRTP.Packet.new(payload, marker: true)
+    {data2, sender} = RTPSender.send(sender, packet)
+
+    assert %{
+             timestamp: timestamp,
+             type: :outbound_rtp,
+             id: sender.id,
+             ssrc: sender.ssrc,
+             packets_sent: 2,
+             bytes_sent: byte_size(data1) + byte_size(data2),
+             markers_sent: 1
+           } == RTPSender.get_stats(sender, timestamp)
   end
 end
