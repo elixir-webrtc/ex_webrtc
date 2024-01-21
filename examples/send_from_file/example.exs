@@ -219,16 +219,8 @@ defmodule Peer do
 
   defp handle_ws_message(%{"type" => "ice", "data" => data}, state) do
     Logger.info("Received remote ICE candidate: #{inspect(data)}")
-
-    candidate = %ICECandidate{
-      candidate: data["candidate"],
-      sdp_mid: data["sdpMid"],
-      sdp_m_line_index: data["sdpMLineIndex"],
-      username_fragment: data["usernameFragment"]
-    }
-
+    candidate = ICECandidate.from_json(data)
     :ok = PeerConnection.add_ice_candidate(state.peer_connection, candidate)
-
     state
   end
 
@@ -238,14 +230,7 @@ defmodule Peer do
   end
 
   defp handle_webrtc_message({:ice_candidate, candidate}, state) do
-    candidate = %{
-      "candidate" => candidate.candidate,
-      "sdpMid" => candidate.sdp_mid,
-      "sdpMLineIndex" => candidate.sdp_m_line_index,
-      "usernameFragment" => candidate.username_fragment
-    }
-
-    msg = %{"type" => "ice", "data" => candidate}
+    msg = %{"type" => "ice", "data" => ICECandidate.to_json(candidate)}
     :gun.ws_send(state.conn, state.stream, {:text, Jason.encode!(msg)})
     state
   end
