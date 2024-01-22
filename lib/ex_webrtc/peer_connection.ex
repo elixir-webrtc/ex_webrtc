@@ -200,7 +200,8 @@ defmodule ExWebRTC.PeerConnection do
       signaling_state: :stable,
       last_offer: nil,
       last_answer: nil,
-      peer_fingerprint: nil
+      peer_fingerprint: nil,
+      sent_packets: 0
     }
 
     notify(state.owner, {:connection_state_change, :new})
@@ -572,6 +573,24 @@ defmodule ExWebRTC.PeerConnection do
 
     case transceiver do
       %RTPTransceiver{} ->
+        {packet, state} =
+          case Map.fetch(
+                 state.config.video_rtp_hdr_exts,
+                 "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+               ) do
+            {:ok, %{id: id}} ->
+              twcc =
+                ExRTP.Packet.Extension.TWCC.new(state.sent_packets)
+                |> ExRTP.Packet.Extension.TWCC.to_raw(id)
+
+              packet = ExRTP.Packet.add_extension(packet, twcc)
+              state = %{state | sent_packets: state.sent_packets + 1 &&& 0xFFFF}
+              {packet, state}
+
+            :error ->
+              {packet, state}
+          end
+
         {packet, sender} = RTPSender.send(transceiver.sender, packet)
         :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
 

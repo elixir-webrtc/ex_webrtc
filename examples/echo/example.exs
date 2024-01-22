@@ -168,11 +168,13 @@ defmodule Peer do
   end
 
   defp handle_webrtc_message({:rtp, id, packet}, %{in_audio_track_id: id} = state) do
+    packet = ExRTP.Packet.remove_extensions(packet)
     PeerConnection.send_rtp(state.peer_connection, state.out_audio_track_id, packet)
     state
   end
 
   defp handle_webrtc_message({:rtp, id, packet}, %{in_video_track_id: id} = state) do
+    packet = ExRTP.Packet.remove_extensions(packet)
     PeerConnection.send_rtp(state.peer_connection, state.out_video_track_id, packet)
     state
   end

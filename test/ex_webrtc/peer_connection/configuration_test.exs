@@ -16,6 +16,11 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       uri: "urn:ietf:params:rtp-hdrext:sdes:mid"
     }
 
+    twcc_rtp_hdr_ext = %Extmap{
+      id: 3,
+      uri: "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+    }
+
     opus_codec = %RTPCodecParameters{
       payload_type: 111,
       mime_type: "audio/opus",
@@ -69,14 +74,14 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
                mid: "0",
                direction: :recvonly,
                kind: :audio,
-               rtp_hdr_exts: [^mid_rtp_hdr_ext],
+               rtp_hdr_exts: [^twcc_rtp_hdr_ext, ^mid_rtp_hdr_ext],
                codecs: [^opus_codec]
              },
              %RTPTransceiver{
                mid: "1",
                direction: :recvonly,
                kind: :video,
-               rtp_hdr_exts: [^mid_rtp_hdr_ext],
+               rtp_hdr_exts: [^twcc_rtp_hdr_ext, ^mid_rtp_hdr_ext],
                codecs: [^vp8_codec, ^h264_codec, ^av1_codec]
              }
            ] = transceivers
@@ -105,14 +110,14 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
                mid: "0",
                direction: :recvonly,
                kind: :audio,
-               rtp_hdr_exts: [^audio_level_rtp_hdr_ext, ^mid_rtp_hdr_ext],
+               rtp_hdr_exts: [^audio_level_rtp_hdr_ext, ^twcc_rtp_hdr_ext, ^mid_rtp_hdr_ext],
                codecs: []
              },
              %RTPTransceiver{
                mid: "1",
                direction: :recvonly,
                kind: :video,
-               rtp_hdr_exts: [^mid_rtp_hdr_ext],
+               rtp_hdr_exts: [^twcc_rtp_hdr_ext, ^mid_rtp_hdr_ext],
                codecs: [^av1_codec]
              }
            ] = PeerConnection.get_transceivers(pc)
@@ -129,16 +134,22 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
     # assert it is only present in audio transceiver
     {:ok, pc} = PeerConnection.start_link(rtp_hdr_extensions: [:audio_level])
     {:ok, tr} = PeerConnection.add_transceiver(pc, :audio)
-
     tr_rtp_hdr_exts = Enum.map(tr.rtp_hdr_exts, & &1.uri) |> MapSet.new()
 
     assert MapSet.new([
+             "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
              "urn:ietf:params:rtp-hdrext:ssrc-audio-level",
              "urn:ietf:params:rtp-hdrext:sdes:mid"
            ]) == tr_rtp_hdr_exts
 
     {:ok, tr} = PeerConnection.add_transceiver(pc, :video)
-    assert [%Extmap{uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}] = tr.rtp_hdr_exts
+    tr_rtp_hdr_exts = Enum.map(tr.rtp_hdr_exts, & &1.uri) |> MapSet.new()
+
+    assert MapSet.new([
+             "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+             "urn:ietf:params:rtp-hdrext:sdes:mid"
+           ]) == tr_rtp_hdr_exts
+
     :ok = PeerConnection.close(pc)
   end
 end

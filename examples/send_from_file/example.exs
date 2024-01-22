@@ -263,6 +263,11 @@ defmodule Peer do
     %{state | ivf_reader: ivf_reader, vp8_payloader: vp8_payloader, ogg_reader: ogg_reader}
   end
 
+  defp handle_webrtc_message({:rtcp, packet}, state) do
+    Logger.info("Received RCTP: #{inspect(packet)}")
+    state
+  end
+
   defp handle_webrtc_message(msg, state) do
     Logger.warning("Received unknown ex_webrtc message: #{inspect(msg)}")
     state
