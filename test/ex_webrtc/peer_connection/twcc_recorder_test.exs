@@ -6,10 +6,12 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
   @max_seq_no 0xFFFF
   @seq_no 541
 
+  @recorder %TWCCRecorder{sender_ssrc: 1, media_ssrc: 2}
+
   describe "record_packet/2" do
     test "initial case" do
       recorder =
-        %TWCCRecorder{}
+        @recorder
         |> TWCCRecorder.record_packet(@seq_no)
 
       end_seq_no = @seq_no + 1
@@ -27,7 +29,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       seq_no_3 = @seq_no + 2
 
       recorder =
-        %TWCCRecorder{}
+        @recorder
         |> TWCCRecorder.record_packet(@seq_no)
 
       Process.sleep(15)
@@ -57,7 +59,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       seq_no_3 = @seq_no + 3
 
       recorder =
-        %TWCCRecorder{}
+        @recorder
         |> TWCCRecorder.record_packet(@seq_no)
 
       Process.sleep(15)
@@ -93,7 +95,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       seq_no_7 = 65_541
 
       recorder =
-        %TWCCRecorder{}
+        @recorder
         |> TWCCRecorder.record_packet(seq_no_2)
         |> TWCCRecorder.record_packet(seq_no_1)
         |> TWCCRecorder.record_packet(seq_no_5 - @max_seq_no - 1)
@@ -129,7 +131,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       seq_no_7 = @seq_no + 16
 
       recorder =
-        %TWCCRecorder{}
+        @recorder
         |> TWCCRecorder.record_packet(@seq_no)
         |> TWCCRecorder.record_packet(seq_no_2)
 
