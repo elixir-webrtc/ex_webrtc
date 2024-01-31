@@ -11,13 +11,10 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
 
   describe "record_packet/2" do
     test "initial case" do
-      recorder =
-        @recorder
-        |> TWCCRecorder.record_packet(@seq_no)
-
+      recorder = TWCCRecorder.record_packet(@recorder, @seq_no)
       end_seq_no = @seq_no + 1
 
-      assert %{
+      assert %TWCCRecorder{
                timestamps: %{@seq_no => _timestamp},
                base_seq_no: @seq_no,
                start_seq_no: @seq_no,
@@ -29,18 +26,14 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       seq_no_2 = @seq_no + 1
       seq_no_3 = @seq_no + 2
 
-      recorder =
-        @recorder
-        |> TWCCRecorder.record_packet(@seq_no)
-
+      recorder = TWCCRecorder.record_packet(@recorder, @seq_no)
       Process.sleep(15)
       recorder = TWCCRecorder.record_packet(recorder, seq_no_2)
       Process.sleep(15)
       recorder = TWCCRecorder.record_packet(recorder, seq_no_3)
-
       end_seq_no = @seq_no + 3
 
-      assert %{
+      assert %TWCCRecorder{
                timestamps: %{
                  @seq_no => timestamp_1,
                  ^seq_no_2 => timestamp_2,
@@ -59,10 +52,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       seq_no_2 = @seq_no + 5
       seq_no_3 = @seq_no + 3
 
-      recorder =
-        @recorder
-        |> TWCCRecorder.record_packet(@seq_no)
-
+      recorder = TWCCRecorder.record_packet(@recorder, @seq_no)
       Process.sleep(15)
       recorder = TWCCRecorder.record_packet(recorder, seq_no_2)
       Process.sleep(15)
@@ -70,7 +60,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
 
       end_seq_no = @seq_no + 6
 
-      assert %{
+      assert %TWCCRecorder{
                timestamps: %{
                  @seq_no => timestamp_1,
                  ^seq_no_2 => timestamp_2,
@@ -107,7 +97,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
 
       end_seq_no = seq_no_7 + 1
 
-      assert %{
+      assert %TWCCRecorder{
                timestamps: %{
                  ^seq_no_1 => _,
                  ^seq_no_2 => _,
@@ -138,7 +128,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
 
       end_seq_no = seq_no_2 + 1
 
-      assert %{
+      assert %TWCCRecorder{
                base_seq_no: @seq_no,
                start_seq_no: @seq_no,
                end_seq_no: ^end_seq_no,
@@ -158,7 +148,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       start_seq_no = seq_no_2 + 1
       end_seq_no = seq_no_5 + 1
 
-      assert %{
+      assert %TWCCRecorder{
                base_seq_no: ^start_seq_no,
                start_seq_no: ^start_seq_no,
                end_seq_no: ^end_seq_no,
@@ -177,7 +167,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       start_seq_no = seq_no_5 + 1
       end_seq_no = seq_no_7 + 1
 
-      assert %{
+      assert %TWCCRecorder{
                base_seq_no: ^start_seq_no,
                start_seq_no: ^start_seq_no,
                end_seq_no: ^end_seq_no,
@@ -190,28 +180,27 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
 
   describe "get_feedback/1" do
     test "subsequent packets in order" do
-      base_no = 578
       base_ts = 1_300
 
       timestamps = %{
-        base_no => base_ts,
-        (base_no + 1) => base_ts,
-        (base_no + 2) => base_ts + 20,
-        (base_no + 3) => base_ts + 32
+        @seq_no => base_ts,
+        (@seq_no + 1) => base_ts,
+        (@seq_no + 2) => base_ts + 20,
+        (@seq_no + 3) => base_ts + 32
       }
 
       recorder = %TWCCRecorder{
         @recorder
-        | base_seq_no: base_no,
-          start_seq_no: base_no,
-          end_seq_no: base_no + 4,
+        | base_seq_no: @seq_no,
+          start_seq_no: @seq_no,
+          end_seq_no: @seq_no + 4,
           timestamps: timestamps
       }
 
       assert {recorder, [feedback]} = TWCCRecorder.get_feedback(recorder)
 
       assert %CC{
-               base_sequence_number: ^base_no,
+               base_sequence_number: @seq_no,
                reference_time: 5,
                fb_pkt_count: 0,
                packet_status_count: 4,
@@ -224,22 +213,21 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
     end
 
     test "packets out of order, with gaps" do
-      base_no = 578
       base_ts = 1_250
 
       timestamps = %{
-        base_no => base_ts + 20,
-        (base_no + 1) => base_ts + 25,
-        (base_no + 2) => base_ts + 8,
-        (base_no + 3) => base_ts,
-        (base_no + 5) => base_ts + 25
+        @seq_no => base_ts + 20,
+        (@seq_no + 1) => base_ts + 25,
+        (@seq_no + 2) => base_ts + 8,
+        (@seq_no + 3) => base_ts,
+        (@seq_no + 5) => base_ts + 25
       }
 
       recorder = %TWCCRecorder{
         @recorder
-        | base_seq_no: base_no,
-          start_seq_no: base_no,
-          end_seq_no: base_no + 6,
+        | base_seq_no: @seq_no,
+          start_seq_no: @seq_no,
+          end_seq_no: @seq_no + 6,
           timestamps: timestamps
       }
 
@@ -256,7 +244,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       ]
 
       assert %CC{
-               base_sequence_number: ^base_no,
+               base_sequence_number: @seq_no,
                reference_time: 4,
                fb_pkt_count: 0,
                packet_status_count: 6,
@@ -268,21 +256,20 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
     end
 
     test "mixed chunks" do
-      base_no = 578
       end_no = 634
-      packet_num = end_no - base_no + 1
+      packet_num = end_no - @seq_no + 1
 
-      recorder = TWCCRecorder.record_packet(@recorder, base_no)
+      recorder = TWCCRecorder.record_packet(@recorder, @seq_no)
 
       recorder =
-        Enum.reduce((base_no + 2)..end_no, recorder, fn i, recorder ->
+        Enum.reduce((@seq_no + 2)..end_no, recorder, fn i, recorder ->
           TWCCRecorder.record_packet(recorder, i)
         end)
 
       assert {recorder, [feedback]} = TWCCRecorder.get_feedback(recorder)
 
       assert %CC{
-               base_sequence_number: ^base_no,
+               base_sequence_number: @seq_no,
                fb_pkt_count: 0,
                packet_status_count: ^packet_num,
                packet_chunks: [chunk1, chunk2],
@@ -305,23 +292,21 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
     end
 
     test "split into two feedbacks" do
-      base_no = 578
-
       recorder =
         @recorder
-        |> TWCCRecorder.record_packet(base_no)
-        |> TWCCRecorder.record_packet(base_no + 1)
-        |> TWCCRecorder.record_packet(base_no + 2)
+        |> TWCCRecorder.record_packet(@seq_no)
+        |> TWCCRecorder.record_packet(@seq_no + 1)
+        |> TWCCRecorder.record_packet(@seq_no + 2)
 
       # simulate huge delta between 3rd and 4th packet
-      base_no2 = base_no + 2
+      base_no2 = @seq_no + 2
       timestamps = Map.update!(recorder.timestamps, base_no2, &(&1 + 35_000))
       recorder = %{recorder | timestamps: timestamps}
 
       assert {recorder, [feedback1, feedback2]} = TWCCRecorder.get_feedback(recorder)
 
       assert %CC{
-               base_sequence_number: ^base_no,
+               base_sequence_number: @seq_no,
                fb_pkt_count: 0,
                packet_status_count: 2,
                reference_time: ref_time1,
