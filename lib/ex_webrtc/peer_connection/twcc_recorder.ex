@@ -6,38 +6,32 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
   defmodule Timer do
     @moduledoc false
 
-    @opaque t() :: %__MODULE__{base: non_neg_integer()}
+    @packet_window 500 * 4
 
     @enforce_keys [:base]
     defstruct @enforce_keys
 
-    @spec new() :: t()
+    def packet_window, do: @packet_window
+
     def new do
       time = System.monotonic_time(:microsecond)
       time = if(time < 0, do: -time, else: 0)
       %__MODULE__{base: time}
     end
 
-    @spec get_time(t()) :: non_neg_integer()
+    # timestamps are stored as multiples of 250 microseconds
     def get_time(%__MODULE__{base: base}) do
-      # should be always positive thanks to this
-      # TODO: storing such a huge values might be inefficient
-      System.monotonic_time(:microsecond) + base
+      # timestamps should be always positive thanks to this
+      (System.monotonic_time(:microsecond) + base)
+      |> round_to_250()
     end
 
-    @spec to_ref(non_neg_integer()) :: non_neg_integer()
-    def to_ref(timestamp), do: div(timestamp, 1000 * 64)
+    # to_ref and get_delta require timestamp returned by get_time
+    def to_ref(timestamp), do: div(timestamp, 64 * 4)
+    def from_ref(timestamp), do: timestamp * 64 * 4
+    def get_delta(prev_ts, cur_ts), do: cur_ts - prev_ts
 
-    @spec get_delta(non_neg_integer(), non_neg_integer()) :: non_neg_integer()
-    def get_delta(prev_ts, cur_ts) do
-      delta = cur_ts - prev_ts
-      # thanks to this delta is rounded to the closest value
-      cond do
-        delta < 0 -> delta - 125
-        true -> delta + 125
-      end
-      |> div(250)
-    end
+    defp round_to_250(val), do: div(val + 125, 250)
   end
 
   import Bitwise
@@ -47,10 +41,10 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
   @uint8_range 0..255
   @int16_range -32_768..32_767
 
-  @max_seq_num 0xFFFF
+  @max_seq_no 0xFFFF
+  @max_fb_pkt_count 0xFF
+  @max_ref_time 0xFFFFFF
   @breakpoint 0x7FFF
-  # packet window in microseconds
-  @packet_window 500_000
 
   @type t() :: %__MODULE__{
           media_ssrc: non_neg_integer(),
@@ -65,7 +59,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
   # start, base - inclusive, end - exclusive
   # start, end - actual range where map values might be set
   # base - from where packets should be added to next feedback
-  # if end_seq_no == start_seq_no, then no packets are available
+  # if end == start, no packets are available
   @enforce_keys [:media_ssrc, :sender_ssrc]
   defstruct @enforce_keys ++
               [
@@ -125,20 +119,18 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
   end
 
   defp unroll(seq_no, end_seq_no) do
-    end_rolled = roll(end_seq_no)
+    end_rolled = end_seq_no &&& @max_seq_no
     delta = seq_no - end_rolled
 
     delta =
       cond do
         delta in -@breakpoint..@breakpoint -> delta
-        delta < -@breakpoint -> delta + @max_seq_num + 1
-        delta > @breakpoint -> delta - @max_seq_num - 1
+        delta < -@breakpoint -> delta + @max_seq_no + 1
+        delta > @breakpoint -> delta - @max_seq_no - 1
       end
 
     end_seq_no + delta
   end
-
-  defp roll(seq_no), do: seq_no &&& @max_seq_num
 
   defp remove_old_packets(recorder, cur_timestamp) do
     %__MODULE__{
@@ -148,16 +140,8 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
       timestamps: timestamps
     } = recorder
 
-    min_timestamp = cur_timestamp - @packet_window
-
-    last_old =
-      Enum.reduce_while(start_seq_no..(end_seq_no - 1), nil, fn i, last_old ->
-        case Map.fetch(timestamps, i) do
-          {:ok, timestamp} when timestamp < min_timestamp -> {:cont, i}
-          {:ok, _timestamp} -> {:halt, last_old}
-          :error -> {:cont, last_old}
-        end
-      end)
+    min_ts = cur_timestamp - Timer.packet_window()
+    last_old = find_last_old(timestamps, min_ts, start_seq_no, end_seq_no)
 
     if is_nil(last_old) do
       recorder
@@ -168,7 +152,6 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
         end)
 
       start_seq_no = last_old + 1
-
       base_seq_no = if start_seq_no > base_seq_no, do: start_seq_no, else: base_seq_no
 
       %__MODULE__{
@@ -178,6 +161,22 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
           end_seq_no: end_seq_no,
           timestamps: timestamps
       }
+    end
+  end
+
+  defp find_last_old(timestamps, min_ts, start_no, end_no, last_old \\ nil)
+  defp find_last_old(_timestamps, _min_ts, end_no, end_no, last_old), do: last_old
+
+  defp find_last_old(timestamps, min_ts, start_no, end_no, last_old) do
+    case Map.fetch(timestamps, start_no) do
+      {:ok, timestamp} when timestamp < min_ts ->
+        find_last_old(timestamps, min_ts, start_no + 1, end_no, start_no)
+
+      {:ok, _timestamp} ->
+        last_old
+
+      :error ->
+        find_last_old(timestamps, min_ts, start_no + 1, end_no, last_old)
     end
   end
 
@@ -197,23 +196,23 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
       timestamps: timestamps
     } = recorder
 
-    base_timestamp =
+    ref_timestamp =
       base_seq_no..(end_seq_no - 1)
       |> Enum.find_value(&Map.get(timestamps, &1))
-
-    # TODO: fix Timer.to_ref (we need to pass valid base_ts to add_packets)
-    ref_timestamp = Timer.to_ref(base_timestamp)
+      |> Timer.to_ref()
 
     {chunks, deltas, new_base} =
-      add_packets(timestamps, base_seq_no, end_seq_no, base_timestamp)
+      add_packets(timestamps, base_seq_no, end_seq_no, Timer.from_ref(ref_timestamp))
 
+    # NOTICE: packet_status_count larger than max_uint16 are not handled
+    # Pion also caps max number of not_received packets at the beginning
     feedback = %CC{
       media_ssrc: media_ssrc,
       sender_ssrc: sender_ssrc,
-      fb_pkt_count: fb_pkt_count,
-      base_sequence_number: roll(base_seq_no),
+      fb_pkt_count: fb_pkt_count &&& @max_fb_pkt_count,
+      base_sequence_number: base_seq_no &&& @max_seq_no,
       packet_status_count: new_base - base_seq_no,
-      reference_time: ref_timestamp,
+      reference_time: ref_timestamp &&& @max_ref_time,
       packet_chunks: Enum.reverse(chunks) |> Enum.map(&encode_chunk/1),
       recv_deltas: Enum.reverse(deltas)
     }
@@ -224,7 +223,8 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
         base_seq_no: new_base
     }
 
-    # TODO: handle feedbacks with no packets?
+    # NOTICE: should we handle feedbacks with no packets?
+    # I don't think such case should ever occur
     get_feedback(recorder, [feedback | feedbacks])
   end
 
@@ -253,7 +253,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
       {chunks, deltas, base_no}
     else
       chunks = add_to_chunk(symbol, chunks)
-      deltas = [delta | deltas]
+      deltas = if is_nil(delta), do: deltas, else: [delta | deltas]
       add_packets(timestamps, base_no + 1, end_no, prev_ts, chunks, deltas)
     end
   end
@@ -290,10 +290,9 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
   end
 
   defp encode_chunk({symbols, _large?, _mixed?}) do
-    # only the last packet's length might be different than 7 or 14
-    # so I add padding of :not_received symbols
-    # but the packet count in feedback header does not include the padding
-    # so I assume it's fine and the padding is discarded by chrome?
+    # only the last chunk's length might be different than 7 or 14
+    # so "padding" of :not_received symbols is added
+    # but the packet count in feedback header does not include the "padding"
     len = length(symbols)
 
     pad_len =

@@ -1,6 +1,7 @@
 defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
   use ExUnit.Case, async: true
 
+  alias ExRTCP.Packet.TransportFeedback.CC
   alias ExWebRTC.PeerConnection.TWCCRecorder
 
   @max_seq_no 0xFFFF
@@ -188,7 +189,160 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
   end
 
   describe "get_feedback/1" do
-    test "" do
+    test "subsequent packets in order" do
+      base_no = 578
+      base_ts = 1_300
+
+      timestamps = %{
+        base_no => base_ts,
+        (base_no + 1) => base_ts,
+        (base_no + 2) => base_ts + 20,
+        (base_no + 3) => base_ts + 32
+      }
+
+      recorder = %TWCCRecorder{
+        @recorder
+        | base_seq_no: base_no,
+          start_seq_no: base_no,
+          end_seq_no: base_no + 4,
+          timestamps: timestamps
+      }
+
+      assert {recorder, [feedback]} = TWCCRecorder.get_feedback(recorder)
+
+      assert %CC{
+               base_sequence_number: ^base_no,
+               reference_time: 5,
+               fb_pkt_count: 0,
+               packet_status_count: 4,
+               packet_chunks: [%CC.RunLength{status_symbol: :small_delta, run_length: 4}],
+               recv_deltas: [20, 0, 20, 12]
+             } = feedback
+
+      # no new packets -> no feedback
+      assert {_recorder, []} = TWCCRecorder.get_feedback(recorder)
+    end
+
+    test "packets out of order, with gaps" do
+      base_no = 578
+      base_ts = 1_250
+
+      timestamps = %{
+        base_no => base_ts + 20,
+        (base_no + 1) => base_ts + 25,
+        (base_no + 2) => base_ts + 8,
+        (base_no + 3) => base_ts,
+        (base_no + 5) => base_ts + 25
+      }
+
+      recorder = %TWCCRecorder{
+        @recorder
+        | base_seq_no: base_no,
+          start_seq_no: base_no,
+          end_seq_no: base_no + 6,
+          timestamps: timestamps
+      }
+
+      assert {recorder, [feedback]} = TWCCRecorder.get_feedback(recorder)
+
+      symbols = [
+        :small_delta,
+        :small_delta,
+        :large_delta,
+        :large_delta,
+        :not_received,
+        :small_delta,
+        :not_received
+      ]
+
+      assert %CC{
+               base_sequence_number: ^base_no,
+               reference_time: 4,
+               fb_pkt_count: 0,
+               packet_status_count: 6,
+               packet_chunks: [%CC.StatusVector{symbols: ^symbols}],
+               recv_deltas: [246, 5, -17, -8, 25]
+             } = feedback
+
+      assert {_recorder, []} = TWCCRecorder.get_feedback(recorder)
+    end
+
+    test "mixed chunks" do
+      base_no = 578
+      end_no = 634
+      packet_num = end_no - base_no + 1
+
+      recorder = TWCCRecorder.record_packet(@recorder, base_no)
+
+      recorder =
+        Enum.reduce((base_no + 2)..end_no, recorder, fn i, recorder ->
+          TWCCRecorder.record_packet(recorder, i)
+        end)
+
+      assert {recorder, [feedback]} = TWCCRecorder.get_feedback(recorder)
+
+      assert %CC{
+               base_sequence_number: ^base_no,
+               fb_pkt_count: 0,
+               packet_status_count: ^packet_num,
+               packet_chunks: [chunk1, chunk2],
+               recv_deltas: deltas
+             } = feedback
+
+      symbols = [:small_delta, :not_received] ++ List.duplicate(:small_delta, 12)
+      assert %CC.StatusVector{symbols: ^symbols} = chunk1
+
+      run_length = packet_num - 14
+
+      assert %CC.RunLength{
+               status_symbol: :small_delta,
+               run_length: ^run_length
+             } = chunk2
+
+      assert length(deltas) == packet_num - 1
+
+      assert {_recorder, []} = TWCCRecorder.get_feedback(recorder)
+    end
+
+    test "split into two feedbacks" do
+      base_no = 578
+
+      recorder =
+        @recorder
+        |> TWCCRecorder.record_packet(base_no)
+        |> TWCCRecorder.record_packet(base_no + 1)
+        |> TWCCRecorder.record_packet(base_no + 2)
+
+      # simulate huge delta between 3rd and 4th packet
+      base_no2 = base_no + 2
+      timestamps = Map.update!(recorder.timestamps, base_no2, &(&1 + 35_000))
+      recorder = %{recorder | timestamps: timestamps}
+
+      assert {recorder, [feedback1, feedback2]} = TWCCRecorder.get_feedback(recorder)
+
+      assert %CC{
+               base_sequence_number: ^base_no,
+               fb_pkt_count: 0,
+               packet_status_count: 2,
+               reference_time: ref_time1,
+               packet_chunks: [%CC.RunLength{status_symbol: :small_delta, run_length: 2}],
+               recv_deltas: [_d1, _d2]
+             } = feedback1
+
+      assert %CC{
+               base_sequence_number: ^base_no2,
+               fb_pkt_count: 1,
+               packet_status_count: 1,
+               reference_time: ref_time2,
+               packet_chunks: [%CC.RunLength{status_symbol: :small_delta, run_length: 1}],
+               recv_deltas: [_d3]
+             } = feedback2
+
+      # ref times should differ by about 136 * 64 ms
+      refute_in_delta ref_time1, ref_time2, 133
+      assert_in_delta ref_time1, ref_time2, 143
+
+      assert {_recorder, []} = TWCCRecorder.get_feedback(recorder)
     end
   end
 end
