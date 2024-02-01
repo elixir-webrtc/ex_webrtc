@@ -27,17 +27,11 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       seq_no_3 = @seq_no + 2
 
       recorder = TWCCRecorder.record_packet(@recorder, @seq_no)
-      time1 = System.monotonic_time(:millisecond)
-      Process.sleep(15)
+      Process.sleep(1)
       recorder = TWCCRecorder.record_packet(recorder, seq_no_2)
-      time2 = System.monotonic_time(:millisecond)
-      Process.sleep(15)
+      Process.sleep(1)
       recorder = TWCCRecorder.record_packet(recorder, seq_no_3)
-      time3 = System.monotonic_time(:millisecond)
       end_seq_no = @seq_no + 3
-
-      IO.inspect(time2 - time1, label: :DELTA1)
-      IO.inspect(time3 - time2, label: :DELTA2)
 
       assert %TWCCRecorder{
                timestamps: %{
