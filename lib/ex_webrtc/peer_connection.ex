@@ -9,7 +9,7 @@ defmodule ExWebRTC.PeerConnection do
 
   require Logger
 
-  alias __MODULE__.{Configuration, Demuxer}
+  alias __MODULE__.{Configuration, Demuxer, TWCCRecorder}
 
   alias ExWebRTC.{
     DefaultICETransport,
@@ -22,6 +22,8 @@ defmodule ExWebRTC.PeerConnection do
     SessionDescription,
     Utils
   }
+
+  @twcc_interval 100
 
   @type peer_connection() :: GenServer.server()
 
@@ -201,9 +203,11 @@ defmodule ExWebRTC.PeerConnection do
       last_offer: nil,
       last_answer: nil,
       peer_fingerprint: nil,
-      sent_packets: 0
+      sent_packets: 0,
+      twcc_recorder: %TWCCRecorder{}
     }
 
+    Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
     notify(state.owner, {:connection_state_change, :new})
     notify(state.owner, {:signaling_state_change, :stable})
 
@@ -658,9 +662,30 @@ defmodule ExWebRTC.PeerConnection do
   def handle_info({:dtls_transport, _pid, {:rtp, data}}, state) do
     with {:ok, demuxer, mid, packet} <- Demuxer.demux(state.demuxer, data),
          %RTPTransceiver{} = t <- Enum.find(state.transceivers, &(&1.mid == mid)) do
+      %{twcc_recorder: twcc_recorder} = state
+
+      twcc_recorder = %TWCCRecorder{
+        twcc_recorder
+        | media_ssrc: packet.ssrc,
+          sender_ssrc: t.sender.ssrc
+      }
+
+      twcc_recorder =
+        with {:ok, %{id: id}} <-
+               Map.fetch(
+                 state.config.video_rtp_hdr_exts,
+                 "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+               ),
+             {:ok, raw_ext} <- ExRTP.Packet.fetch_extension(packet, id),
+             {:ok, %{sequence_number: seq_no}} <- ExRTP.Packet.Extension.TWCC.from_raw(raw_ext) do
+          TWCCRecorder.record_packet(twcc_recorder, seq_no)
+        else
+          _other -> twcc_recorder
+        end
+
       track_id = t.receiver.track.id
       notify(state.owner, {:rtp, track_id, packet})
-      {:noreply, %{state | demuxer: demuxer}}
+      {:noreply, %{state | demuxer: demuxer, twcc_recorder: twcc_recorder}}
     else
       nil ->
         Logger.warning("Received RTP with unrecognized MID: #{inspect(data)}")
@@ -684,6 +709,25 @@ defmodule ExWebRTC.PeerConnection do
     end
 
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:send_twcc_feedback, %{twcc_recorder: twcc_recorder} = state) do
+    Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
+    %TWCCRecorder{sender_ssrc: sender_ssrc, media_ssrc: media_ssrc} = twcc_recorder
+
+    if sender_ssrc != nil and media_ssrc != nil do
+      {twcc_recorder, feedbacks} = TWCCRecorder.get_feedback(twcc_recorder)
+
+      for feedback <- feedbacks do
+        encoded = ExRTCP.Packet.encode(feedback)
+        :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
+      end
+
+      {:noreply, %{state | twcc_recorder: twcc_recorder}}
+    else
+      {:noreply, state}
+    end
   end
 
   @impl true
