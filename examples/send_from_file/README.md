@@ -1,4 +1,4 @@
-# Send from File
+# Send From File
 
 Send video and audio from files to a browser.
 
