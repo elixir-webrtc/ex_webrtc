@@ -8,12 +8,12 @@ While in `examples/send_from_file` directory
 
 ```shell
 ffmpeg -f lavfi -i testsrc=duration=5:size=640x480:rate=30 video.ivf
-ffmpeg -f lavfi -i "sine=frequency=420:duration=5" -c:a libopus audio.ogg
+ffmpeg -f lavfi -i sine=frequency=420:duration=5 -c:a libopus audio.ogg
 ```
 
 You may use your own files, if they meet the requirements:
-* for video, it must be IVP in 30 FPS
-* for audio, it must be Ogg with a single Opus stream
+* for video, it must be IVF in 30 FPS,
+* for audio, it must be Ogg with a single Opus stream.
 
 2. Run `mix deps.get`
 3. Run `mix run --no-halt`
