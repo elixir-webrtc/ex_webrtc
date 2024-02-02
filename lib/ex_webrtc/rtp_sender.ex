@@ -52,14 +52,15 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec update(t(), RTPCodecParameters.t(), [Extmap.t()]) :: t()
-  def update(sender, codec, rtp_hdr_exts) do
+  @spec update(t(), String.t(), RTPCodecParameters.t(), [Extmap.t()]) :: t()
+  def update(sender, mid, codec, rtp_hdr_exts) do
+    if sender.mid != nil and mid != sender.mid, do: raise(ArgumentError)
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
     # TODO: handle cases when codec == nil (no valid codecs after negotiation)
     pt = if codec != nil, do: codec.payload_type, else: nil
 
-    %__MODULE__{sender | codec: codec, rtp_hdr_exts: rtp_hdr_exts, pt: pt}
+    %__MODULE__{sender | mid: mid, codec: codec, rtp_hdr_exts: rtp_hdr_exts, pt: pt}
   end
 
   # Prepares packet for sending i.e.:
