@@ -762,6 +762,27 @@ defmodule ExWebRTC.PeerConnectionTest do
       test_send_data(pc1, pc2, track1, track2)
     end
 
+    test "using one negotiation, with tracks added beforehand" do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+
+      track1 = MediaStreamTrack.new(:audio)
+      track2 = MediaStreamTrack.new(:audio)
+
+      {:ok, _sender} = PeerConnection.add_track(pc1, track1)
+      {:ok, _sender} = PeerConnection.add_track(pc2, track2)
+
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      :ok = PeerConnection.set_local_description(pc1, offer)
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+      :ok = PeerConnection.set_remote_description(pc1, answer)
+
+      test_send_data(pc1, pc2, track1, track2)
+    end
+
     test "using renegotiation" do
       # setup track pc1 -> pc2
       {:ok, pc1} = PeerConnection.start_link()

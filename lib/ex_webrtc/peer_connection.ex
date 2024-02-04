@@ -469,7 +469,7 @@ defmodule ExWebRTC.PeerConnection do
     {transceivers, sender} =
       case free_transceiver_idx do
         nil ->
-          options = [direction: :sendrecv, ssrc: generate_ssrc(state)]
+          options = [direction: :sendrecv, ssrc: generate_ssrc(state), added_by_add_track: true]
           tr = RTPTransceiver.new(kind, track, state.config, options)
           {state.transceivers ++ [tr], tr.sender}
 
@@ -1025,8 +1025,6 @@ defmodule ExWebRTC.PeerConnection do
   defp do_process_mlines_remote([], transceivers, _sdp_type, _config, _owner), do: transceivers
 
   defp do_process_mlines_remote([{mline, idx} | mlines], transceivers, sdp_type, config, owner) do
-    {:mid, mid} = ExSDP.get_attribute(mline, :mid)
-
     direction =
       if SDPUtils.rejected?(mline),
         do: :inactive,
@@ -1035,7 +1033,7 @@ defmodule ExWebRTC.PeerConnection do
     # Note: in theory we should update transceiver codecs
     # after processing remote track but this shouldn't have any impact
     {idx, tr} =
-      case find_transceiver(transceivers, mid) do
+      case find_transceiver_from_remote(transceivers, mline) do
         {idx, %RTPTransceiver{} = tr} -> {idx, RTPTransceiver.update(tr, mline, config)}
         nil -> {nil, RTPTransceiver.from_mline(mline, idx, config)}
       end
@@ -1057,6 +1055,21 @@ defmodule ExWebRTC.PeerConnection do
         transceivers = List.replace_at(transceivers, idx, tr)
         do_process_mlines_remote(mlines, transceivers, sdp_type, config, owner)
     end
+  end
+
+  defp find_transceiver_from_remote(transceivers, mline) do
+    {:mid, mid} = ExSDP.get_attribute(mline, :mid)
+
+    case find_transceiver(transceivers, mid) do
+      {idx, %RTPTransceiver{} = tr} -> {idx, tr}
+      nil -> find_associable_transceiver(transceivers, mline)
+    end
+  end
+
+  defp find_associable_transceiver(transceivers, mline) do
+    transceivers
+    |> Enum.with_index(fn tr, idx -> {idx, tr} end)
+    |> Enum.find(fn {_idx, tr} -> RTPTransceiver.associable?(tr, mline) end)
   end
 
   # see W3C WebRTC 5.1.1
