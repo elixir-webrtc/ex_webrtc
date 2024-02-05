@@ -25,10 +25,7 @@ defmodule SaveToFile.PeerHandler do
     %RTPCodecParameters{
       payload_type: 96,
       mime_type: "video/VP8",
-      clock_rate: 90_000,
-      channels: nil,
-      sdp_fmtp_line: nil,
-      rtcp_fbs: []
+      clock_rate: 90_000
     }
   ]
 
@@ -37,8 +34,7 @@ defmodule SaveToFile.PeerHandler do
       payload_type: 111,
       mime_type: "audio/opus",
       clock_rate: 48_000,
-      channels: 2,
-      sdp_fmtp_line: %ExSDP.Attribute.FMTP{pt: 111, minptime: 10, useinbandfec: true}
+      channels: 2
     }
   ]
 

@@ -162,8 +162,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     # This function doesn't check if rtcp-fb is supported.
     # Instead, `supported_rtcp_fb?` has to be used to filter out
     # rtcp-fb that are not supported.
+    # TODO: this function doesn't compare fmtp at all
     Enum.any?(config.audio_codecs ++ config.video_codecs, fn supported_codec ->
-      %{supported_codec | rtcp_fbs: codec.rtcp_fbs} == codec
+      %{supported_codec | rtcp_fbs: codec.rtcp_fbs, sdp_fmtp_line: codec.sdp_fmtp_line} == codec
     end)
   end
 
@@ -228,90 +229,56 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     {audio_codecs, video_codecs}
   end
 
-  defp update_codecs(
-         [%{mime_type: "audio/" <> _} = codec | sdp_codecs],
-         audio_codecs,
-         video_codecs
-       ) do
-    audio_codec =
-      audio_codecs
-      |> Stream.with_index()
-      |> Enum.find(fn {audio_codec, _idx} ->
-        # For the time of comparision, assume the same payload type and rtcp_fbs.
+  defp update_codecs([sdp_codec | sdp_codecs], audio_codecs, video_codecs) do
+    type =
+      case sdp_codec.mime_type do
+        "audio/" <> _ -> :audio
+        "video/" <> _ -> :video
+      end
+
+    codecs = if type == :audio, do: audio_codecs, else: video_codecs
+
+    codec =
+      codecs
+      |> Enum.with_index()
+      |> Enum.find(fn {codec, _idx} ->
+        # For the time of comparision, assume the same payload type and rtcp_fbs and fmtp.
         # We don't want to take into account rtcp_fbs as they can be negotiated
         # i.e. we can reject those that are not supported by us.
-        fmtp =
-          if audio_codec.sdp_fmtp_line != nil and codec.sdp_fmtp_line != nil do
-            %FMTP{audio_codec.sdp_fmtp_line | pt: codec.payload_type}
-          else
-            audio_codec.sdp_fmtp_line
-          end
-
-        audio_codec = %RTPCodecParameters{
-          audio_codec
-          | payload_type: codec.payload_type,
-            sdp_fmtp_line: fmtp,
-            rtcp_fbs: codec.rtcp_fbs
+        codec = %RTPCodecParameters{
+          codec
+          | payload_type: sdp_codec.payload_type,
+            sdp_fmtp_line: sdp_codec.sdp_fmtp_line,
+            rtcp_fbs: sdp_codec.rtcp_fbs
         }
 
-        audio_codec == codec
+        codec == sdp_codec
       end)
 
-    case audio_codec do
+    case codec do
       nil ->
         update_codecs(sdp_codecs, audio_codecs, video_codecs)
 
-      {audio_codec, idx} ->
-        audio_codec = %RTPCodecParameters{
-          audio_codec
-          | payload_type: codec.payload_type,
-            sdp_fmtp_line: codec.sdp_fmtp_line
-        }
-
-        audio_codecs = List.insert_at(audio_codecs, idx, audio_codec)
-        update_codecs(sdp_codecs, audio_codecs, video_codecs)
-    end
-  end
-
-  defp update_codecs(
-         [%{mime_type: "video/" <> _} = codec | sdp_codecs],
-         audio_codecs,
-         video_codecs
-       ) do
-    video_codec =
-      video_codecs
-      |> Stream.with_index()
-      |> Enum.find(fn {video_codec, _idx} ->
+      {codec, idx} ->
         fmtp =
-          if video_codec.sdp_fmtp_line != nil and codec.sdp_fmtp_line != nil do
-            %FMTP{video_codec.sdp_fmtp_line | pt: codec.payload_type}
+          if codec.sdp_fmtp_line != nil do
+            %{codec.sdp_fmtp_line | pt: sdp_codec.payload_type}
           else
-            video_codec.sdp_fmtp_line
+            nil
           end
 
-        video_codec = %RTPCodecParameters{
-          video_codec
-          | payload_type: codec.payload_type,
-            sdp_fmtp_line: fmtp,
-            rtcp_fbs: codec.rtcp_fbs
+        codec = %RTPCodecParameters{
+          codec
+          | payload_type: sdp_codec.payload_type,
+            sdp_fmtp_line: fmtp
         }
 
-        video_codec == codec
-      end)
+        codecs = List.insert_at(codecs, idx, codec)
 
-    case video_codec do
-      nil ->
-        update_codecs(sdp_codecs, audio_codecs, video_codecs)
-
-      {video_codec, idx} ->
-        video_codec = %RTPCodecParameters{
-          video_codec
-          | payload_type: codec.payload_type,
-            sdp_fmtp_line: codec.sdp_fmtp_line
-        }
-
-        video_codecs = List.insert_at(video_codecs, idx, video_codec)
-        update_codecs(sdp_codecs, audio_codecs, video_codecs)
+        case type do
+          :audio -> update_codecs(sdp_codecs, codecs, video_codecs)
+          :video -> update_codecs(sdp_codecs, audio_codecs, codecs)
+        end
     end
   end
 
