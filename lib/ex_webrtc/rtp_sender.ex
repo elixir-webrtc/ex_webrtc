@@ -19,11 +19,25 @@ defmodule ExWebRTC.RTPSender do
           mid: String.t() | nil,
           pt: non_neg_integer() | nil,
           ssrc: non_neg_integer() | nil,
-          last_seq_num: non_neg_integer()
+          last_seq_num: non_neg_integer(),
+          packets_sent: non_neg_integer(),
+          bytes_sent: non_neg_integer(),
+          markers_sent: non_neg_integer()
         }
 
   @enforce_keys [:id, :last_seq_num]
-  defstruct @enforce_keys ++ [:track, :codec, :mid, :pt, :ssrc, rtp_hdr_exts: %{}]
+  defstruct @enforce_keys ++
+              [
+                :track,
+                :codec,
+                :mid,
+                :pt,
+                :ssrc,
+                rtp_hdr_exts: %{},
+                packets_sent: 0,
+                bytes_sent: 0,
+                markers_sent: 0
+              ]
 
   @doc false
   @spec new(
@@ -78,13 +92,34 @@ defmodule ExWebRTC.RTPSender do
     next_seq_num = sender.last_seq_num + 1 &&& 0xFFFF
     packet = %{packet | payload_type: sender.pt, ssrc: sender.ssrc, sequence_number: next_seq_num}
 
-    packet =
+    data =
       packet
       |> ExRTP.Packet.add_extension(mid_ext)
       |> ExRTP.Packet.encode()
 
-    sender = %{sender | last_seq_num: next_seq_num}
-    {packet, sender}
+    sender = %{
+      sender
+      | last_seq_num: next_seq_num,
+        packets_sent: sender.packets_sent + 1,
+        bytes_sent: sender.bytes_sent + byte_size(data),
+        markers_sent: sender.markers_sent + Utils.to_int(packet.marker)
+    }
+
+    {data, sender}
+  end
+
+  @doc false
+  @spec get_stats(t(), non_neg_integer()) :: map()
+  def get_stats(sender, timestamp) do
+    %{
+      timestamp: timestamp,
+      type: :outbound_rtp,
+      id: sender.id,
+      ssrc: sender.ssrc,
+      packets_sent: sender.packets_sent,
+      bytes_sent: sender.bytes_sent,
+      markers_sent: sender.markers_sent
+    }
   end
 
   defp random_seq_num(), do: Enum.random(0..65_535)

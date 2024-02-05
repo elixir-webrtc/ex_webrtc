@@ -42,6 +42,9 @@ defmodule ExWebRTC.DTLSTransportTest do
     def set_remote_credentials(ice_pid, _ufrag, _pwd), do: ice_pid
 
     @impl true
+    def get_stats(_ice_pid), do: %{}
+
+    @impl true
     def stop(ice_pid), do: GenServer.stop(ice_pid)
 
     def send_dtls(ice_pid, data), do: GenServer.cast(ice_pid, {:send_dtls, data})

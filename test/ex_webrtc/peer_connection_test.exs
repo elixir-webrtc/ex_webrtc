@@ -58,7 +58,7 @@ defmodule ExWebRTC.PeerConnectionTest do
       :ok = PeerConnection.set_remote_description(pc2, offer)
       {:ok, _tr} = PeerConnection.add_transceiver(pc2, :audio)
 
-      # we do this refute_receive here, instead of after 
+      # we do this refute_receive here, instead of after
       # adding the second audio transceiver on pc to save time
       refute_receive {:ex_webrtc, ^pc, :negotiation_needed}
       refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
@@ -198,6 +198,15 @@ defmodule ExWebRTC.PeerConnectionTest do
   end
 
   # API TESTS
+
+  test "get_all_running" do
+    {:ok, pc1} = PeerConnection.start()
+    {:ok, pc2} = PeerConnection.start()
+    assert MapSet.new([pc1, pc2]) == PeerConnection.get_all_running() |> MapSet.new()
+    :ok = PeerConnection.close(pc1)
+    assert [^pc2] = PeerConnection.get_all_running()
+    :ok = PeerConnection.close(pc2)
+  end
 
   describe "set_remote_description/2" do
     test "MID" do
@@ -420,7 +429,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     end
 
     test "as answerer" do
-      # When current local description is of type answer, 
+      # When current local description is of type answer,
       # every change in the direction requires renegotiation.
       # Here, we check two cases: recvonly -> sendrecv, sendrecv -> recvonly
       {:ok, pc1} = PeerConnection.start_link()
@@ -722,18 +731,158 @@ defmodule ExWebRTC.PeerConnectionTest do
     end
   end
 
+  test "get_stats/2" do
+    {:ok, pc1} = PeerConnection.start_link()
+
+    # check initial state
+    assert %{
+             peer_connection: %{
+               id: :peer_connection,
+               type: :peer_connection,
+               timestamp: timestamp,
+               signaling_state: :stable,
+               negotiation_needed: false,
+               connection_state: :new
+             },
+             local_certificate: %{
+               id: :local_certificate,
+               type: :certificate,
+               timestamp: timestamp,
+               fingerprint_algorithm: :sha_256
+             },
+             remote_certificate: %{
+               id: :remote_certificate,
+               type: :certificate,
+               timestamp: timestamp,
+               fingerprint: nil,
+               fingerprint_algorithm: nil,
+               base64_certificate: nil
+             },
+             transport: %{
+               id: :transport,
+               type: :transport,
+               timestamp: timestamp,
+               ice_state: :new,
+               ice_gathering_state: :new,
+               dtls_state: :new,
+               bytes_sent: 0,
+               bytes_received: 0,
+               packets_sent: 0,
+               packets_received: 0
+             }
+           } = stats = PeerConnection.get_stats(pc1)
+
+    assert is_binary(stats.local_certificate.fingerprint)
+    assert is_binary(stats.local_certificate.base64_certificate)
+
+    assert stats.transport.ice_role in [:controlling, :controlled]
+    assert is_binary(stats.transport.ice_local_ufrag)
+
+    groups = Enum.group_by(Map.values(stats), & &1.type)
+
+    assert Map.get(groups, :inbound_rtp) == nil
+    assert Map.get(groups, :outbound_rtp) == nil
+    assert Map.get(groups, :local_candidate) == nil
+    assert Map.get(groups, :remote_candidate) == nil
+
+    # negotiate tracks
+    {:ok, pc2} = PeerConnection.start_link()
+
+    track1 = MediaStreamTrack.new(:audio)
+    track2 = MediaStreamTrack.new(:audio)
+
+    {:ok, _sender} = PeerConnection.add_track(pc1, track1)
+    {:ok, _sender} = PeerConnection.add_track(pc2, track2)
+
+    :ok = negotiate(pc1, pc2)
+    test_send_data(pc1, pc2, track1, track2)
+
+    stats1 = PeerConnection.get_stats(pc1)
+    stats2 = PeerConnection.get_stats(pc2)
+
+    assert %{
+             peer_connection: %{
+               signaling_state: :stable,
+               negotiation_needed: false,
+               connection_state: :connected
+             },
+             remote_certificate: %{
+               fingerprint_algorithm: :sha_256
+             },
+             transport: %{
+               ice_state: :connected,
+               ice_gathering_state: :complete,
+               dtls_state: :connected
+             }
+           } = stats1
+
+    assert stats1.transport.bytes_sent > 0
+    assert stats1.transport.bytes_received > 0
+    assert stats1.transport.packets_sent > 0
+    assert stats1.transport.packets_received > 0
+
+    assert is_binary(stats1.remote_certificate.fingerprint)
+    assert is_binary(stats1.remote_certificate.base64_certificate)
+
+    groups = Enum.group_by(Map.values(stats1), & &1.type)
+
+    assert length(Map.get(groups, :inbound_rtp, [])) == 1
+    assert length(Map.get(groups, :outbound_rtp, [])) == 1
+    assert length(Map.get(groups, :local_candidate, [])) > 0
+    assert length(Map.get(groups, :remote_candidate, [])) > 0
+
+    assert %{
+             peer_connection: %{
+               signaling_state: :stable,
+               negotiation_needed: false,
+               connection_state: :connected
+             },
+             remote_certificate: %{
+               fingerprint_algorithm: :sha_256
+             },
+             transport: %{
+               ice_state: :connected,
+               ice_gathering_state: :complete,
+               dtls_state: :connected
+             }
+           } = stats2
+
+    assert stats2.transport.bytes_sent > 0
+    assert stats2.transport.bytes_received > 0
+    assert stats2.transport.packets_sent > 0
+    assert stats2.transport.packets_received > 0
+
+    assert is_binary(stats2.remote_certificate.fingerprint)
+    assert is_binary(stats2.remote_certificate.base64_certificate)
+
+    groups = Enum.group_by(Map.values(stats2), & &1.type)
+
+    assert length(Map.get(groups, :inbound_rtp, [])) == 1
+    assert length(Map.get(groups, :outbound_rtp, [])) == 1
+    assert length(Map.get(groups, :local_candidate, [])) > 0
+    assert length(Map.get(groups, :remote_candidate, [])) > 0
+  end
+
   test "close/1" do
     {:ok, pc} = PeerConnection.start()
     {:links, links} = Process.info(pc, :links)
     assert :ok == PeerConnection.close(pc)
     assert false == Process.alive?(pc)
-    Enum.each(links, fn link -> assert false == Process.alive?(link) end)
+
+    Enum.each(links, fn link ->
+      assert false == Process.alive?(link) or
+               Process.info(link)[:registered_name] == ExWebRTC.Registry.PIDPartition0
+    end)
 
     {:ok, pc} = PeerConnection.start()
     {:links, links} = Process.info(pc, :links)
     assert true == Process.exit(pc, :shutdown)
     assert false == Process.alive?(pc)
-    Enum.each(links, fn link -> assert false == Process.alive?(link) end)
+
+    Enum.each(links, fn link ->
+      assert false == Process.alive?(link) or
+               Process.info(link)[:registered_name] == ExWebRTC.Registry.PIDPartition0
+    end)
   end
 
   # MISC TESTS
@@ -772,13 +921,7 @@ defmodule ExWebRTC.PeerConnectionTest do
       {:ok, _sender} = PeerConnection.add_track(pc1, track1)
       {:ok, _sender} = PeerConnection.add_track(pc2, track2)
 
-      {:ok, offer} = PeerConnection.create_offer(pc1)
-      :ok = PeerConnection.set_local_description(pc1, offer)
-      :ok = PeerConnection.set_remote_description(pc2, offer)
-
-      {:ok, answer} = PeerConnection.create_answer(pc2)
-      :ok = PeerConnection.set_local_description(pc2, answer)
-      :ok = PeerConnection.set_remote_description(pc1, answer)
+      :ok = negotiate(pc1, pc2)
 
       test_send_data(pc1, pc2, track1, track2)
     end

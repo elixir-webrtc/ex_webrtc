@@ -18,6 +18,7 @@ defmodule ExWebRTC.PeerConnection do
     MediaStreamTrack,
     RTPTransceiver,
     RTPSender,
+    RTPReceiver,
     SDPUtils,
     SessionDescription,
     Utils
@@ -59,6 +60,15 @@ defmodule ExWebRTC.PeerConnection do
   @type connection_state() :: :closed | :failed | :disconnected | :new | :connecting | :connected
 
   #### API ####
+  @doc """
+  Returns a list of all running peer connections.
+  """
+  @spec get_all_running() :: [pid()]
+  def get_all_running() do
+    Registry.select(ExWebRTC.Registry, [{{:_, :"$1", :_}, [], [:"$1"]}])
+    |> Enum.filter(fn pid -> Process.alive?(pid) end)
+  end
+
   @spec start_link(Configuration.options()) :: GenServer.on_start()
   def start_link(options \\ []) do
     configuration = Configuration.from_options!(options)
@@ -162,6 +172,16 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.cast(peer_connection, {:send_rtp, track_id, packet})
   end
 
+  @doc """
+  Returns peer connection's statistics.
+
+  See [RTCStatsReport](https://www.w3.org/TR/webrtc/#rtcstatsreport-object) for the output structure.
+  """
+  @spec get_stats(peer_connection()) :: %{(atom() | integer()) => map()}
+  def get_stats(peer_connection) do
+    GenServer.call(peer_connection, :get_stats)
+  end
+
   @spec close(peer_connection()) :: :ok
   def close(peer_connection) do
     GenServer.stop(peer_connection)
@@ -171,6 +191,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def init({owner, config}) do
+    {:ok, _} = Registry.register(ExWebRTC.Registry, self(), self())
     ice_config = [stun_servers: config.ice_servers, ip_filter: config.ice_ip_filter, on_data: nil]
     {:ok, ice_pid} = DefaultICETransport.start_link(:controlled, ice_config)
     {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid)
@@ -519,7 +540,7 @@ defmodule ExWebRTC.PeerConnection do
             {:reply, :ok, state}
 
           true ->
-            # that's not compliant with the W3C but it's safer not 
+            # that's not compliant with the W3C but it's safer not
             # to allow for this until we have clear use case
             {:reply, {:error, :invalid_transceiver_direction}, state}
         end
@@ -556,6 +577,135 @@ defmodule ExWebRTC.PeerConnection do
         state = update_negotiation_needed(state)
         {:reply, :ok, state}
     end
+  end
+
+  @impl true
+  def handle_call(:get_stats, _from, state) do
+    timestamp = System.os_time(:millisecond)
+
+    ice_stats = state.ice_transport.get_stats(state.ice_pid)
+
+    %{local_cert_info: local_cert_info, remote_cert_info: remote_cert_info} =
+      DTLSTransport.get_certs_info(state.dtls_transport)
+
+    remote_certificate =
+      if remote_cert_info != nil do
+        %{
+          id: :remote_certificate,
+          type: :certificate,
+          timestamp: timestamp,
+          fingerprint: remote_cert_info.fingerprint,
+          fingerprint_algorithm: remote_cert_info.fingerprint_algorithm,
+          base64_certificate: remote_cert_info.base64_certificate
+        }
+      else
+        %{
+          id: :remote_certificate,
+          type: :certificate,
+          timestamp: timestamp,
+          fingerprint: nil,
+          fingerprint_algorithm: nil,
+          base64_certificate: nil
+        }
+      end
+
+    to_stats_candidate = fn cand, type, timestamp ->
+      %{
+        id: cand.id,
+        timestamp: timestamp,
+        type: type,
+        address: cand.address,
+        port: cand.port,
+        protocol: cand.transport,
+        candidate_type: cand.type,
+        priority: cand.priority,
+        foundation: cand.foundation,
+        related_address: cand.base_address,
+        related_port: cand.base_port
+      }
+    end
+
+    local_cands =
+      Map.new(ice_stats.local_candidates, fn local_cand ->
+        cand = to_stats_candidate.(local_cand, :local_candidate, timestamp)
+        {cand.id, cand}
+      end)
+
+    remote_cands =
+      Map.new(ice_stats.remote_candidates, fn remote_cand ->
+        cand = to_stats_candidate.(remote_cand, :remote_candidate, timestamp)
+        {cand.id, cand}
+      end)
+
+    rtp_stats =
+      Enum.flat_map(state.transceivers, fn tr ->
+        tr_stats = %{kind: tr.kind, mid: tr.mid}
+
+        case tr.current_direction do
+          :sendonly ->
+            stats = RTPSender.get_stats(tr.sender, timestamp)
+            [Map.merge(stats, tr_stats)]
+
+          :recvonly ->
+            stats = RTPReceiver.get_stats(tr.receiver, timestamp)
+            [Map.merge(stats, tr_stats)]
+
+          :sendrecv ->
+            sender_stats = RTPSender.get_stats(tr.sender, timestamp)
+            receiver_stats = RTPReceiver.get_stats(tr.receiver, timestamp)
+
+            [
+              Map.merge(sender_stats, tr_stats),
+              Map.merge(receiver_stats, tr_stats)
+            ]
+
+          _other ->
+            []
+        end
+      end)
+      |> Map.new(fn stats -> {stats.id, stats} end)
+
+    stats = %{
+      peer_connection: %{
+        id: :peer_connection,
+        type: :peer_connection,
+        timestamp: timestamp,
+        signaling_state: state.signaling_state,
+        negotiation_needed: state.negotiation_needed,
+        connection_state: state.conn_state
+      },
+      local_certificate: %{
+        id: :local_certificate,
+        type: :certificate,
+        timestamp: timestamp,
+        fingerprint: local_cert_info.fingerprint,
+        fingerprint_algorithm: local_cert_info.fingerprint_algorithm,
+        base64_certificate: local_cert_info.base64_certificate
+      },
+      remote_certificate: remote_certificate,
+      transport: %{
+        id: :transport,
+        type: :transport,
+        timestamp: timestamp,
+        ice_state: ice_stats.state,
+        ice_gathering_state: state.ice_gathering_state,
+        ice_role: ice_stats.role,
+        ice_local_ufrag: ice_stats.local_ufrag,
+        dtls_state: state.dtls_state,
+        bytes_sent: ice_stats.bytes_sent,
+        bytes_received: ice_stats.bytes_received,
+        packets_sent: ice_stats.packets_sent,
+        packets_received: ice_stats.packets_received
+      }
+    }
+
+    stats =
+      stats
+      |> Map.merge(local_cands)
+      |> Map.merge(remote_cands)
+      |> Map.merge(rtp_stats)
+
+    {:reply, stats, state}
   end
 
   @impl true
@@ -638,10 +788,12 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info({:dtls_transport, _pid, {:rtp, data}}, state) do
     with {:ok, demuxer, mid, packet} <- Demuxer.demux(state.demuxer, data),
-         %RTPTransceiver{} = t <- Enum.find(state.transceivers, &(&1.mid == mid)) do
-      track_id = t.receiver.track.id
-      notify(state.owner, {:rtp, track_id, packet})
-      {:noreply, %{state | demuxer: demuxer}}
+         {idx, %RTPTransceiver{} = t} <- find_transceiver(state.transceivers, mid) do
+      receiver = RTPReceiver.recv(t.receiver, packet, data)
+      transceivers = List.update_at(state.transceivers, idx, &%{&1 | receiver: receiver})
+      state = %{state | demuxer: demuxer, transceivers: transceivers}
+      notify(state.owner, {:rtp, t.receiver.track.id, packet})
+      {:noreply, state}
     else
       nil ->
         Logger.warning("Received RTP with unrecognized MID: #{inspect(data)}")
@@ -717,7 +869,7 @@ defmodule ExWebRTC.PeerConnection do
     # mline from the last offer/answer, do it (i.e. recycle free mline)
     # * If there is no transceiver's mline, just rewrite
     # mline from the offer/answer respecting its port number i.e. whether
-    # it is rejected or not. 
+    # it is rejected or not.
     # This is to preserve the same number of mlines
     # between subsequent offer/anser exchanges.
     # * At the end, add remaining transceiver mlines
@@ -751,7 +903,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   # next_mline_idx is future mline idx to use if there are no mlines to recycle
-  # next_mid is the next free mid 
+  # next_mid is the next free mid
   defp assign_mlines(
          transceivers,
          last_answer,
@@ -1167,7 +1319,7 @@ defmodule ExWebRTC.PeerConnection do
 
   # If signaling state is not stable i.e. we are during negotiation,
   # don't fire negotiation needed notification.
-  # We will do this when moving to the stable state as part of the 
+  # We will do this when moving to the stable state as part of the
   # steps for setting remote description.
   defp update_negotiation_needed(%{signaling_state: sig_state} = state) when sig_state != :stable,
     do: state
@@ -1185,14 +1337,14 @@ defmodule ExWebRTC.PeerConnection do
 
       negotiation_needed == false ->
         # We need to clear the flag.
-        # Consider scenario where we add a transceiver and then 
-        # remove it without performing negotiation. 
+        # Consider scenario where we add a transceiver and then
+        # remove it without performing negotiation.
         # At the end of the day, negotiation_needed flag has to be cleared.
         %{state | negotiation_needed: false}
     end
   end
 
-  # We don't support MSIDs and stopping transceivers so 
+  # We don't support MSIDs and stopping transceivers so
   # we only check 5.2 and 5.3 from 4.7.3#check-if-negotiation-is-needed
   # https://www.w3.org/TR/webrtc/#dfn-check-if-negotiation-is-needed
   defp negotiation_needed?([], _), do: false
@@ -1212,7 +1364,7 @@ defmodule ExWebRTC.PeerConnection do
     cond do
       # Consider the following scenario:
       # 1. offerer offers sendrecv
-      # 2. answerer answers with recvonly  
+      # 2. answerer answers with recvonly
       # 3. offerer changes from sendrecv to sendonly
       # We don't need to renegotiate in such a case.
       local_desc_type == :offer and
