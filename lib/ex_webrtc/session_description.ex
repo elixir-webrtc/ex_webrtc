@@ -17,13 +17,17 @@ defmodule ExWebRTC.SessionDescription do
   @enforce_keys [:type, :sdp]
   defstruct @enforce_keys
 
-  @spec from_json(%{String.t() => String.t()}) :: {:ok, t()} | :error
-  def from_json(%{"type" => type})
-      when type not in ["answer", "offer", "pranswer", "rollback"],
-      do: :error
+  @spec to_json(t()) :: %{String.t() => String.t()}
+  def to_json(%__MODULE__{} = sd) do
+    %{
+      "type" => Atom.to_string(sd.type),
+      "sdp" => sd.sdp
+    }
+  end
 
-  def from_json(%{"type" => type, "sdp" => sdp}) do
-    type = String.to_atom(type)
-    {:ok, %__MODULE__{type: type, sdp: sdp}}
+  @spec from_json(%{String.t() => String.t()}) :: t()
+  def from_json(%{"type" => type, "sdp" => sdp})
+      when type in ~w(answer offer pranswer rollback) do
+    %__MODULE__{type: String.to_atom(type), sdp: sdp}
   end
 end
