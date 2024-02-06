@@ -6,7 +6,7 @@ While in `examples/save_to_file` directory
 
 1. Run `mix deps.get`
 2. Run `mix run --no-halt`
-3. Visit `http://127.0.0.1:8829` in your browser.
+3. Visit `http://127.0.0.1:8829/index.html` in your browser.
 4. Press the `Start` button to start recording.
 5. Press the `Stop` button to stop recording.
 

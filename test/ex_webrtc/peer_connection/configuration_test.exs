@@ -3,55 +3,50 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
   alias ExWebRTC.{PeerConnection, RTPCodecParameters, RTPTransceiver, SessionDescription}
 
-  alias ExSDP.Attribute.{Extmap, FMTP}
+  alias ExSDP.Attribute.Extmap
+
+  @audio_level_rtp_hdr_ext %Extmap{
+    id: 1,
+    uri: "urn:ietf:params:rtp-hdrext:ssrc-audio-level"
+  }
+
+  @mid_rtp_hdr_ext %Extmap{
+    id: 4,
+    uri: "urn:ietf:params:rtp-hdrext:sdes:mid"
+  }
+
+  # some random payload type for the sake of comparison
+  @payload_type 100
+
+  @opus_codec %RTPCodecParameters{
+    payload_type: @payload_type,
+    mime_type: "audio/opus",
+    clock_rate: 48_000,
+    channels: 2
+  }
+
+  @h264_codec %RTPCodecParameters{
+    payload_type: @payload_type,
+    mime_type: "video/H264",
+    clock_rate: 90_000
+  }
+
+  @vp8_codec %RTPCodecParameters{
+    payload_type: @payload_type,
+    mime_type: "video/VP8",
+    clock_rate: 90_000
+  }
+
+  @av1_codec %RTPCodecParameters{
+    payload_type: @payload_type,
+    mime_type: "video/AV1",
+    clock_rate: 90_000
+  }
+
+  @audio_codecs [@opus_codec]
+  @video_codecs [@h264_codec, @vp8_codec, @av1_codec]
 
   test "codecs and rtp hdr extensions" do
-    audio_level_rtp_hdr_ext = %Extmap{
-      id: 1,
-      uri: "urn:ietf:params:rtp-hdrext:ssrc-audio-level"
-    }
-
-    mid_rtp_hdr_ext = %Extmap{
-      id: 4,
-      uri: "urn:ietf:params:rtp-hdrext:sdes:mid"
-    }
-
-    opus_codec = %RTPCodecParameters{
-      payload_type: 111,
-      mime_type: "audio/opus",
-      clock_rate: 48_000,
-      channels: 2,
-      sdp_fmtp_line: %FMTP{
-        pt: 111,
-        minptime: 10,
-        useinbandfec: true
-      }
-    }
-
-    h264_codec = %RTPCodecParameters{
-      payload_type: 102,
-      mime_type: "video/H264",
-      clock_rate: 90_000,
-      sdp_fmtp_line: %FMTP{
-        pt: 102,
-        profile_level_id: 0x42001F,
-        level_asymmetry_allowed: true,
-        packetization_mode: 1
-      }
-    }
-
-    vp8_codec = %RTPCodecParameters{
-      payload_type: 96,
-      mime_type: "video/VP8",
-      clock_rate: 90_000
-    }
-
-    av1_codec = %RTPCodecParameters{
-      payload_type: 45,
-      mime_type: "video/AV1",
-      clock_rate: 90_000
-    }
-
     # default audio and video codecs
     # assert there are only them - no g711 or others
     {:ok, pc} = PeerConnection.start_link()
@@ -69,17 +64,25 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
                mid: "0",
                direction: :recvonly,
                kind: :audio,
-               rtp_hdr_exts: [^mid_rtp_hdr_ext],
-               codecs: [^opus_codec]
+               rtp_hdr_exts: [@mid_rtp_hdr_ext],
+               codecs: audio_codecs
              },
              %RTPTransceiver{
                mid: "1",
                direction: :recvonly,
                kind: :video,
-               rtp_hdr_exts: [^mid_rtp_hdr_ext],
-               codecs: [^vp8_codec, ^h264_codec, ^av1_codec]
+               rtp_hdr_exts: [@mid_rtp_hdr_ext],
+               codecs: video_codecs
              }
            ] = transceivers
+
+    assert Enum.all?(audio_codecs, fn codec ->
+             %{codec | payload_type: @payload_type, sdp_fmtp_line: nil, rtcp_fbs: []} in @audio_codecs
+           end)
+
+    assert Enum.all?(video_codecs, fn codec ->
+             %{codec | payload_type: @payload_type, sdp_fmtp_line: nil, rtcp_fbs: []} in @video_codecs
+           end)
 
     assert :ok = PeerConnection.close(pc)
 
@@ -89,7 +92,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
     {:ok, pc} =
       PeerConnection.start_link(
         audio_codecs: [],
-        video_codecs: [av1_codec],
+        video_codecs: [@av1_codec],
         rtp_hdr_extensions: [:audio_level]
       )
 
@@ -105,17 +108,22 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
                mid: "0",
                direction: :recvonly,
                kind: :audio,
-               rtp_hdr_exts: [^audio_level_rtp_hdr_ext, ^mid_rtp_hdr_ext],
+               rtp_hdr_exts: [@audio_level_rtp_hdr_ext, @mid_rtp_hdr_ext],
                codecs: []
              },
              %RTPTransceiver{
                mid: "1",
                direction: :recvonly,
                kind: :video,
-               rtp_hdr_exts: [^mid_rtp_hdr_ext],
-               codecs: [^av1_codec]
+               rtp_hdr_exts: [@mid_rtp_hdr_ext],
+               codecs: video_codecs
              }
            ] = PeerConnection.get_transceivers(pc)
+
+    assert Enum.all?(video_codecs, fn codec ->
+             %{codec | payload_type: @payload_type, sdp_fmtp_line: nil, rtcp_fbs: []} ==
+               @av1_codec
+           end)
 
     {:ok, answer} = PeerConnection.create_answer(pc)
     sdp = ExSDP.parse!(answer.sdp)
