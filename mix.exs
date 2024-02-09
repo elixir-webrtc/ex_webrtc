@@ -33,6 +33,7 @@ defmodule ExWebRTC.MixProject do
 
   def application do
     [
+      mod: {ExWebRTC.App, []},
       extra_applications: [:logger]
     ]
   end
@@ -50,7 +51,7 @@ defmodule ExWebRTC.MixProject do
   defp deps do
     [
       {:ex_sdp, "~> 0.14.0"},
-      {:ex_ice, "~> 0.5.0"},
+      {:ex_ice, "~> 0.6.0"},
       {:ex_dtls, "~> 0.15.0"},
       {:ex_libsrtp, "~> 0.7.1"},
       {:ex_rtp, "~> 0.3.0"},
@@ -83,15 +84,15 @@ defmodule ExWebRTC.MixProject do
   defp before_closing_body_tag(:html) do
     # highlight JS code blocks
     """
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
     <script>
       if (document.getElementsByTagName('body')[0].className.includes('dark') == true) {
         document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.css">')
       } else {
-        document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.css">')  
+        document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.css">')
       }
-      
+
       document.addEventListener("DOMContentLoaded", function () {
         for (const codeEl of document.querySelectorAll("pre code.js")) {
           codeEl.innerHTML = hljs.highlight(codeEl.innerText, {language: 'js'}).value;

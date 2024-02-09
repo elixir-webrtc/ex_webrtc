@@ -13,4 +13,8 @@ defmodule ExWebRTC.Utils do
     <<id::12*8>> = :crypto.strong_rand_bytes(12)
     id
   end
+
+  @spec to_int(boolean()) :: 0 | 1
+  def to_int(false), do: 0
+  def to_int(true), do: 1
 end

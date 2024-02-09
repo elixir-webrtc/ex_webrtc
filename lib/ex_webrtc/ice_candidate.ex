@@ -11,4 +11,29 @@ defmodule ExWebRTC.ICECandidate do
         }
 
   defstruct [:candidate, :username_fragment, :sdp_mid, :sdp_m_line_index]
+
+  @spec to_json(t()) :: %{String.t() => String.t()}
+  def to_json(%__MODULE__{} = c) do
+    %{
+      "candidate" => c.candidate,
+      "sdpMid" => c.sdp_mid,
+      "sdpMLineIndex" => c.sdp_m_line_index,
+      "usernameFragment" => c.username_fragment
+    }
+  end
+
+  @spec from_json(%{String.t() => String.t()}) :: t()
+  def from_json(%{
+        "candidate" => c,
+        "sdpMid" => mid,
+        "sdpMLineIndex" => mline_idx,
+        "usernameFragment" => ufrag
+      }) do
+    %__MODULE__{
+      candidate: c,
+      sdp_mid: mid,
+      sdp_m_line_index: mline_idx,
+      username_fragment: ufrag
+    }
+  end
 end

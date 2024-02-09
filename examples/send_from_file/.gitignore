@@ -20,7 +20,7 @@ erl_crash.dump
 *.ez
 
 # Ignore package tarball (built via "mix hex.build").
-save_to_file-*.tar
+send_from_file-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/

@@ -33,6 +33,19 @@ defmodule ExWebRTC.DTLSTransport do
   """
   @type dtls_state() :: :new | :connecting | :connected | :closed | :failed
 
+  @typedoc """
+  Information about DTLS certificate.
+
+  * `fingerprint` - hex dump of the cert fingerprint
+  * `fingerprint_algorithm` - always `:sha_256`
+  * `base64_certificate` - base 64 encoded certificate
+  """
+  @type cert_info :: %{
+          fingerprint: binary(),
+          fingerprint_algorithm: :sha_256,
+          base64_certificate: binary()
+        }
+
   @spec start_link(ICETransport.t(), pid()) :: GenServer.on_start()
   def start_link(ice_transport \\ DefaultICETransport, ice_pid) do
     behaviour = ice_transport.__info__(:attributes)[:behaviour] || []
@@ -47,6 +60,14 @@ defmodule ExWebRTC.DTLSTransport do
   @spec set_ice_connected(dtls_transport()) :: :ok
   def set_ice_connected(dtls_transport) do
     GenServer.call(dtls_transport, :set_ice_connected)
+  end
+
+  @spec get_certs_info(dtls_transport()) :: %{
+          local_cert_info: cert_info(),
+          remote_cert_info: cert_info() | nil
+        }
+  def get_certs_info(dtls_transport) do
+    GenServer.call(dtls_transport, :get_certs_info)
   end
 
   @spec get_fingerprint(dtls_transport()) :: binary()
@@ -87,8 +108,12 @@ defmodule ExWebRTC.DTLSTransport do
       ice_connected: false,
       buffered_packets: nil,
       cert: cert,
+      base64_cert: Base.encode64(cert),
       pkey: pkey,
       fingerprint: fingerprint,
+      remote_cert: nil,
+      remote_base64_cert: nil,
+      remote_fingerprint: nil,
       in_srtp: ExLibSRTP.new(),
       out_srtp: ExLibSRTP.new(),
       # sha256 hex dump
@@ -131,6 +156,33 @@ defmodule ExWebRTC.DTLSTransport do
     else
       {:reply, :ok, state}
     end
+  end
+
+  @impl true
+  def handle_call(:get_certs_info, _from, state) do
+    local_cert_info = %{
+      fingerprint: Utils.hex_dump(state.fingerprint),
+      fingerprint_algorithm: :sha_256,
+      base64_certificate: state.base64_cert
+    }
+
+    remote_cert_info =
+      if state.dtls_state == :connected do
+        %{
+          fingerprint: Utils.hex_dump(state.remote_fingerprint),
+          fingerprint_algorithm: :sha_256,
+          base64_certificate: state.remote_base64_cert
+        }
+      else
+        nil
+      end
+
+    certs_info = %{
+      local_cert_info: local_cert_info,
+      remote_cert_info: remote_cert_info
+    }
+
+    {:reply, certs_info, state}
   end
 
   @impl true
@@ -251,6 +303,7 @@ defmodule ExWebRTC.DTLSTransport do
 
       {:handshake_finished, lkm, rkm, profile, packets} ->
         Logger.debug("DTLS handshake finished")
+        state = update_remote_cert_info(state)
         state.ice_transport.send_data(state.ice_pid, packets)
 
         peer_fingerprint =
@@ -273,6 +326,7 @@ defmodule ExWebRTC.DTLSTransport do
         Logger.debug("DTLS handshake finished")
         :ok = setup_srtp(state, lkm, rkm, profile)
         state = update_dtls_state(state, :connected)
+        state = update_remote_cert_info(state)
         {:ok, state}
 
       :handshake_want_read ->
@@ -343,6 +397,14 @@ defmodule ExWebRTC.DTLSTransport do
     Logger.debug("Changing DTLS state: #{state.dtls_state} -> #{new_dtls_state}")
     notify(state.owner, {:state_change, new_dtls_state})
     %{state | dtls_state: new_dtls_state}
+  end
+
+  defp update_remote_cert_info(state) do
+    cert = ExDTLS.get_cert(state.dtls)
+    fingerprint = ExDTLS.get_cert_fingerprint(cert)
+    base64_cert = Base.encode64(cert)
+
+    %{state | remote_cert: cert, remote_base64_cert: base64_cert, remote_fingerprint: fingerprint}
   end
 
   defp notify(dst, msg), do: send(dst, {:dtls_transport, self(), msg})

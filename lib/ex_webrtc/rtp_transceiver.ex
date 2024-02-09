@@ -30,7 +30,8 @@ defmodule ExWebRTC.RTPTransceiver do
           receiver: RTPReceiver.t(),
           sender: RTPSender.t(),
           stopping: boolean(),
-          stopped: boolean()
+          stopped: boolean(),
+          added_by_add_track: boolean()
         }
 
   @enforce_keys [:id, :direction, :kind, :sender, :receiver]
@@ -43,7 +44,8 @@ defmodule ExWebRTC.RTPTransceiver do
                 codecs: [],
                 rtp_hdr_exts: [],
                 stopping: false,
-                stopped: false
+                stopped: false,
+                added_by_add_track: false
               ]
 
   @doc false
@@ -78,7 +80,8 @@ defmodule ExWebRTC.RTPTransceiver do
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
       receiver: %RTPReceiver{track: track},
-      sender: RTPSender.new(sender_track, List.first(codecs), rtp_hdr_exts, options[:ssrc])
+      sender: RTPSender.new(sender_track, List.first(codecs), rtp_hdr_exts, options[:ssrc]),
+      added_by_add_track: Keyword.get(options, :added_by_add_track, false)
     }
   end
 
@@ -105,15 +108,36 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
+  @spec associable?(t(), ExSDP.Media.t()) :: boolean()
+  def associable?(transceiver, mline) do
+    %__MODULE__{
+      mid: mid,
+      kind: kind,
+      added_by_add_track: added_by_add_track,
+      stopped: stopped
+    } = transceiver
+
+    direction = SDPUtils.get_media_direction(mline)
+
+    is_nil(mid) and added_by_add_track and
+      kind == mline.type and not stopped and
+      direction in [:sendrecv, :recvonly]
+  end
+
+  @doc false
   @spec update(t(), ExSDP.Media.t(), Configuration.t()) :: t()
   def update(transceiver, mline, config) do
+    {:mid, mid} = ExSDP.get_attribute(mline, :mid)
+    if transceiver.mid != nil and mid != transceiver.mid, do: raise(ArgumentError)
+
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    sender = RTPSender.update(transceiver.sender, List.first(codecs), rtp_hdr_exts)
+    sender = RTPSender.update(transceiver.sender, mid, List.first(codecs), rtp_hdr_exts)
 
     %__MODULE__{
       transceiver
-      | codecs: codecs,
+      | mid: mid,
+        codecs: codecs,
         rtp_hdr_exts: rtp_hdr_exts,
         sender: sender
     }
