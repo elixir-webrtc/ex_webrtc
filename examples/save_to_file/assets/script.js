@@ -7,7 +7,8 @@ const mediaConstraints = {audio: true, video: {
 
 const button = document.getElementById("button")
 button.onclick = () => {
-  const ws = new WebSocket(`ws://${window.location.host}/ws`);
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
+  const ws = new WebSocket(`${proto}://${window.location.host}/ws`);
   ws.onopen = _ => start_connection(ws);
   ws.onclose = event => console.log("WebSocket connection was terminated:", event);
 
