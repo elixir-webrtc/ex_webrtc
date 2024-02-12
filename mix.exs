@@ -55,7 +55,7 @@ defmodule ExWebRTC.MixProject do
       {:ex_dtls, "~> 0.15.0"},
       {:ex_libsrtp, "~> 0.7.1"},
       {:ex_rtp, "~> 0.3.0"},
-      {:ex_rtcp, git: "https://github.com/elixir-webrtc/ex_rtcp.git"},
+      {:ex_rtcp, "~> 0.2.0"},
       {:crc, "~> 0.10"},
 
       # dev/test
