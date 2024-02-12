@@ -1,7 +1,6 @@
 const pcConfig = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' },] };
-const address = "ws://127.0.0.1:8829/ws"
 
-const ws = new WebSocket(address);
+const ws = new WebSocket(`ws://${window.location.host}/ws`);
 ws.onopen = _ => start_connection(ws);
 ws.onclose = event => console.log("WebSocket connection was terminated:", event);
 
