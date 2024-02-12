@@ -352,7 +352,7 @@ defmodule ExWebRTC.DTLSTransport do
 
       {:error, reason} ->
         type = type |> Atom.to_string() |> String.upcase()
-        Logger.error("Failed to decrypt #{type}, reason: #{inspect(reason)}")
+        Logger.warning("Failed to decrypt #{type}, reason: #{inspect(reason)}")
     end
 
     {:ok, state}
