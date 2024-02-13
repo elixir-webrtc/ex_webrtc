@@ -69,6 +69,7 @@ defmodule ExWebRTC.MixProject do
   defp docs() do
     [
       main: "readme",
+      logo: "logo.svg",
       extras: ["README.md", "guides/mastering_transceivers.md"],
       source_ref: "v#{@version}",
       formatters: ["html"],
