@@ -46,9 +46,11 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
   @max_ref_time 0xFFFFFF
   @breakpoint 0x7FFF
 
+  @default_sender_ssrc 1
+
   @type t() :: %__MODULE__{
           media_ssrc: non_neg_integer(),
-          sender_ssrc: non_neg_integer(),
+          sender_ssrc: non_neg_integer() | nil,
           base_seq_no: non_neg_integer() | nil,
           start_seq_no: non_neg_integer() | nil,
           end_seq_no: non_neg_integer() | nil,
@@ -206,7 +208,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
     # Pion also caps max number of not_received packets at the beginning
     feedback = %CC{
       media_ssrc: media_ssrc,
-      sender_ssrc: sender_ssrc,
+      sender_ssrc: sender_ssrc || @default_sender_ssrc,
       fb_pkt_count: fb_pkt_count &&& @max_fb_pkt_count,
       base_sequence_number: base_seq_no &&& @max_seq_no,
       packet_status_count: new_base - base_seq_no,

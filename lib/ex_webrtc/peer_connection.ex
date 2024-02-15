@@ -880,9 +880,8 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info(:send_twcc_feedback, %{twcc_recorder: twcc_recorder} = state) do
     Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
-    %TWCCRecorder{sender_ssrc: sender_ssrc, media_ssrc: media_ssrc} = twcc_recorder
 
-    if sender_ssrc != nil and media_ssrc != nil do
+    if twcc_recorder.media_ssrc != nil do
       {twcc_recorder, feedbacks} = TWCCRecorder.get_feedback(twcc_recorder)
 
       for feedback <- feedbacks do
