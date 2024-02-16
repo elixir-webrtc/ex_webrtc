@@ -180,11 +180,11 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
     end
   end
 
-  @spec get_feedback(t()) :: {t(), [CC.t()]}
+  @spec get_feedback(t()) :: {[CC.t()], t()}
   def get_feedback(recorder, feedbacks \\ [])
 
   def get_feedback(%{base_seq_no: seq_no, end_seq_no: seq_no} = recorder, feedbacks),
-    do: {recorder, Enum.reverse(feedbacks)}
+    do: {Enum.reverse(feedbacks), recorder}
 
   def get_feedback(recorder, feedbacks) do
     %__MODULE__{

@@ -197,7 +197,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
           timestamps: timestamps
       }
 
-      assert {recorder, [feedback]} = TWCCRecorder.get_feedback(recorder)
+      assert {[feedback], recorder} = TWCCRecorder.get_feedback(recorder)
 
       assert %CC{
                base_sequence_number: @seq_no,
@@ -209,7 +209,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
              } = feedback
 
       # no new packets -> no feedback
-      assert {_recorder, []} = TWCCRecorder.get_feedback(recorder)
+      assert {[], _recorder} = TWCCRecorder.get_feedback(recorder)
     end
 
     test "packets out of order, with gaps" do
@@ -231,7 +231,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
           timestamps: timestamps
       }
 
-      assert {recorder, [feedback]} = TWCCRecorder.get_feedback(recorder)
+      assert {[feedback], recorder} = TWCCRecorder.get_feedback(recorder)
 
       symbols = [
         :small_delta,
@@ -252,7 +252,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
                recv_deltas: [246, 5, -17, -8, 25]
              } = feedback
 
-      assert {_recorder, []} = TWCCRecorder.get_feedback(recorder)
+      assert {[], _recorder} = TWCCRecorder.get_feedback(recorder)
     end
 
     test "mixed chunks" do
@@ -266,7 +266,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
           TWCCRecorder.record_packet(recorder, i)
         end)
 
-      assert {recorder, [feedback]} = TWCCRecorder.get_feedback(recorder)
+      assert {[feedback], recorder} = TWCCRecorder.get_feedback(recorder)
 
       assert %CC{
                base_sequence_number: @seq_no,
@@ -288,7 +288,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
 
       assert length(deltas) == packet_num - 1
 
-      assert {_recorder, []} = TWCCRecorder.get_feedback(recorder)
+      assert {[], _recorder} = TWCCRecorder.get_feedback(recorder)
     end
 
     test "split into two feedbacks" do
@@ -303,7 +303,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       timestamps = Map.update!(recorder.timestamps, base_no2, &(&1 + 35_000))
       recorder = %{recorder | timestamps: timestamps}
 
-      assert {recorder, [feedback1, feedback2]} = TWCCRecorder.get_feedback(recorder)
+      assert {[feedback1, feedback2], recorder} = TWCCRecorder.get_feedback(recorder)
 
       assert %CC{
                base_sequence_number: @seq_no,
@@ -327,7 +327,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
       refute_in_delta ref_time1, ref_time2, 133
       assert_in_delta ref_time1, ref_time2, 143
 
-      assert {_recorder, []} = TWCCRecorder.get_feedback(recorder)
+      assert {[], _recorder} = TWCCRecorder.get_feedback(recorder)
     end
   end
 end
