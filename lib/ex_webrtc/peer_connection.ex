@@ -9,7 +9,7 @@ defmodule ExWebRTC.PeerConnection do
 
   require Logger
 
-  alias __MODULE__.{Configuration, Demuxer}
+  alias __MODULE__.{Configuration, Demuxer, TWCCRecorder}
 
   alias ExWebRTC.{
     DefaultICETransport,
@@ -23,6 +23,8 @@ defmodule ExWebRTC.PeerConnection do
     SessionDescription,
     Utils
   }
+
+  @twcc_interval 100
 
   @type peer_connection() :: GenServer.server()
 
@@ -58,6 +60,8 @@ defmodule ExWebRTC.PeerConnection do
   For the exact meaning, refer to the [WebRTC W3C, section 4.3.3](https://www.w3.org/TR/webrtc/#rtcpeerconnectionstate-enum)
   """
   @type connection_state() :: :closed | :failed | :disconnected | :new | :connecting | :connected
+
+  @twcc_uri "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
 
   #### API ####
   @doc """
@@ -221,9 +225,12 @@ defmodule ExWebRTC.PeerConnection do
       signaling_state: :stable,
       last_offer: nil,
       last_answer: nil,
-      peer_fingerprint: nil
+      peer_fingerprint: nil,
+      sent_packets: 0,
+      twcc_recorder: %TWCCRecorder{}
     }
 
+    Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
     notify(state.owner, {:connection_state_change, :new})
     notify(state.owner, {:signaling_state_change, :stable})
 
@@ -728,6 +735,21 @@ defmodule ExWebRTC.PeerConnection do
 
     case transceiver do
       %RTPTransceiver{} ->
+        {packet, state} =
+          case Map.fetch(state.config.video_rtp_hdr_exts, @twcc_uri) do
+            {:ok, %{id: id}} ->
+              twcc =
+                ExRTP.Packet.Extension.TWCC.new(state.sent_packets)
+                |> ExRTP.Packet.Extension.TWCC.to_raw(id)
+
+              packet = ExRTP.Packet.add_extension(packet, twcc)
+              state = %{state | sent_packets: state.sent_packets + 1 &&& 0xFFFF}
+              {packet, state}
+
+            :error ->
+              {packet, state}
+          end
+
         {packet, sender} = RTPSender.send(transceiver.sender, packet)
         :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
 
@@ -795,10 +817,35 @@ defmodule ExWebRTC.PeerConnection do
   def handle_info({:dtls_transport, _pid, {:rtp, data}}, state) do
     with {:ok, demuxer, mid, packet} <- Demuxer.demux(state.demuxer, data),
          {idx, %RTPTransceiver{} = t} <- find_transceiver(state.transceivers, mid) do
+      # we always update the ssrc's for the one's from the latest packet
+      # although this is not a necessity, the feedbacks are transport-wide
+      twcc_recorder = %TWCCRecorder{
+        state.twcc_recorder
+        | media_ssrc: packet.ssrc,
+          sender_ssrc: t.sender.ssrc
+      }
+
+      twcc_recorder =
+        with {:ok, %{id: id}} <- Map.fetch(state.config.video_rtp_hdr_exts, @twcc_uri),
+             {:ok, raw_ext} <- ExRTP.Packet.fetch_extension(packet, id),
+             {:ok, %{sequence_number: seq_no}} <- ExRTP.Packet.Extension.TWCC.from_raw(raw_ext) do
+          TWCCRecorder.record_packet(twcc_recorder, seq_no)
+        else
+          _other -> twcc_recorder
+        end
+
       receiver = RTPReceiver.recv(t.receiver, packet, data)
       transceivers = List.update_at(state.transceivers, idx, &%{&1 | receiver: receiver})
-      state = %{state | demuxer: demuxer, transceivers: transceivers}
+
       notify(state.owner, {:rtp, t.receiver.track.id, packet})
+
+      state = %{
+        state
+        | demuxer: demuxer,
+          transceivers: transceivers,
+          twcc_recorder: twcc_recorder
+      }
+
       {:noreply, state}
     else
       nil ->
@@ -814,11 +861,38 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info({:dtls_transport, _pid, {:rtcp, data}}, state) do
     case ExRTCP.CompoundPacket.decode(data) do
-      {:ok, packets} -> notify(state.owner, {:rtcp, packets})
-      {:error, _res} -> Logger.info("Failed to decode RTCP packet")
+      {:ok, packets} ->
+        notify(state.owner, {:rtcp, packets})
+
+      {:error, _res} ->
+        case data do
+          <<2::2, _::1, count::5, ptype::8, _::binary>> ->
+            Logger.warning("Failed to decode RTCP packet, type: #{ptype}, count: #{count}")
+
+          _ ->
+            Logger.warning("Failed to decode RTCP packet, packet is too short")
+        end
     end
 
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:send_twcc_feedback, %{twcc_recorder: twcc_recorder} = state) do
+    Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
+
+    if twcc_recorder.media_ssrc != nil do
+      {twcc_recorder, feedbacks} = TWCCRecorder.get_feedback(twcc_recorder)
+
+      for feedback <- feedbacks do
+        encoded = ExRTCP.Packet.encode(feedback)
+        :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
+      end
+
+      {:noreply, %{state | twcc_recorder: twcc_recorder}}
+    else
+      {:noreply, state}
+    end
   end
 
   @impl true

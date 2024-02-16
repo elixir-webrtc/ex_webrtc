@@ -232,8 +232,12 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_cast({:send_rtcp, _data}, state) do
-    # TODO: implement
+  def handle_cast({:send_rtcp, data}, state) do
+    case ExLibSRTP.protect_rtcp(state.out_srtp, data) do
+      {:ok, protected} -> state.ice_transport.send_data(state.ice_pid, protected)
+      {:error, reason} -> Logger.error("Unable to protect RTCP: #{inspect(reason)}")
+    end
+
     {:noreply, state}
   end
 
@@ -347,7 +351,8 @@ defmodule ExWebRTC.DTLSTransport do
         notify(state.owner, {type, payload})
 
       {:error, reason} ->
-        Logger.error("Failed to decrypt SRTP/SRTCP, reason: #{inspect(reason)}")
+        type = type |> Atom.to_string() |> String.upcase()
+        Logger.warning("Failed to decrypt #{type}, reason: #{inspect(reason)}")
     end
 
     {:ok, state}
