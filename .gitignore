@@ -24,3 +24,6 @@ ex_webrtc-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# I hate MacOS
+.DS_Store
