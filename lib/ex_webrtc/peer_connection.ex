@@ -715,7 +715,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_cast({:send_rtp, track_id, packet}, state) do
+  def handle_cast({:send_rtp, %MediaStreamTrack{id: track_id}, packet}, state) do
     # TODO: iterating over transceivers is not optimal
     # but this is, most likely, going to be refactored anyways
     {transceiver, idx} =
