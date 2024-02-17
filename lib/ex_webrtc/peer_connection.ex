@@ -167,6 +167,10 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, {:remove_track, sender_id})
   end
 
+  @doc """
+  Send an RTP packet to the peer.
+  Generally called in a loop to move packets between tracks in a media server situation.
+  """
   @spec send_rtp(peer_connection(), integer(), ExRTP.Packet.t()) :: :ok
   def send_rtp(peer_connection, track_id, packet) do
     GenServer.cast(peer_connection, {:send_rtp, track_id, packet})
