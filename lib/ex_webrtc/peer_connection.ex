@@ -167,7 +167,7 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, {:remove_track, sender_id})
   end
 
-  @spec send_rtp(peer_connection(), String.t(), ExRTP.Packet.t()) :: :ok
+  @spec send_rtp(peer_connection(), integer(), ExRTP.Packet.t()) :: :ok
   def send_rtp(peer_connection, track_id, packet) do
     GenServer.cast(peer_connection, {:send_rtp, track_id, packet})
   end
