@@ -882,7 +882,7 @@ defmodule ExWebRTC.PeerConnection do
     Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
 
     if twcc_recorder.media_ssrc != nil do
-      {twcc_recorder, feedbacks} = TWCCRecorder.get_feedback(twcc_recorder)
+      {feedbacks, twcc_recorder} = TWCCRecorder.get_feedback(twcc_recorder)
 
       for feedback <- feedbacks do
         encoded = ExRTCP.Packet.encode(feedback)
