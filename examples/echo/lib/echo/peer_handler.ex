@@ -127,8 +127,6 @@ defmodule Echo.PeerHandler do
     {:ok, state}
   end
 
-  # RTCP is used for statistics and control information for media in WebRTC. 
-  # Using these packets you can get information about the quality of the media, round trip time and packet loss. 
   defp handle_webrtc_msg({:rtcp, _packets}, state) do
     # do something with RTCP packets
     {:ok, state}
