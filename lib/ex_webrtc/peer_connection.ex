@@ -546,8 +546,7 @@ defmodule ExWebRTC.PeerConnection do
             {:reply, {:error, :invalid_track_type}, state}
 
           tr.direction in [:sendrecv, :sendonly] ->
-            ssrc = tr.sender.ssrc || generate_ssrc(state)
-            tr = RTPTransceiver.add_track(tr, track, ssrc)
+            tr = RTPTransceiver.replace_track(tr, track, generate_ssrc(state))
             transceivers = List.replace_at(state.transceivers, tr_idx, tr)
             state = %{state | transceivers: transceivers}
             {:reply, :ok, state}

@@ -159,6 +159,14 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
+  @spec replace_track(t(), MediaStreamTrack.t(), non_neg_integer()) :: t()
+  def replace_track(transceiver, track, ssrc) do
+    ssrc = transceiver.sender.ssrc || ssrc
+    sender = %RTPSender{transceiver.sender | track: track, ssrc: ssrc}
+    %__MODULE__{transceiver | sender: sender}
+  end
+
+  @doc false
   @spec remove_track(t()) :: t()
   def remove_track(transceiver) do
     sender = %RTPSender{transceiver.sender | track: nil}
