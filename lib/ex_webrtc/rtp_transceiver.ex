@@ -144,6 +144,44 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
+  @spec add_track(t(), MediaStreamTrack.t(), non_neg_integer()) :: t()
+  def add_track(transceiver, track, ssrc) do
+    sender = %RTPSender{transceiver.sender | track: track, ssrc: ssrc}
+
+    direction =
+      case transceiver.direction do
+        :recvonly -> :sendrecv
+        :inactive -> :sendonly
+        other -> other
+      end
+
+    %__MODULE__{transceiver | sender: sender, direction: direction}
+  end
+
+  @doc false
+  @spec replace_track(t(), MediaStreamTrack.t(), non_neg_integer()) :: t()
+  def replace_track(transceiver, track, ssrc) do
+    ssrc = transceiver.sender.ssrc || ssrc
+    sender = %RTPSender{transceiver.sender | track: track, ssrc: ssrc}
+    %__MODULE__{transceiver | sender: sender}
+  end
+
+  @doc false
+  @spec remove_track(t()) :: t()
+  def remove_track(transceiver) do
+    sender = %RTPSender{transceiver.sender | track: nil}
+
+    direction =
+      case transceiver.direction do
+        :sendrecv -> :recvonly
+        :sendonly -> :inactive
+        other -> other
+      end
+
+    %__MODULE__{transceiver | sender: sender, direction: direction}
+  end
+
+  @doc false
   @spec to_answer_mline(t(), ExSDP.Media.t(), Keyword.t()) :: ExSDP.Media.t()
   def to_answer_mline(transceiver, mline, opts) do
     # Reject mline. See RFC 8829 sec. 5.3.1 and RFC 3264 sec. 6.

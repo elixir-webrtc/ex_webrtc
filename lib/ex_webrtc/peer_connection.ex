@@ -519,16 +519,7 @@ defmodule ExWebRTC.PeerConnection do
 
         idx ->
           tr = Enum.at(state.transceivers, idx)
-          sender = %RTPSender{tr.sender | track: track, ssrc: generate_ssrc(state)}
-
-          direction =
-            case tr.direction do
-              :recvonly -> :sendrecv
-              :inactive -> :sendonly
-              other -> other
-            end
-
-          tr = %RTPTransceiver{tr | sender: sender, direction: direction}
+          tr = RTPTransceiver.add_track(tr, track, generate_ssrc(state))
           {List.replace_at(state.transceivers, idx, tr), tr.sender}
       end
 
@@ -555,9 +546,7 @@ defmodule ExWebRTC.PeerConnection do
             {:reply, {:error, :invalid_track_type}, state}
 
           tr.direction in [:sendrecv, :sendonly] ->
-            ssrc = tr.sender.ssrc || generate_ssrc(state)
-            sender = %RTPSender{tr.sender | track: track, ssrc: ssrc}
-            tr = %RTPTransceiver{tr | sender: sender}
+            tr = RTPTransceiver.replace_track(tr, track, generate_ssrc(state))
             transceivers = List.replace_at(state.transceivers, tr_idx, tr)
             state = %{state | transceivers: transceivers}
             {:reply, :ok, state}
@@ -585,16 +574,7 @@ defmodule ExWebRTC.PeerConnection do
         {:reply, :ok, state}
 
       {tr, idx} ->
-        sender = %RTPSender{tr.sender | track: nil}
-
-        direction =
-          case tr.direction do
-            :sendrecv -> :recvonly
-            :sendonly -> :inactive
-            other -> other
-          end
-
-        tr = %RTPTransceiver{tr | sender: sender, direction: direction}
+        tr = RTPTransceiver.remove_track(tr)
         transceivers = List.replace_at(state.transceivers, idx, tr)
         state = %{state | transceivers: transceivers}
         state = update_negotiation_needed(state)
