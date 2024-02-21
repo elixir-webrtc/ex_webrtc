@@ -127,6 +127,11 @@ defmodule Echo.PeerHandler do
     {:ok, state}
   end
 
+  defp handle_webrtc_msg({:rtcp, _packets}, state) do
+    # do something with RTCP packets
+    {:ok, state}
+  end
+
   defp handle_webrtc_msg({:rtp, id, packet}, %{in_audio_track_id: id} = state) do
     PeerConnection.send_rtp(state.peer_connection, state.out_audio_track_id, packet)
     {:ok, state}
