@@ -37,7 +37,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
     %__MODULE__{
       recorder
       | last_seq_no: {0, packet.sequence_number},
-        last_report_seq_no: {0, packet.sequence_number},
+        last_report_seq_no: {0, packet.sequence_number - 1},
         last_rtp_timestamp: packet.timestamp,
         last_timestamp: time
     }
@@ -79,16 +79,21 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
         delta > @breakpoint -> last_cycle - 1
       end
 
+    # NOTICE: cycle might be -1 in very specific cases (e.g. the very first packet is 2^16 - 1,
+    # second packet is 0, but we received the second packet first).
+    # We just ignore these packets. Similarly, we ignore packets that arrived late
+    # (counted as lost in previous report) instead of changing the last_report_seq_no
+    # to lower value to include them.
     seq_no = {cycle, rtp_seq_no}
-    {last_seq_no, lost_packets}
 
-    if seq_no <= last_seq_no do
-      lost_packets = MapSet.delete(lost_packets, last_seq_no)
-      {last_seq_no, lost_packets}
-    else
-      lost_packets = set_lost_packets(next_seq_no(last_seq_no), seq_no, lost_packets)
-      {seq_no, lost_packets}
-    end
+    {last_seq_no, lost_packets} =
+      if seq_no <= last_seq_no do
+        lost_packets = MapSet.delete(lost_packets, seq_no)
+        {last_seq_no, lost_packets}
+      else
+        lost_packets = set_lost_packets(next_seq_no(last_seq_no), seq_no, lost_packets)
+        {seq_no, lost_packets}
+      end
 
     %__MODULE__{recorder | last_seq_no: last_seq_no, lost_packets: lost_packets}
   end
@@ -103,7 +108,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   end
 
   defp next_seq_no({cycle, @max_seq_no}), do: {cycle + 1, 0}
-  defp next_seq_no({cycle, seq_no}), do: {cycle, seq_no}
+  defp next_seq_no({cycle, seq_no}), do: {cycle, seq_no + 1}
 
   defp record_jitter(recorder, rtp_ts, cur_ts) do
     %__MODULE__{
