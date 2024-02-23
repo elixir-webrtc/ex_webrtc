@@ -7,7 +7,16 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   @max_seq_no 0xFFFF
   @breakpoint 0x7FFF
 
-  @type t() :: %__MODULE__{}
+  @type t() :: %__MODULE__{
+          lost_packets: MapSet.t(),
+          last_seq_no: {non_neg_integer(), ExRTP.Packet.uint16()},
+          last_report_seq_no: {non_neg_integer(), ExRTP.Packet.uint16()},
+          last_rtp_timestamp: ExRTP.Packet.uint32(),
+          last_timestamp: integer(),
+          last_sr_ntp_timestamp: ExRTP.Packet.uint32(),
+          last_sr_timestamp: integer(),
+          jitter: float()
+        }
 
   @enforce_keys [:sender_ssrc, :ssrc, :clock_rate]
   defstruct [
@@ -16,45 +25,41 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
               last_report_seq_no: nil,
               last_rtp_timestamp: nil,
               last_timestamp: nil,
-              jitter: 0,
+              last_sr_ntp_timestamp: 0,
               last_sr_timestamp: 0,
-              last_sr: 0
+              jitter: 0
             ] ++ @enforce_keys
 
-  @spec record_packet(t(), ExRTP.Packet.t()) :: t()
-  def record_packet(%{last_seq_no: nil} = recorder, packet) do
-    # clause only for the very first packet
-
-    # might want to move the call to System.mono... out of this function
-    cur_ts = System.monotonic_time()
-
+  # time as returned by System.monotonic_time/0, in :native unit
+  @spec record_packet(t(), ExRTP.Packet.t(), integer()) :: t()
+  def record_packet(%{last_seq_no: nil} = recorder, packet, time) do
     # seq_no == {cycle_no, seq_no as in RTP packet}
     %__MODULE__{
       recorder
       | last_seq_no: {0, packet.sequence_number},
         last_report_seq_no: {0, packet.sequence_number},
         last_rtp_timestamp: packet.timestamp,
-        last_timestamp: cur_ts
+        last_timestamp: time
     }
   end
 
-  def record_packet(recorder, packet) do
+  def record_packet(recorder, packet, time) do
     recorder
     |> record_seq_no(packet.sequence_number)
-    |> record_jitter(packet.timestamp)
+    |> record_jitter(packet.timestamp, time)
   end
 
-  @spec record_report(t(), ExRTCP.Packet.SenderReport.t()) :: t()
-  def record_report(recorder, sender_report) do
-    cur_ts = System.monotonic_time()
+  @spec record_report(t(), ExRTCP.Packet.SenderReport.t(), integer()) :: t()
+  def record_report(recorder, sender_report, time) do
     # we take the middle 32 bits of the NTP timestamp
     ntp_ts = sender_report.ntp_timestamp >>> 16 &&& @max_u32
 
-    %__MODULE__{recorder | last_sr_timestamp: ntp_ts, last_sr: cur_ts}
+    %__MODULE__{recorder | last_sr_ntp_timestamp: ntp_ts, last_sr_timestamp: time}
   end
 
   @spec get_report(t()) :: {ExRTCP.Packet.ReceiverReport.t(), t()}
   def get_report(recorder) do
+    # TODO: implement this
     report = %ExRTCP.Packet.ReceiverReport{ssrc: recorder.sender_ssrc}
     {report, recorder}
   end
@@ -100,7 +105,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   defp next_seq_no({cycle, @max_seq_no}), do: {cycle + 1, 0}
   defp next_seq_no({cycle, seq_no}), do: {cycle, seq_no}
 
-  defp record_jitter(recorder, rtp_ts) do
+  defp record_jitter(recorder, rtp_ts, cur_ts) do
     %__MODULE__{
       last_rtp_timestamp: last_rtp_ts,
       last_timestamp: last_ts,
@@ -108,12 +113,8 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
       clock_rate: clock_rate
     } = recorder
 
-    cur_ts = System.monotonic_time()
-
     # see https://tools.ietf.org/html/rfc3550#page-39
-
-    # FIXME: System.convert_time_unit/3 returns integer
-    wlc_diff = System.convert_time_unit(cur_ts - last_ts, :native, :second)
+    wlc_diff = native_to_sec(cur_ts - last_ts)
     rtp_diff = rtp_ts - last_rtp_ts
     diff = wlc_diff * clock_rate - rtp_diff
     jitter = jitter + abs(diff) - jitter / 16
@@ -124,5 +125,10 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
         last_timestamp: cur_ts,
         jitter: jitter
     }
+  end
+
+  defp native_to_sec(time) do
+    native_in_sec = System.convert_time_unit(1, :second, :native)
+    time / native_in_sec
   end
 end
