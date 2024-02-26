@@ -1,8 +1,9 @@
 defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
   use ExUnit.Case, async: true
 
-  alias ExWebRTC.RTPReceiver.ReportRecorder
+  alias ExRTCP.Packet.SenderReport
   alias ExRTP.Packet
+  alias ExWebRTC.RTPReceiver.ReportRecorder
 
   @rand_ts System.monotonic_time()
   @seq_no 11_534
@@ -15,7 +16,26 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
     clock_rate: @clock_rate
   }
 
-  describe "records RTP packets" do
+  @tag :wip
+  test "record_report/3" do
+    sr = %SenderReport{
+      ssrc: 0,
+      ntp_timestamp: 0xFFFF11111111FFFF,
+      rtp_timestamp: 0,
+      packet_count: 0,
+      octet_count: 0
+    }
+
+    ts = System.monotonic_time()
+    recorder = ReportRecorder.record_report(@recorder, sr, ts)
+
+    assert %ReportRecorder{
+             last_sr_ntp_timestamp: 0x11111111,
+             last_sr_timestamp: ^ts
+           } = recorder
+  end
+
+  describe "record_packet/3" do
     test "initial packet" do
       recorder = ReportRecorder.record_packet(@recorder, @packet, @rand_ts)
 
