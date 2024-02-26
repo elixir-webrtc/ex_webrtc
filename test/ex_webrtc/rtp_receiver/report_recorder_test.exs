@@ -105,6 +105,29 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
     end
 
     test "packets with wrapping sequence numbers" do
+      max_seq_no = 65_535
+      packet1 = %Packet{@packet | sequence_number: max_seq_no - 1}
+      packet2 = %Packet{@packet | sequence_number: 1}
+      packet3 = %Packet{@packet | sequence_number: max_seq_no}
+      packet4 = %Packet{@packet | sequence_number: 0}
+
+      recorder =
+        @recorder
+        |> ReportRecorder.record_packet(packet1, @rand_ts)
+        |> ReportRecorder.record_packet(packet2, @rand_ts)
+        |> ReportRecorder.record_packet(packet3, @rand_ts)
+        |> ReportRecorder.record_packet(packet4, @rand_ts)
+
+      sr_seq_no = {0, max_seq_no - 2}
+      seq_no = {1, 1}
+
+      assert %ReportRecorder{
+               lost_packets: lost_packets,
+               last_seq_no: ^seq_no,
+               last_report_seq_no: ^sr_seq_no
+             } = recorder
+
+      assert MapSet.size(lost_packets) == 0
     end
 
     test "properly calculates jitter" do
