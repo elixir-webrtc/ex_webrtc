@@ -3,7 +3,10 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
 
   import Bitwise
 
+  alias ExRTCP.Packet.{ReceiverReport, ReceptionReport}
+
   @max_u32 0xFFFFFFFF
+  @max_u24 0xFFFFFF
   @max_seq_no 0xFFFF
   @breakpoint 0x7FFF
 
@@ -15,7 +18,8 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
           last_timestamp: integer(),
           last_sr_ntp_timestamp: ExRTP.Packet.uint32(),
           last_sr_timestamp: integer(),
-          jitter: float()
+          jitter: float(),
+          total_lost: non_neg_integer()
         }
 
   @enforce_keys [:sender_ssrc, :ssrc, :clock_rate]
@@ -26,8 +30,9 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
               last_rtp_timestamp: nil,
               last_timestamp: nil,
               last_sr_ntp_timestamp: 0,
-              last_sr_timestamp: 0,
-              jitter: 0
+              last_sr_timestamp: nil,
+              jitter: 0,
+              total_lost: 0
             ] ++ @enforce_keys
 
   # time as returned by System.monotonic_time/0, in :native unit
@@ -57,10 +62,44 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
     %__MODULE__{recorder | last_sr_ntp_timestamp: ntp_ts, last_sr_timestamp: time}
   end
 
-  @spec get_report(t()) :: {ExRTCP.Packet.ReceiverReport.t(), t()}
-  def get_report(recorder) do
-    # TODO: implement this
-    report = %ExRTCP.Packet.ReceiverReport{ssrc: recorder.sender_ssrc}
+  @spec get_report(t(), integer()) :: {ReceiverReport.t(), t()}
+  def get_report(recorder, time) do
+    received =
+      recorder.last_seq_no
+      |> seq_no_diff(recorder.last_report_seq_no)
+      |> min(@max_u24)
+
+    lost =
+      recorder.lost_packets
+      |> MapSet.size()
+      |> min(@max_u24)
+
+    total_lost = min(recorder.total_lost + lost, @max_u24)
+
+    {cycle, seq_no} = recorder.last_seq_no
+
+    report = %ReceiverReport{
+      ssrc: recorder.sender_ssrc,
+      reports: [
+        %ReceptionReport{
+          ssrc: recorder.ssrc,
+          delay: round(delay_since(time, recorder.last_sr_timestamp) * 65_536),
+          last_sr: recorder.last_sr_ntp_timestamp,
+          last_sequence_number: (cycle <<< 16 &&& @max_u32) ||| seq_no,
+          fraction_lost: round(lost * 256 / received),
+          total_lost: total_lost,
+          jitter: round(recorder.jitter)
+        }
+      ]
+    }
+
+    recorder = %__MODULE__{
+      recorder
+      | lost_packets: MapSet.new(),
+        last_report_seq_no: recorder.last_seq_no,
+        total_lost: total_lost
+    }
+
     {report, recorder}
   end
 
@@ -136,4 +175,13 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
     native_in_sec = System.convert_time_unit(1, :second, :native)
     time / native_in_sec
   end
+
+  defp seq_no_diff({cycle_a, seq_no_a}, {cycle_b, seq_no_b}) do
+    cycle_diff = cycle_a - cycle_b
+    seq_no_diff = seq_no_a - seq_no_b
+    cycle_diff * (@max_seq_no + 1) + seq_no_diff
+  end
+
+  defp delay_since(_cur_ts, nil), do: 0
+  defp delay_since(cur_ts, last_ts), do: native_to_sec(cur_ts - last_ts)
 end
