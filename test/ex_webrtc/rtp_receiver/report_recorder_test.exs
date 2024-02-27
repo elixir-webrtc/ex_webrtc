@@ -20,7 +20,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
     octet_count: 0
   }
   @recorder %ReportRecorder{
-    ssrc: 123_456,
+    media_ssrc: 123_456,
     sender_ssrc: 654_321,
     clock_rate: @clock_rate
   }
