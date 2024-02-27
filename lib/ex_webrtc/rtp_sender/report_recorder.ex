@@ -1,9 +1,14 @@
-defmodule ExWEbRTC.RTPSender.ReportRecorder do
+defmodule ExWebRTC.RTPSender.ReportRecorder do
   @moduledoc false
+
+  import Bitwise
 
   alias ExRTCP.Packet.SenderReport
 
   @breakpoint 0x7FFF
+  # NTP epoch is 1/1/1900 vs UNIX epoch is 1/1/1970
+  # so there's offset of 70 years (inc. 17 leap years) in seconds
+  @ntp_offset (70 * 365 + 17) * 86_400
 
   @type t() :: %__MODULE__{
           sender_ssrc: non_neg_integer(),
@@ -73,9 +78,31 @@ defmodule ExWEbRTC.RTPSender.ReportRecorder do
   Creates an RTCP Sender Report.
   `time` parameter accepts output of `System.os_time(:native)` as a value.
   """
-  @spec get_report(t(), integer()) :: {SenderReport.t(), t()}
-  def get_report(_recorder, _time) do
-    # TODO
-    raise("not implemented")
+  @spec get_report(t(), integer()) :: SenderReport.t()
+  def get_report(recorder, time) do
+    ntp_time = to_ntp(time)
+    rtp_delta = delay_since(time, recorder.last_timestamp) * recorder.clock_rate
+
+    %SenderReport{
+      ssrc: recorder.sender_ssrc,
+      packet_count: recorder.packet_count,
+      octet_count: recorder.octet_count,
+      ntp_timestamp: ntp_time,
+      rtp_timestamp: round(recorder.last_rtp_timestamp + rtp_delta)
+    }
+  end
+
+  defp to_ntp(time) do
+    seconds = System.convert_time_unit(time, :native, :second)
+    micros = System.convert_time_unit(time, :native, :microsecond)
+
+    frac = div(micros <<< 32, 1_000_000)
+
+    (seconds + @ntp_offset) <<< 32 ||| frac
+  end
+
+  defp delay_since(cur_ts, last_ts) do
+    native_in_sec = System.convert_time_unit(1, :second, :native)
+    (cur_ts - last_ts) / native_in_sec
   end
 end
