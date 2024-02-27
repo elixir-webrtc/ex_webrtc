@@ -9,6 +9,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   # NTP epoch is 1/1/1900 vs UNIX epoch is 1/1/1970
   # so there's offset of 70 years (inc. 17 leap years) in seconds
   @ntp_offset (70 * 365 + 17) * 86_400
+  @micro_in_sec 1_000_000
 
   @type t() :: %__MODULE__{
           sender_ssrc: non_neg_integer(),
@@ -77,8 +78,13 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   @doc """
   Creates an RTCP Sender Report.
   `time` parameter accepts output of `System.os_time(:native)` as a value.
+
+  This function can be called only if at least one packet has been recorded,
+  otherwise it will raise.
   """
   @spec get_report(t(), integer()) :: SenderReport.t()
+  def get_report(%{last_timestamp: nil}, _time), do: raise("No packet has been recorded yet")
+
   def get_report(recorder, time) do
     ntp_time = to_ntp(time)
     rtp_delta = delay_since(time, recorder.last_timestamp) * recorder.clock_rate
@@ -94,9 +100,9 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
 
   defp to_ntp(time) do
     seconds = System.convert_time_unit(time, :native, :second)
-    micros = System.convert_time_unit(time, :native, :microsecond)
+    micros = System.convert_time_unit(time, :native, :microsecond) - seconds * @micro_in_sec
 
-    frac = div(micros <<< 32, 1_000_000)
+    frac = div(micros <<< 32, @micro_in_sec)
 
     (seconds + @ntp_offset) <<< 32 ||| frac
   end
