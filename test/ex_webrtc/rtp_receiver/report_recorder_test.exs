@@ -145,8 +145,8 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
         |> ReportRecorder.record_packet(packet, arrival_ts)
 
       # second packet arrived 1 millisecond late
-      # thus, jitter should be roughly equal to 1 millisecond in RTP ts units
-      assert_in_delta recorder.jitter, @clock_rate / 1000, 0.5
+      # thus, jitter should be roughly equal to 1 millisecond / 16 in RTP ts units
+      assert_in_delta recorder.jitter, @clock_rate / 1000 / 16, 0.5
 
       # remaining packets arrived perfectly on time
       # so the jitter should slowly converge to 0
