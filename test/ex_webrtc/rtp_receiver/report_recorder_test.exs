@@ -82,7 +82,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
         @recorder
         |> ReportRecorder.record_packet(packet1, @rand_ts)
         # packet 0 will be ignored,
-        # see comment in rtp_receiver/report_recorder.ex:82
+        # see comment in rtp_receiver/report_recorder.ex
         |> ReportRecorder.record_packet(packet0, @rand_ts)
         |> ReportRecorder.record_packet(packet3, @rand_ts)
         |> ReportRecorder.record_packet(@packet, @rand_ts)
