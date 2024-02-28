@@ -1,5 +1,6 @@
 defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   @moduledoc false
+  # based on https://datatracker.ietf.org/doc/html/rfc3550#section-6.4.1
 
   import Bitwise
 
@@ -171,11 +172,10 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
       clock_rate: clock_rate
     } = recorder
 
-    # see https://tools.ietf.org/html/rfc3550#page-39
     wlc_diff = native_to_sec(cur_ts - last_ts)
     rtp_diff = rtp_ts - last_rtp_ts
     diff = wlc_diff * clock_rate - rtp_diff
-    jitter = jitter + abs(diff) - jitter / 16
+    jitter = jitter + (abs(diff) - jitter) / 16
 
     %__MODULE__{
       recorder
