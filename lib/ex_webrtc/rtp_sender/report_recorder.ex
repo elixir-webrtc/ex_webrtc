@@ -53,6 +53,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
       octet_count: octet_count
     } = recorder
 
+    # a packet is in order when it is from the next cycle, or from current cycle with delta > 0
     delta = packet.sequence_number - last_seq_no
     in_order? = delta < -@breakpoint or (delta > 0 and delta < @breakpoint)
 
