@@ -740,10 +740,10 @@ defmodule ExWebRTC.PeerConnection do
               {packet, state}
           end
 
-        {packet, sender} = RTPSender.send(transceiver.sender, packet)
+        {packet, transceiver} = RTPTransceiver.send_packet(transceiver, packet)
         :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
 
-        transceivers = List.update_at(state.transceivers, idx, &%{&1 | sender: sender})
+        transceivers = List.replace_at(state.transceivers, idx, transceiver)
         state = %{state | transceivers: transceivers}
 
         {:noreply, state}
@@ -824,8 +824,8 @@ defmodule ExWebRTC.PeerConnection do
           _other -> twcc_recorder
         end
 
-      receiver = RTPReceiver.recv(t.receiver, packet, data)
-      transceivers = List.update_at(state.transceivers, idx, &%{&1 | receiver: receiver})
+      t = RTPTransceiver.receive_packet(t, packet, byte_size(data))
+      transceivers = List.replace_at(state.transceivers, idx, t)
 
       notify(state.owner, {:rtp, t.receiver.track.id, packet})
 

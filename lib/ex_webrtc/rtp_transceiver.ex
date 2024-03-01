@@ -13,6 +13,8 @@ defmodule ExWebRTC.RTPTransceiver do
     Utils
   }
 
+  alias ExRTCP.Packet.{SenderReport, ReceiverReport}
+
   @type id() :: integer()
   @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
   @type kind() :: :audio | :video
@@ -72,6 +74,7 @@ defmodule ExWebRTC.RTPTransceiver do
       end
 
     track = MediaStreamTrack.new(kind)
+    codec = List.first(codecs)
 
     %__MODULE__{
       id: Utils.generate_id(),
@@ -79,8 +82,8 @@ defmodule ExWebRTC.RTPTransceiver do
       kind: kind,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
-      receiver: %RTPReceiver{track: track},
-      sender: RTPSender.new(sender_track, List.first(codecs), rtp_hdr_exts, options[:ssrc]),
+      receiver: RTPReceiver.new(track, codec),
+      sender: RTPSender.new(sender_track, codec, rtp_hdr_exts, options[:ssrc]),
       added_by_add_track: Keyword.get(options, :added_by_add_track, false)
     }
   end
@@ -93,6 +96,7 @@ defmodule ExWebRTC.RTPTransceiver do
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
     track = MediaStreamTrack.new(mline.type)
+    codec = List.first(codecs)
 
     %__MODULE__{
       id: Utils.generate_id(),
@@ -102,8 +106,8 @@ defmodule ExWebRTC.RTPTransceiver do
       kind: mline.type,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
-      receiver: %RTPReceiver{track: track},
-      sender: RTPSender.new(nil, List.first(codecs), rtp_hdr_exts, mid, nil)
+      receiver: RTPReceiver.new(track, codec),
+      sender: RTPSender.new(nil, codec, rtp_hdr_exts, mid, nil)
     }
   end
 
@@ -132,14 +136,18 @@ defmodule ExWebRTC.RTPTransceiver do
 
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    sender = RTPSender.update(transceiver.sender, mid, List.first(codecs), rtp_hdr_exts)
+    codec = List.first(codecs)
+
+    receiver = RTPReceiver.update(transceiver.receiver, codec)
+    sender = RTPSender.update(transceiver.sender, mid, codec, rtp_hdr_exts)
 
     %__MODULE__{
       transceiver
       | mid: mid,
         codecs: codecs,
         rtp_hdr_exts: rtp_hdr_exts,
-        sender: sender
+        sender: sender,
+        receiver: receiver
     }
   end
 
@@ -179,6 +187,28 @@ defmodule ExWebRTC.RTPTransceiver do
       end
 
     %__MODULE__{transceiver | sender: sender, direction: direction}
+  end
+
+  @doc false
+  @spec receive_packet(t(), ExRTP.Packet.t(), non_neg_integer()) :: t()
+  def receive_packet(transceiver, packet, size) do
+    receiver = RTPReceiver.receive_packet(transceiver.receiver, packet, size)
+    %__MODULE__{transceiver | receiver: receiver}
+  end
+
+  @doc false
+  @spec receive_report(t(), SenderReport.t() | ReceiverReport.t()) :: t()
+  def receive_report(transceiver, _report) do
+    # TODO
+    transceiver
+  end
+
+  @doc false
+  @spec send_packet(t(), ExRTP.Packet.t()) :: {binary(), t()}
+  def send_packet(transceiver, packet) do
+    receiver = RTPReceiver.update_sender_ssrc(transceiver.receiver, packet.ssrc)
+    {packet, sender} = RTPSender.send_packet(transceiver.sender, packet)
+    {packet, %__MODULE__{transceiver | sender: sender, receiver: receiver}}
   end
 
   @doc false

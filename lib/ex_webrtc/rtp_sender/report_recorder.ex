@@ -12,23 +12,22 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   @micro_in_sec 1_000_000
 
   @type t() :: %__MODULE__{
-          sender_ssrc: non_neg_integer(),
-          clock_rate: non_neg_integer(),
-          last_rtp_timestamp: ExRTP.Packet.uint32(),
-          last_seq_no: ExRTP.Packet.uint16(),
-          last_timestamp: integer(),
+          sender_ssrc: non_neg_integer() | nil,
+          clock_rate: non_neg_integer() | nil,
+          last_rtp_timestamp: ExRTP.Packet.uint32() | nil,
+          last_seq_no: ExRTP.Packet.uint16() | nil,
+          last_timestamp: integer() | nil,
           packet_count: non_neg_integer(),
           octet_count: non_neg_integer()
         }
 
-  @enforce_keys [:sender_ssrc, :clock_rate]
-  defstruct [
-              last_rtp_timestamp: nil,
-              last_seq_no: nil,
-              last_timestamp: nil,
-              packet_count: 0,
-              octet_count: 0
-            ] ++ @enforce_keys
+  defstruct clock_rate: nil,
+            sender_ssrc: nil,
+            last_rtp_timestamp: nil,
+            last_seq_no: nil,
+            last_timestamp: nil,
+            packet_count: 0,
+            octet_count: 0
 
   @doc """
   Records outgoing RTP Packet.
@@ -38,7 +37,8 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   def record_packet(%{last_timestamp: nil} = recorder, packet, time) do
     %__MODULE__{
       recorder
-      | last_rtp_timestamp: packet.timestamp,
+      | sender_ssrc: packet.ssrc,
+        last_rtp_timestamp: packet.timestamp,
         last_seq_no: packet.sequence_number,
         last_timestamp: time,
         packet_count: 1,
@@ -85,6 +85,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   """
   @spec get_report(t(), integer()) :: SenderReport.t()
   def get_report(%{last_timestamp: nil}, _time), do: raise("No packet has been recorded yet")
+  def get_report(%{clock_rate: nil}, _time), do: raise("Clock rate was not set")
 
   def get_report(recorder, time) do
     ntp_time = to_ntp(time)
