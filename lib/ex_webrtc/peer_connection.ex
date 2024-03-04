@@ -886,6 +886,32 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_info({:send_report, type, transceiver_id}, state) do
+    transceiver =
+      state.transceivers
+      |> Enum.with_index()
+      |> Enum.find(fn {tr, _idx} -> tr.id == transceiver_id end)
+
+    transceivers =
+      case transceiver do
+        nil ->
+          state.transceivers
+
+        {tr, idx} ->
+          {report, tr} = RTPTransceiver.get_report(tr, type)
+
+          if report != nil do
+            encoded = ExRTCP.Packet.encode(report)
+            :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
+          end
+
+          List.replace_at(state.transceivers, idx, tr)
+      end
+
+    {:noreply, %{state | transceivers: transceivers}}
+  end
+
+  @impl true
   def handle_info(msg, state) do
     Logger.info("OTHER MSG #{inspect(msg)}")
     {:noreply, state}

@@ -80,8 +80,8 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   Creates an RTCP Receiver Report.
   `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
   """
-  @spec get_report(t(), integer()) :: {ReceiverReport.t(), t()}
-  def get_report(%{media_ssrc: nil}, _time), do: raise("No packet has been recorded yet")
+  @spec get_report(t(), integer()) :: {:ok, ReceiverReport.t(), t()} | {:error, term()}
+  def get_report(%{media_ssrc: nil}, _time), do: {:error, :no_packets}
 
   def(get_report(recorder, time)) do
     received =
@@ -120,7 +120,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
         total_lost: total_lost
     }
 
-    {report, recorder}
+    {:ok, report, recorder}
   end
 
   defp record_seq_no(recorder, rtp_seq_no) do

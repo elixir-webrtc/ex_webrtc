@@ -15,6 +15,8 @@ defmodule ExWebRTC.RTPTransceiver do
 
   alias ExRTCP.Packet.{SenderReport, ReceiverReport}
 
+  @report_interval 1000
+
   @type id() :: integer()
   @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
   @type kind() :: :audio | :video
@@ -76,8 +78,12 @@ defmodule ExWebRTC.RTPTransceiver do
     track = MediaStreamTrack.new(kind)
     codec = List.first(codecs)
 
+    id = Utils.generate_id()
+    send(self(), {:send_report, :sender, id})
+    send(self(), {:send_report, :receiver, id})
+
     %__MODULE__{
-      id: Utils.generate_id(),
+      id: id,
       direction: direction,
       kind: kind,
       codecs: codecs,
@@ -209,6 +215,32 @@ defmodule ExWebRTC.RTPTransceiver do
     receiver = RTPReceiver.update_sender_ssrc(transceiver.receiver, packet.ssrc)
     {packet, sender} = RTPSender.send_packet(transceiver.sender, packet)
     {packet, %__MODULE__{transceiver | sender: sender, receiver: receiver}}
+  end
+
+  @doc false
+  @spec get_report(t(), :sender | :receiver) :: {ExRTCP.Packet.SenderReport.t() | nil, t()}
+  def get_report(transceiver, type) do
+    ts = System.os_time()
+    Process.send_after(self(), {:send_report, type, transceiver.id}, report_interval())
+
+    module =
+      case type do
+        :sender -> RTPSender.ReportRecorder
+        :receiver -> RTPReceiver.ReportRecorder
+      end
+
+    send_or_recv = Map.fetch!(transceiver, type)
+    recorder = send_or_recv.report_recorder
+
+    case module.get_report(recorder, ts) do
+      {:ok, report, recorder} ->
+        send_or_recv = %{send_or_recv | report_recorder: recorder}
+        transceiver = Map.replace!(transceiver, type, send_or_recv)
+        {report, transceiver}
+
+      {:error, _reason} ->
+        {nil, transceiver}
+    end
   end
 
   @doc false
@@ -346,5 +378,10 @@ defmodule ExWebRTC.RTPTransceiver do
     mline
     |> ExSDP.get_attributes(ExSDP.Attribute.Extmap)
     |> Enum.filter(&Configuration.supported_rtp_hdr_extension?(config, &1, mline.type))
+  end
+
+  defp report_interval do
+    factor = :rand.uniform() + 0.5
+    trunc(factor * @report_interval)
   end
 end
