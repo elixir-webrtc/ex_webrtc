@@ -109,6 +109,8 @@ track = MediaStreamTrack.new(:audio)
 This section outlines how you can establish a bidirectional connection
 using a single negotiation and the *Warmup* technique. 
 
+Note that applying an answer on pc1 triggers a `track` event.
+
 <!-- tabs-open -->
 
 ### JavaScript
@@ -118,6 +120,9 @@ using a single negotiation and the *Warmup* technique.
 ```js
 pc1 = new RTCPeerConnection();
 pc2 = new RTCPeerConnection();
+
+pc1.ontrack = ev => console.log("pc1 ontrack");
+pc2.ontrack = ev => console.log("pc2 ontrack");
 
 tr = pc1.addTransceiver("audio");
 
@@ -145,12 +150,16 @@ await pc1.setRemoteDescription(answer);
 :ok = PeerConnection.set_local_description(pc1, offer)
 :ok = PeerConnection.set_remote_description(pc2, offer)
 
+receive do {:ex_webrtc, ^pc2, {:track, _track}} = msg -> IO.inspect(msg) end
+
 [pc2_tr] = PeerConnection.get_transceivers(pc2)
 :ok = PeerConnection.set_transceiver_direction(pc2, pc2_tr.id, :sendrecv)
 
 {:ok, answer} = PeerConnection.create_answer(pc2)
 :ok = PeerConnection.set_local_description(pc2, answer)
 :ok = PeerConnection.set_remote_description(pc1, answer)
+
+receive do {:ex_webrtc, ^pc1, {:track, _track}} = msg -> IO.inspect(msg) end
 ```
 
 <!-- tabs-close -->
