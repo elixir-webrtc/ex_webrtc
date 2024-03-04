@@ -127,12 +127,16 @@ defmodule ExWebRTC.SDPUtils do
           {:ok, :active | :passive | :actpass}
           | {:error, :missing_dtls_role | :conflicting_dtls_roles}
   def get_dtls_role(sdp) do
-    session_role = ExSDP.get_attribute(sdp, :setup)
+    session_role =
+      case ExSDP.get_attribute(sdp, :setup) do
+        {:setup, setup} -> setup
+        nil -> nil
+      end
 
     mline_roles =
       sdp.media
       |> Enum.flat_map(&ExSDP.get_attributes(&1, :setup))
-      |> Enum.map(fn {_, setup} -> setup end)
+      |> Enum.map(fn {:setup, setup} -> setup end)
 
     case {session_role, mline_roles} do
       {nil, []} ->
