@@ -173,7 +173,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
       |> ReportRecorder.record_report(@sender_report, @rand_ts)
 
     one_second = System.convert_time_unit(1, :second, :native)
-    assert {report, recorder} = ReportRecorder.get_report(recorder, @rand_ts + one_second)
+    assert {:ok, report, recorder} = ReportRecorder.get_report(recorder, @rand_ts + one_second)
     assert %ReceiverReport{reports: [rec_report]} = report
 
     assert %ReceptionReport{
@@ -193,7 +193,9 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
         ReportRecorder.record_packet(recorder, packet, @rand_ts)
       end)
 
-    assert {report, _recorder} = ReportRecorder.get_report(recorder, @rand_ts + 2 * one_second)
+    assert {:ok, report, _recorder} =
+             ReportRecorder.get_report(recorder, @rand_ts + 2 * one_second)
+
     assert %ReceiverReport{reports: [rec_report]} = report
 
     lost = 23

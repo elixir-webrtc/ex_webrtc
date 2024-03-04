@@ -1,5 +1,5 @@
 defmodule ExWebRTC.RTPReceiver.ReportRecorder do
-  @moduledoc false
+  @moduledoc nil
   # based on https://datatracker.ietf.org/doc/html/rfc3550#section-6.4.1
 
   import Bitwise

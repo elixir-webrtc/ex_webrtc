@@ -1,5 +1,5 @@
 defmodule ExWebRTC.RTPSender.ReportRecorder do
-  @moduledoc false
+  @moduledoc nil
 
   import Bitwise
 

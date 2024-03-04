@@ -34,7 +34,7 @@ defmodule ExWebRTC.RTPSenderTest do
 
     packet = ExRTP.Packet.new(<<>>)
 
-    {packet, sender} = RTPSender.send(sender, packet)
+    {packet, sender} = RTPSender.send_packet(sender, packet)
 
     {:ok, packet} = ExRTP.Packet.decode(packet)
 
@@ -51,7 +51,7 @@ defmodule ExWebRTC.RTPSenderTest do
     # check sequence number rollover and marker flag
     sender = %RTPSender{sender | last_seq_num: @max_seq_num}
     packet = ExRTP.Packet.new(<<>>, sequence_number: 1, marker: true)
-    {packet, _sender} = RTPSender.send(sender, packet)
+    {packet, _sender} = RTPSender.send_packet(sender, packet)
     {:ok, packet} = ExRTP.Packet.decode(packet)
     assert packet.sequence_number == 0
     # marker flag shouldn't be overwritten
@@ -73,7 +73,7 @@ defmodule ExWebRTC.RTPSenderTest do
            } == RTPSender.get_stats(sender, timestamp)
 
     packet = ExRTP.Packet.new(payload)
-    {data1, sender} = RTPSender.send(sender, packet)
+    {data1, sender} = RTPSender.send_packet(sender, packet)
 
     assert %{
              timestamp: timestamp,
@@ -86,7 +86,7 @@ defmodule ExWebRTC.RTPSenderTest do
            } == RTPSender.get_stats(sender, timestamp)
 
     packet = ExRTP.Packet.new(payload, marker: true)
-    {data2, sender} = RTPSender.send(sender, packet)
+    {data2, sender} = RTPSender.send_packet(sender, packet)
 
     assert %{
              timestamp: timestamp,
