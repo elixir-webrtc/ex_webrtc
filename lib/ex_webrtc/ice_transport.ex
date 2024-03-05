@@ -11,6 +11,8 @@ defmodule ExWebRTC.ICETransport do
   @callback end_of_candidates(pid()) :: :ok
   @callback gather_candidates(pid()) :: :ok
   @callback get_local_credentials(pid()) :: {:ok, ufrag :: binary(), pwd :: binary()}
+  @callback get_local_candidates(pid()) :: [binary()]
+  @callback get_remote_candidates(pid()) :: [binary()]
   @callback restart(pid()) :: :ok
   @callback send_data(pid(), binary()) :: :ok
   @callback set_remote_credentials(pid(), ufrag :: binary(), pwd :: binary()) :: :ok
@@ -37,6 +39,10 @@ defmodule ExWebRTC.DefaultICETransport do
   defdelegate gather_candidates(pid), to: ICEAgent
   @impl true
   defdelegate get_local_credentials(pid), to: ICEAgent
+  @impl true
+  defdelegate get_local_candidates(pid), to: ICEAgent
+  @impl true
+  defdelegate get_remote_candidates(pid), to: ICEAgent
   @impl true
   defdelegate restart(pid), to: ICEAgent
   @impl true

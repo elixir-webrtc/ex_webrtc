@@ -103,15 +103,30 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, {:set_local_description, description})
   end
 
-  @spec get_current_local_description(peer_connection()) :: SessionDescription.t() | nil
-  def get_current_local_description(peer_connection) do
-    GenServer.call(peer_connection, :get_current_local_description)
+  @spec pending_local_description(peer_connection()) :: SessionDescription.t() | nil
+  def pending_local_description(peer_connection) do
+    GenServer.call(peer_connection, :pending_local_description)
+  end
+
+  @spec current_local_description(peer_connection()) :: SessionDescription.t() | nil
+  def current_local_description(peer_connection) do
+    GenServer.call(peer_connection, :current_local_description)
   end
 
   @spec set_remote_description(peer_connection(), SessionDescription.t()) ::
           :ok | {:error, atom()}
   def set_remote_description(peer_connection, description) do
     GenServer.call(peer_connection, {:set_remote_description, description})
+  end
+
+  @spec pending_remote_description(peer_connection()) :: SessionDescription.t() | nil
+  def pending_remote_description(peer_connection) do
+    GenServer.call(peer_connection, :pending_remote_description)
+  end
+
+  @spec current_remote_description(peer_connection()) :: SessionDescription.t() | nil
+  def current_remote_description(peer_connection) do
+    GenServer.call(peer_connection, :current_remote_description)
   end
 
   @spec get_current_remote_description(peer_connection()) :: SessionDescription.t() | nil
@@ -372,15 +387,15 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_call(:get_current_local_description, _from, state) do
-    case state.current_local_desc do
-      nil ->
-        {:reply, nil, state}
+  def handle_call(:pending_local_description, _from, state) do
+    desc = get_description(:pending, :local, state)
+    {:reply, desc, state}
+  end
 
-      {type, sdp} ->
-        desc = %SessionDescription{type: type, sdp: to_string(sdp)}
-        {:reply, desc, state}
-    end
+  @impl true
+  def handle_call(:current_local_description, _from, state) do
+    desc = get_description(:current, :local, state)
+    {:reply, desc, state}
   end
 
   @impl true
@@ -392,15 +407,15 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_call(:get_current_remote_description, _from, state) do
-    case state.current_remote_desc do
-      nil ->
-        {:reply, nil, state}
+  def handle_call(:pending_remote_description, _from, state) do
+    desc = get_description(:pending, :remote, state)
+    {:reply, desc, state}
+  end
 
-      {type, sdp} ->
-        desc = %SessionDescription{type: type, sdp: to_string(sdp)}
-        {:reply, desc, state}
-    end
+  @impl true
+  def handle_call(:current_remote_description, _from, state) do
+    desc = get_description(:current, :remote, state)
+    {:reply, desc, state}
   end
 
   @impl true
@@ -1447,6 +1462,31 @@ defmodule ExWebRTC.PeerConnection do
 
       true ->
         negotiation_needed?(transceivers, state)
+    end
+  end
+
+  defp get_description(type, from, state) do
+    desc =
+      case {type, from} do
+        {:pending, :local} -> state.pending_local_desc
+        {:current, :local} -> state.current_local_desc
+        {:pending, :remote} -> state.pending_remote_desc
+        {:current, :remote} -> state.current_remote_desc
+      end
+
+    candidates =
+      case from do
+        :local -> state.ice_transport.get_local_candidates(state.ice_pid)
+        :remote -> state.ice_transport.get_remote_candidates(state.ice_pid)
+      end
+
+    case desc do
+      nil ->
+        nil
+
+      {type, sdp} ->
+        sdp = SDPUtils.add_ice_candidates(sdp, candidates)
+        %SessionDescription{type: type, sdp: to_string(sdp)}
     end
   end
 
