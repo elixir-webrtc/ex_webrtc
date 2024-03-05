@@ -231,13 +231,21 @@ defmodule ExWebRTC.PeerConnectionTest do
       sdp = ExSDP.add_media(ExSDP.new(), [@audio_mline, @video_mline])
 
       [
-        {nil, {:error, :missing_bundle_group}},
-        {%ExSDP.Attribute.Group{semantics: "BUNDLE", mids: [0]},
+        {[], {:error, :missing_bundle_group}},
+        {[%ExSDP.Attribute.Group{semantics: "BUNDLE", mids: [0]}],
          {:error, :non_exhaustive_bundle_group}},
-        {%ExSDP.Attribute.Group{semantics: "BUNDLE", mids: [0, 1]}, :ok}
+        {[
+           %ExSDP.Attribute.Group{semantics: "BUNDLE", mids: [0, 1]},
+           %ExSDP.Attribute.Group{semantics: "BUNDLE", mids: [0, 1]}
+         ], {:error, :multiple_bundle_groups}},
+        {[%ExSDP.Attribute.Group{semantics: "BUNDLE", mids: [0, 1]}], :ok},
+        {[
+           %ExSDP.Attribute.Group{semantics: "BUNDLE", mids: [0, 1]},
+           %ExSDP.Attribute.Group{semantics: "LS", mids: [0, 1]}
+         ], :ok}
       ]
-      |> Enum.each(fn {bundle_group, expected_result} ->
-        sdp = ExSDP.add_attribute(sdp, bundle_group) |> to_string()
+      |> Enum.each(fn {groups, expected_result} ->
+        sdp = ExSDP.add_attributes(sdp, groups) |> to_string()
         offer = %SessionDescription{type: :offer, sdp: sdp}
         assert expected_result == PeerConnection.set_remote_description(pc, offer)
       end)
