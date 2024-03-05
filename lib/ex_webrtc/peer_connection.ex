@@ -75,14 +75,21 @@ defmodule ExWebRTC.PeerConnection do
 
   @spec start_link(Configuration.options()) :: GenServer.on_start()
   def start_link(options \\ []) do
+    {controlling_process, options} = Keyword.pop(options, :controlling_process)
+    controlling_process = controlling_process || self()
     configuration = Configuration.from_options!(options)
-    GenServer.start_link(__MODULE__, {self(), configuration})
+    GenServer.start_link(__MODULE__, {controlling_process, configuration})
   end
 
   @spec start(Configuration.options()) :: GenServer.on_start()
   def start(options \\ []) do
     configuration = Configuration.from_options!(options)
     GenServer.start(__MODULE__, {self(), configuration})
+  end
+
+  @spec controlling_process(peer_connection(), pid()) :: :ok
+  def controlling_process(peer_connection, controlling_process) do
+    GenServer.call(peer_connection, {:controlling_process, controlling_process})
   end
 
   @spec create_offer(peer_connection(), offer_options()) ::
@@ -245,6 +252,12 @@ defmodule ExWebRTC.PeerConnection do
     notify(state.owner, {:signaling_state_change, :stable})
 
     {:ok, state}
+  end
+
+  @impl true
+  def handle_call({:controlling_process, controlling_process}, _from, state) do
+    state = %{state | owner: controlling_process}
+    {:reply, :ok, state}
   end
 
   @impl true

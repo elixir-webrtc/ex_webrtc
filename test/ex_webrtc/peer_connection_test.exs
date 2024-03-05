@@ -199,6 +199,22 @@ defmodule ExWebRTC.PeerConnectionTest do
 
   # API TESTS
 
+  test "controlling process" do
+    test_pid = self()
+
+    spawn(fn ->
+      # The first notifications are sent in PeerConnection's init callback -
+      # assert they will land in the outer process.
+      {:ok, pid} = PeerConnection.start_link(controlling_process: test_pid)
+      # From now, all notifications should land in the inner process.
+      assert :ok = PeerConnection.controlling_process(pid, self())
+      :ok = PeerConnection.add_transceiver(pid, :audio)
+      assert_receive {:ex_webrtc, _pid, :negotiation_needed}
+    end)
+
+    assert_receive {:ex_webrtc, _pid, {:connection_state_change, :new}}
+  end
+
   test "get_all_running" do
     {:ok, pc1} = PeerConnection.start()
     {:ok, pc2} = PeerConnection.start()
