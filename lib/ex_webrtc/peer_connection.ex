@@ -852,7 +852,13 @@ defmodule ExWebRTC.PeerConnection do
   def handle_info({:dtls_transport, _pid, {:rtcp, data}}, state) do
     case ExRTCP.CompoundPacket.decode(data) do
       {:ok, packets} ->
+        transceivers =
+          Enum.reduce(packets, state.transceivers, fn packet, transceivers ->
+            maybe_handle_report(packet, transceivers)
+          end)
+
         notify(state.owner, {:rtcp, packets})
+        {:noreply, %{state | transceivers: transceivers}}
 
       {:error, _res} ->
         case data do
@@ -862,9 +868,9 @@ defmodule ExWebRTC.PeerConnection do
           _ ->
             Logger.warning("Failed to decode RTCP packet, packet is too short")
         end
-    end
 
-    {:noreply, state}
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -1475,6 +1481,24 @@ defmodule ExWebRTC.PeerConnection do
         negotiation_needed?(transceivers, state)
     end
   end
+
+  def maybe_handle_report(%ExRTCP.Packet.SenderReport{} = report, transceivers) do
+    transceiver =
+      transceivers
+      |> Enum.with_index()
+      |> Enum.find(fn {tr, _idx} -> tr.receiver.ssrc == report.ssrc end)
+
+    case transceiver do
+      nil ->
+        transceivers
+
+      {tr, idx} ->
+        tr = RTPTransceiver.receive_report(tr, report)
+        List.replace_at(transceivers, idx, tr)
+    end
+  end
+
+  def maybe_handle_report(_report, transceivers), do: transceivers
 
   defp generate_ssrc(state) do
     rtp_sender_ssrcs = Enum.map(state.transceivers, & &1.sender.ssrc)

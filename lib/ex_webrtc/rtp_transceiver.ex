@@ -13,8 +13,6 @@ defmodule ExWebRTC.RTPTransceiver do
     Utils
   }
 
-  alias ExRTCP.Packet.{SenderReport, ReceiverReport}
-
   @report_interval 1000
 
   @type id() :: integer()
@@ -203,10 +201,19 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec receive_report(t(), SenderReport.t() | ReceiverReport.t()) :: t()
-  def receive_report(transceiver, _report) do
-    # TODO
-    transceiver
+  @spec receive_report(t(), ExRTCP.Packet.SenderReport.t()) :: t()
+  def receive_report(transceiver, report) do
+    ts = System.monotonic_time()
+
+    report_recorder =
+      RTPReceiver.ReportRecorder.record_report(
+        transceiver.receiver.report_recorder,
+        report,
+        ts
+      )
+
+    receiver = %RTPReceiver{transceiver.receiver | report_recorder: report_recorder}
+    %__MODULE__{transceiver | receiver: receiver}
   end
 
   @doc false

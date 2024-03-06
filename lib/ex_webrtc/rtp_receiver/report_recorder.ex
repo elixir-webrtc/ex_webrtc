@@ -83,7 +83,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   @spec get_report(t(), integer()) :: {:ok, ReceiverReport.t(), t()} | {:error, term()}
   def get_report(%{media_ssrc: nil}, _time), do: {:error, :no_packets}
 
-  def(get_report(recorder, time)) do
+  def get_report(recorder, time) do
     received =
       recorder.last_seq_no
       |> seq_no_diff(recorder.last_report_seq_no)
