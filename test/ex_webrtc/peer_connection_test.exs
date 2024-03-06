@@ -208,6 +208,27 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = PeerConnection.close(pc2)
   end
 
+  describe "get_local_description/1" do
+    test "includes ICE candidates" do
+      {:ok, pc} = PeerConnection.start()
+      {:ok, _sender} = PeerConnection.add_transceiver(pc, :audio)
+      {:ok, offer} = PeerConnection.create_offer(pc)
+      :ok = PeerConnection.set_local_description(pc, offer)
+
+      assert_receive {:ex_webrtc, _from, {:ice_candidate, cand}}
+      desc = PeerConnection.get_local_description(pc)
+
+      assert desc != nil
+
+      "a=" <> desc_cand =
+        desc.sdp
+        |> String.split("\r\n")
+        |> Enum.find(&String.starts_with?(&1, "a=candidate:"))
+
+      assert desc_cand == cand.candidate
+    end
+  end
+
   describe "set_remote_description/2" do
     test "MID" do
       {:ok, pc} = PeerConnection.start_link()
@@ -883,27 +904,6 @@ defmodule ExWebRTC.PeerConnectionTest do
       assert false == Process.alive?(link) or
                Process.info(link)[:registered_name] == ExWebRTC.Registry.PIDPartition0
     end)
-  end
-
-  describe "get_description" do
-    test "includes ICE candidates" do
-      {:ok, pc} = PeerConnection.start()
-      {:ok, _sender} = PeerConnection.add_transceiver(pc, :audio)
-      {:ok, offer} = PeerConnection.create_offer(pc)
-      :ok = PeerConnection.set_local_description(pc, offer)
-
-      assert_receive {:ex_webrtc, _from, {:ice_candidate, cand}}
-      desc = PeerConnection.get_local_description(pc)
-
-      assert desc != nil
-
-      "a=" <> desc_cand =
-        desc.sdp
-        |> String.split("\r\n")
-        |> Enum.find(&String.starts_with?(&1, "a=candidate:"))
-
-      assert desc_cand == cand.candidate
-    end
   end
 
   # MISC TESTS
