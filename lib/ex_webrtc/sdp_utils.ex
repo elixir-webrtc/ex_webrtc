@@ -127,6 +127,13 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.map(fn {"candidate", attr} -> attr end)
   end
 
+  @spec add_ice_candidates(ExSDP.t(), [String.t()]) :: ExSDP.t()
+  def add_ice_candidates(sdp, candidates) do
+    candidates = Enum.map(candidates, &{"candidate", &1})
+    media = Enum.map(sdp.media, &ExSDP.add_attributes(&1, candidates))
+    %ExSDP{sdp | media: media}
+  end
+
   @spec get_dtls_role(ExSDP.t()) ::
           {:ok, :active | :passive | :actpass}
           | {:error, :missing_dtls_role | :conflicting_dtls_roles}

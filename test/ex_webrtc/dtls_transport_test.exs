@@ -36,6 +36,12 @@ defmodule ExWebRTC.DTLSTransportTest do
     def get_local_credentials(_state), do: {:ok, "testufrag", "testpwd"}
 
     @impl true
+    def get_local_candidates(_ice_pid), do: []
+
+    @impl true
+    def get_remote_candidates(_ice_pid), do: []
+
+    @impl true
     def restart(ice_pid), do: ice_pid
 
     @impl true
