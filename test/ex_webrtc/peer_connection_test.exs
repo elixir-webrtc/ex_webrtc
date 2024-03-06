@@ -885,6 +885,27 @@ defmodule ExWebRTC.PeerConnectionTest do
     end)
   end
 
+  describe "get_description" do
+    test "includes ICE candidates" do
+      {:ok, pc} = PeerConnection.start()
+      {:ok, _sender} = PeerConnection.add_transceiver(pc, :audio)
+      {:ok, offer} = PeerConnection.create_offer(pc)
+      :ok = PeerConnection.set_local_description(pc, offer)
+
+      assert_receive {:ex_webrtc, _from, {:ice_candidate, cand}}
+      desc = PeerConnection.get_local_description(pc)
+
+      assert desc != nil
+
+      "a=" <> desc_cand =
+        desc.sdp
+        |> String.split("\r\n")
+        |> Enum.find(&String.starts_with?(&1, "a=candidate:"))
+
+      assert desc_cand == cand.candidate
+    end
+  end
+
   # MISC TESTS
 
   describe "send data in both directions on a single transceiver" do
