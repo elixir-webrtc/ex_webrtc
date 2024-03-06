@@ -215,12 +215,23 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert_receive {:ex_webrtc, _pid, {:connection_state_change, :new}}
   end
 
-  test "get_all_running" do
+  test "get_all_running/0" do
     {:ok, pc1} = PeerConnection.start()
     {:ok, pc2} = PeerConnection.start()
-    assert MapSet.new([pc1, pc2]) == PeerConnection.get_all_running() |> MapSet.new()
+
+    expected = MapSet.new([pc1, pc2])
+    all = PeerConnection.get_all_running() |> MapSet.new()
+
+    # Because we are running tests asynchronously,
+    # we can't compare `all` and `expected` with `==`.
+    assert MapSet.subset?(expected, all)
+
     :ok = PeerConnection.close(pc1)
-    assert [^pc2] = PeerConnection.get_all_running()
+    all = PeerConnection.get_all_running() |> MapSet.new()
+
+    refute MapSet.member?(all, pc1)
+    assert MapSet.member?(all, pc2)
+
     :ok = PeerConnection.close(pc2)
   end
 
