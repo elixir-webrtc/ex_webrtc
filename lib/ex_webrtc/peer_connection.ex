@@ -1466,15 +1466,11 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  defp do_get_description(desc, candidates) do
-    case desc do
-      nil ->
-        nil
+  defp do_get_description(nil, _candidates), do: nil
 
-      {type, sdp} ->
-        sdp = SDPUtils.add_ice_candidates(sdp, candidates)
-        %SessionDescription{type: type, sdp: to_string(sdp)}
-    end
+  defp do_get_description({type, sdp}, candidates) do
+    sdp = SDPUtils.add_ice_candidates(sdp, candidates)
+    %SessionDescription{type: type, sdp: to_string(sdp)}
   end
 
   defp generate_ssrc(state) do
