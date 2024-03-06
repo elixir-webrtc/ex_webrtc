@@ -79,13 +79,14 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @typedoc """
   Options that can be passed to `ExWebRTC.PeerConnection.start_link/1`.
 
+  * `controlling_process` - a pid of a process where all messages will be sent.
   * `ice_servers` - list of STUN servers to use.
   TURN servers are not supported right now and will be filtered out.
   * `ice_ip_filter` - filter applied when gathering local candidates
   * `audio_codecs` - list of audio codecs to use.
   Use `default_audio_codecs/0` to get a list of default audio codecs.
   This option overrides default audio codecs.
-  If you wish to add codecs to default ones do 
+  If you wish to add codecs to default ones do
   `audio_codecs: Configuration.default_audio_codecs() ++ my_codecs`
   * `video_codecs` - the same as `audio_codecs` but for video.
   If you wish to e.g. only use AV1, pass as video_codecs:
@@ -114,6 +115,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   This config cannot be changed.
   """
   @type options() :: [
+          controlling_process: pid(),
           ice_servers: [ice_server()],
           ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
@@ -151,7 +153,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   def default_video_codecs(), do: @default_video_codecs
 
   @doc false
-  @spec from_options!(options()) :: t()
+  @spec from_options!(Keyword.t()) :: t()
   def from_options!(options) do
     options =
       options
