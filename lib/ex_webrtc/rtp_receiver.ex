@@ -36,7 +36,6 @@ defmodule ExWebRTC.RTPReceiver do
   @doc false
   @spec update(t(), RTPCodecParameters.t() | nil) :: t()
   def update(receiver, codec) do
-    # TODO: if clock_rate changed, we should reset the recorder
     report_recorder = %ReportRecorder{
       receiver.report_recorder
       | clock_rate: codec && codec.clock_rate
