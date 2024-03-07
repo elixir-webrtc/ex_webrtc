@@ -44,6 +44,8 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
   """
   @spec record_packet(t(), ExRTP.Packet.t(), integer()) :: t()
+  def record_packet(recorder, packet, time \\ System.monotonic_time())
+
   def record_packet(%{clock_rate: nil}, _packet, _time), do: raise("Clock rate was not set")
 
   def record_packet(%{last_seq_no: nil} = recorder, packet, time) do
@@ -69,7 +71,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
   """
   @spec record_report(t(), ExRTCP.Packet.SenderReport.t(), integer()) :: t()
-  def record_report(recorder, sender_report, time) do
+  def record_report(recorder, sender_report, time \\ System.monotonic_time()) do
     # we take the middle 32 bits of the NTP timestamp
     ntp_ts = sender_report.ntp_timestamp >>> 16 &&& @max_u32
 
@@ -81,6 +83,8 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
   """
   @spec get_report(t(), integer()) :: {:ok, ReceiverReport.t(), t()} | {:error, term()}
+  def get_report(recorder, time \\ System.monotonic_time())
+
   def get_report(%{media_ssrc: nil}, _time), do: {:error, :no_packets}
 
   def get_report(recorder, time) do

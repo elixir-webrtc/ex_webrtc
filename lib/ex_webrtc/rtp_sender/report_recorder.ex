@@ -34,6 +34,8 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   `time` parameter accepts output of `System.os_time(:native)` as a value (UNIX timestamp in :native units).
   """
   @spec record_packet(t(), ExRTP.Packet.t(), integer()) :: t()
+  def record_packet(recorder, packet, time \\ System.os_time(:native))
+
   def record_packet(%{clock_rate: nil}, _packet, _time), do: raise("Clock rate was not set")
 
   def record_packet(%{last_seq_no: nil} = recorder, packet, time) do
@@ -86,6 +88,8 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   otherwise it will raise.
   """
   @spec get_report(t(), integer()) :: {:ok, SenderReport.t(), t()} | {:error, term()}
+  def get_report(recorder, time \\ System.os_time(:native))
+
   def get_report(%{sender_ssrc: nil}, _time), do: {:error, :no_packets}
 
   def get_report(recorder, time) do

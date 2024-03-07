@@ -13,6 +13,8 @@ defmodule ExWebRTC.RTPTransceiver do
     Utils
   }
 
+  alias ExRTCP.Packet.{ReceiverReport, SenderReport}
+
   @report_interval 1000
 
   @type id() :: integer()
@@ -225,9 +227,8 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec get_report(t(), :sender | :receiver) :: {ExRTCP.Packet.SenderReport.t() | nil, t()}
+  @spec get_report(t(), :sender | :receiver) :: {SenderReport.t() | ReceiverReport.t() | nil, t()}
   def get_report(transceiver, type) do
-    ts = System.os_time()
     Process.send_after(self(), {:send_report, type, transceiver.id}, report_interval())
 
     module =
@@ -239,7 +240,7 @@ defmodule ExWebRTC.RTPTransceiver do
     send_or_recv = Map.fetch!(transceiver, type)
     recorder = send_or_recv.report_recorder
 
-    case module.get_report(recorder, ts) do
+    case module.get_report(recorder) do
       {:ok, report, recorder} ->
         send_or_recv = %{send_or_recv | report_recorder: recorder}
         transceiver = Map.replace!(transceiver, type, send_or_recv)
