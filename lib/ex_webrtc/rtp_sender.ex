@@ -107,8 +107,7 @@ defmodule ExWebRTC.RTPSender do
     next_seq_num = sender.last_seq_num + 1 &&& 0xFFFF
     packet = %{packet | payload_type: sender.pt, ssrc: sender.ssrc, sequence_number: next_seq_num}
 
-    report_recorder =
-      ReportRecorder.record_packet(sender.report_recorder, packet, System.os_time())
+    report_recorder = ReportRecorder.record_packet(sender.report_recorder, packet)
 
     data =
       packet

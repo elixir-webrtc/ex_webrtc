@@ -104,8 +104,12 @@ defmodule ExWebRTC.RTPTransceiver do
     track = MediaStreamTrack.new(mline.type)
     codec = List.first(codecs)
 
+    id = Utils.generate_id()
+    send(self(), {:send_report, :sender, id})
+    send(self(), {:send_report, :receiver, id})
+
     %__MODULE__{
-      id: Utils.generate_id(),
+      id: id,
       mid: mid,
       mline_idx: mline_idx,
       direction: :recvonly,
@@ -205,14 +209,8 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec receive_report(t(), ExRTCP.Packet.SenderReport.t()) :: t()
   def receive_report(transceiver, report) do
-    ts = System.monotonic_time()
-
     report_recorder =
-      RTPReceiver.ReportRecorder.record_report(
-        transceiver.receiver.report_recorder,
-        report,
-        ts
-      )
+      RTPReceiver.ReportRecorder.record_report(transceiver.receiver.report_recorder, report)
 
     receiver = %RTPReceiver{transceiver.receiver | report_recorder: report_recorder}
     %__MODULE__{transceiver | receiver: receiver}
@@ -221,8 +219,8 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec send_packet(t(), ExRTP.Packet.t()) :: {binary(), t()}
   def send_packet(transceiver, packet) do
-    receiver = RTPReceiver.update_sender_ssrc(transceiver.receiver, packet.ssrc)
     {packet, sender} = RTPSender.send_packet(transceiver.sender, packet)
+    receiver = RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
     {packet, %__MODULE__{transceiver | sender: sender, receiver: receiver}}
   end
 

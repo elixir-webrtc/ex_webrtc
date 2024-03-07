@@ -110,7 +110,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
           delay: round(delay_since(time, recorder.last_sr_timestamp) * 65_536),
           last_sr: recorder.last_sr_ntp_timestamp,
           last_sequence_number: (cycle <<< 16 &&& @max_u32) ||| seq_no,
-          fraction_lost: round(lost * 256 / received),
+          fraction_lost: if(received == 0, do: 0, else: round(lost * 256 / received)),
           total_lost: total_lost,
           jitter: round(recorder.jitter)
         }

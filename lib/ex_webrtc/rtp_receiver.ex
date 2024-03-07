@@ -48,8 +48,7 @@ defmodule ExWebRTC.RTPReceiver do
   @doc false
   @spec receive_packet(t(), ExRTP.Packet.t(), non_neg_integer()) :: t()
   def receive_packet(receiver, packet, size) do
-    report_recorder =
-      ReportRecorder.record_packet(receiver.report_recorder, packet, System.monotonic_time())
+    report_recorder = ReportRecorder.record_packet(receiver.report_recorder, packet)
 
     # TODO assign ssrc when applying local/remote description.
     %__MODULE__{
