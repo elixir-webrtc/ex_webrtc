@@ -48,7 +48,7 @@ defmodule ExWebRTC.SDPUtils do
         mid
       end)
 
-    case groups do
+    case filter_groups(groups, "BUNDLE") do
       [%ExSDP.Attribute.Group{semantics: "BUNDLE", mids: group_mids}] ->
         case {mline_mids -- group_mids, group_mids -- mline_mids} do
           {[], []} -> :ok
@@ -62,6 +62,10 @@ defmodule ExWebRTC.SDPUtils do
       other when is_list(other) ->
         {:error, :multiple_bundle_groups}
     end
+  end
+
+  defp filter_groups(groups, to_filter) do
+    Enum.filter(groups, fn %ExSDP.Attribute.Group{semantics: name} -> name == to_filter end)
   end
 
   @spec ensure_rtcp_mux(ExSDP.t()) :: :ok | {:error, :missing_rtcp_mux}
@@ -123,16 +127,27 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.map(fn {"candidate", attr} -> attr end)
   end
 
+  @spec add_ice_candidates(ExSDP.t(), [String.t()]) :: ExSDP.t()
+  def add_ice_candidates(sdp, candidates) do
+    candidates = Enum.map(candidates, &{"candidate", &1})
+    media = Enum.map(sdp.media, &ExSDP.add_attributes(&1, candidates))
+    %ExSDP{sdp | media: media}
+  end
+
   @spec get_dtls_role(ExSDP.t()) ::
           {:ok, :active | :passive | :actpass}
           | {:error, :missing_dtls_role | :conflicting_dtls_roles}
   def get_dtls_role(sdp) do
-    session_role = ExSDP.get_attribute(sdp, :setup)
+    session_role =
+      case ExSDP.get_attribute(sdp, :setup) do
+        {:setup, setup} -> setup
+        nil -> nil
+      end
 
     mline_roles =
       sdp.media
       |> Enum.flat_map(&ExSDP.get_attributes(&1, :setup))
-      |> Enum.map(fn {_, setup} -> setup end)
+      |> Enum.map(fn {:setup, setup} -> setup end)
 
     case {session_role, mline_roles} do
       {nil, []} ->
