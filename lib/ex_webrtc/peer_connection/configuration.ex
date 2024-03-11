@@ -173,7 +173,16 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     # rtcp-fb that are not supported.
     # TODO: this function doesn't compare fmtp at all
     Enum.any?(config.audio_codecs ++ config.video_codecs, fn supported_codec ->
-      %{supported_codec | rtcp_fbs: codec.rtcp_fbs, sdp_fmtp_line: codec.sdp_fmtp_line} == codec
+      # For the purposes of comparison, lowercase mime check
+      %{
+        supported_codec
+        | mime_type: String.downcase(supported_codec.mime_type),
+          rtcp_fbs: codec.rtcp_fbs,
+          sdp_fmtp_line: codec.sdp_fmtp_line
+      } == %{
+        codec
+        | mime_type: String.downcase(codec.mime_type)
+      }
     end)
   end
 

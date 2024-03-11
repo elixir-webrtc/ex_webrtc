@@ -3,6 +3,8 @@ defmodule ExWebRTC.RTPTransceiver do
   Implementation of the [RTCRtpTransceiver](https://www.w3.org/TR/webrtc/#dom-rtcrtptransceiver).
   """
 
+  require Logger
+
   alias ExWebRTC.{
     MediaStreamTrack,
     PeerConnection.Configuration,
@@ -98,6 +100,15 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec from_mline(ExSDP.Media.t(), non_neg_integer(), Configuration.t()) :: t()
   def from_mline(mline, mline_idx, config) do
     codecs = get_codecs(mline, config)
+
+    if codecs == [] do
+      rtpmap = ExSDP.get_attribute(mline, :rtpmap)
+
+      Logger.debug(
+        "No valid codecs for \"#{rtpmap}\" found in registered %ExWebRTC.PeerConnection.Configuration{}"
+      )
+    end
+
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
