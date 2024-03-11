@@ -3,11 +3,14 @@ defmodule ExWebRTC.RTPReceiver do
   Implementation of the [RTCRtpReceiver](https://www.w3.org/TR/webrtc/#rtcrtpreceiver-interface).
   """
 
+  require Logger
+
   alias ExWebRTC.{MediaStreamTrack, Utils, RTPCodecParameters}
   alias __MODULE__.ReportRecorder
 
   @type t() :: %__MODULE__{
           track: MediaStreamTrack.t(),
+          codec: RTPCodecParameters.t() | nil,
           ssrc: non_neg_integer() | nil,
           bytes_received: non_neg_integer(),
           packets_received: non_neg_integer(),
@@ -15,7 +18,7 @@ defmodule ExWebRTC.RTPReceiver do
           report_recorder: ReportRecorder.t()
         }
 
-  @enforce_keys [:track, :report_recorder]
+  @enforce_keys [:track, :codec, :report_recorder]
   defstruct [
               ssrc: nil,
               bytes_received: 0,
@@ -30,7 +33,11 @@ defmodule ExWebRTC.RTPReceiver do
       clock_rate: codec && codec.clock_rate
     }
 
-    %__MODULE__{track: track, report_recorder: report_recorder}
+    %__MODULE__{
+      track: track,
+      codec: codec,
+      report_recorder: report_recorder
+    }
   end
 
   @doc false
@@ -41,12 +48,17 @@ defmodule ExWebRTC.RTPReceiver do
       | clock_rate: codec && codec.clock_rate
     }
 
-    %__MODULE__{receiver | report_recorder: report_recorder}
+    %__MODULE__{receiver | codec: codec, report_recorder: report_recorder}
   end
 
   @doc false
   @spec receive_packet(t(), ExRTP.Packet.t(), non_neg_integer()) :: t()
   def receive_packet(receiver, packet, size) do
+    if packet.payload_type != receiver.codec.payload_type do
+      Logger.warning("Received packet with unexpected payload_type
+        (received #{packet.payload_type}, expected #{receiver.codec.payload_type}")
+    end
+
     report_recorder = ReportRecorder.record_packet(receiver.report_recorder, packet)
 
     # TODO assign ssrc when applying local/remote description.
