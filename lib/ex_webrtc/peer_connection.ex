@@ -254,7 +254,7 @@ defmodule ExWebRTC.PeerConnection do
       last_answer: nil,
       peer_fingerprint: nil,
       sent_packets: 0,
-      twcc_recorder: %TWCCRecorder{}
+      twcc_recorder: TWCCRecorder.new()
     }
 
     Process.send_after(self(), :send_twcc_feedback, @twcc_interval)

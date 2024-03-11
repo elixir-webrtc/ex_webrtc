@@ -7,7 +7,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorderTest do
   @max_seq_no 0xFFFF
   @seq_no 541
 
-  @recorder %TWCCRecorder{sender_ssrc: 1, media_ssrc: 2}
+  @recorder TWCCRecorder.new(1, 2)
 
   describe "record_packet/2" do
     test "initial case" do
