@@ -883,7 +883,7 @@ defmodule ExWebRTC.PeerConnection do
       {:ok, packets} ->
         transceivers =
           Enum.reduce(packets, state.transceivers, fn packet, transceivers ->
-            maybe_handle_report(packet, transceivers)
+            handle_report(packet, transceivers)
           end)
 
         notify(state.owner, {:rtcp, packets})
@@ -1511,7 +1511,7 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  def maybe_handle_report(%ExRTCP.Packet.SenderReport{} = report, transceivers) do
+  defp handle_report(%ExRTCP.Packet.SenderReport{} = report, transceivers) do
     transceiver =
       transceivers
       |> Enum.with_index()
@@ -1527,7 +1527,7 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  def maybe_handle_report(_report, transceivers), do: transceivers
+  defp handle_report(_report, transceivers), do: transceivers
 
   defp do_get_description(nil, _candidates), do: nil
 

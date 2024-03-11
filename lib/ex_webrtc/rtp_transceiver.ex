@@ -209,10 +209,8 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec receive_report(t(), ExRTCP.Packet.SenderReport.t()) :: t()
   def receive_report(transceiver, report) do
-    report_recorder =
-      RTPReceiver.ReportRecorder.record_report(transceiver.receiver.report_recorder, report)
+    receiver = RTPReceiver.receive_report(transceiver.receiver, report)
 
-    receiver = %RTPReceiver{transceiver.receiver | report_recorder: report_recorder}
     %__MODULE__{transceiver | receiver: receiver}
   end
 
@@ -387,6 +385,10 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   defp report_interval do
+    # we use const interval for RTCP reports
+    # that is varied randomly over the range [0.5, 1.5]
+    # of it's original value to avoid synchronization
+    # https://datatracker.ietf.org/doc/html/rfc3550#page-27
     factor = :rand.uniform() + 0.5
     trunc(factor * @report_interval)
   end

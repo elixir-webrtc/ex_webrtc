@@ -60,6 +60,13 @@ defmodule ExWebRTC.RTPReceiver do
     }
   end
 
+  @spec receive_report(t(), ExRTCP.Packet.SenderReport.t()) :: t()
+  def receive_report(receiver, report) do
+    report_recorder = ReportRecorder.record_report(receiver.report_recorder, report)
+
+    %__MODULE__{receiver | report_recorder: report_recorder}
+  end
+
   @doc false
   @spec update_sender_ssrc(t(), non_neg_integer()) :: t()
   def update_sender_ssrc(receiver, ssrc) do

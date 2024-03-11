@@ -41,7 +41,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
 
   @doc """
   Records incoming RTP Packet.
-  `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
+  `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
   @spec record_packet(t(), ExRTP.Packet.t(), integer()) :: t()
   def record_packet(recorder, packet, time \\ System.monotonic_time())
@@ -68,7 +68,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
 
   @doc """
   Records incoming RTCP Sender Report.
-  `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
+  `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
   @spec record_report(t(), ExRTCP.Packet.SenderReport.t(), integer()) :: t()
   def record_report(recorder, sender_report, time \\ System.monotonic_time()) do
@@ -80,7 +80,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
 
   @doc """
   Creates an RTCP Receiver Report.
-  `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
+  `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
   @spec get_report(t(), integer()) :: {:ok, ReceiverReport.t(), t()} | {:error, term()}
   def get_report(recorder, time \\ System.monotonic_time())
