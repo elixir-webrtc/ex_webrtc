@@ -95,7 +95,7 @@ defmodule ExWebRTC.RTPTransceiver do
     if codecs == [] do
       rtpmap = ExSDP.get_attribute(mline, :rtpmap)
 
-      Logger.warning(
+      Logger.debug(
         "No valid codecs for \"#{rtpmap}\" found in registered %ExWebRTC.PeerConnection.Configuration{}"
       )
     end

@@ -1,4 +1,4 @@
-defmodule ExWebRTC.BrowserSDPTest do
+defmodule ExWebRTC.PeerSDPTest do
   use ExUnit.Case, async: true
 
   alias ExWebRTC.{MediaStreamTrack, PeerConnection, RTPTransceiver, SessionDescription}
