@@ -1,5 +1,5 @@
 defmodule ExWebRTC.RTPReceiver.ReportRecorder do
-  @moduledoc false
+  @moduledoc nil
   # based on https://datatracker.ietf.org/doc/html/rfc3550#section-6.4.1
 
   import Bitwise
@@ -12,43 +12,48 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   @breakpoint 0x7FFF
 
   @type t() :: %__MODULE__{
+          media_ssrc: non_neg_integer() | nil,
           sender_ssrc: non_neg_integer(),
-          media_ssrc: non_neg_integer(),
-          clock_rate: non_neg_integer(),
+          clock_rate: non_neg_integer() | nil,
           lost_packets: MapSet.t(),
-          last_seq_no: {non_neg_integer(), ExRTP.Packet.uint16()},
-          last_report_seq_no: {non_neg_integer(), ExRTP.Packet.uint16()},
-          last_rtp_timestamp: ExRTP.Packet.uint32(),
-          last_timestamp: integer(),
+          last_seq_no: {non_neg_integer(), ExRTP.Packet.uint16()} | nil,
+          last_report_seq_no: {non_neg_integer(), ExRTP.Packet.uint16()} | nil,
+          last_rtp_timestamp: ExRTP.Packet.uint32() | nil,
+          last_timestamp: integer() | nil,
           last_sr_ntp_timestamp: ExRTP.Packet.uint32(),
-          last_sr_timestamp: integer(),
+          last_sr_timestamp: integer() | nil,
           jitter: float(),
           total_lost: non_neg_integer()
         }
 
-  @enforce_keys [:sender_ssrc, :media_ssrc, :clock_rate]
-  defstruct [
-              lost_packets: MapSet.new(),
-              last_seq_no: nil,
-              last_report_seq_no: nil,
-              last_rtp_timestamp: nil,
-              last_timestamp: nil,
-              last_sr_ntp_timestamp: 0,
-              last_sr_timestamp: nil,
-              jitter: 0,
-              total_lost: 0
-            ] ++ @enforce_keys
+  defstruct sender_ssrc: 1,
+            clock_rate: nil,
+            media_ssrc: nil,
+            lost_packets: MapSet.new(),
+            last_seq_no: nil,
+            last_report_seq_no: nil,
+            last_rtp_timestamp: nil,
+            last_timestamp: nil,
+            last_sr_ntp_timestamp: 0,
+            last_sr_timestamp: nil,
+            jitter: 0.0,
+            total_lost: 0
 
   @doc """
   Records incoming RTP Packet.
-  `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
+  `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
   @spec record_packet(t(), ExRTP.Packet.t(), integer()) :: t()
+  def record_packet(recorder, packet, time \\ System.monotonic_time())
+
+  def record_packet(%{clock_rate: nil}, _packet, _time), do: raise("Clock rate was not set")
+
   def record_packet(%{last_seq_no: nil} = recorder, packet, time) do
     # seq_no == {cycle_no, seq_no as in RTP packet}
     %__MODULE__{
       recorder
-      | last_seq_no: {0, packet.sequence_number},
+      | media_ssrc: packet.ssrc,
+        last_seq_no: {0, packet.sequence_number},
         last_report_seq_no: {0, packet.sequence_number - 1},
         last_rtp_timestamp: packet.timestamp,
         last_timestamp: time
@@ -63,10 +68,10 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
 
   @doc """
   Records incoming RTCP Sender Report.
-  `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
+  `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
   @spec record_report(t(), ExRTCP.Packet.SenderReport.t(), integer()) :: t()
-  def record_report(recorder, sender_report, time) do
+  def record_report(recorder, sender_report, time \\ System.monotonic_time()) do
     # we take the middle 32 bits of the NTP timestamp
     ntp_ts = sender_report.ntp_timestamp >>> 16 &&& @max_u32
 
@@ -75,9 +80,13 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
 
   @doc """
   Creates an RTCP Receiver Report.
-  `time` parameter accepts output of `System.monotonic_time(:native)` as a value.
+  `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
-  @spec get_report(t(), integer()) :: {ReceiverReport.t(), t()}
+  @spec get_report(t(), integer()) :: {:ok, ReceiverReport.t(), t()} | {:error, term()}
+  def get_report(recorder, time \\ System.monotonic_time())
+
+  def get_report(%{media_ssrc: nil}, _time), do: {:error, :no_packets}
+
   def get_report(recorder, time) do
     received =
       recorder.last_seq_no
@@ -101,7 +110,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
           delay: round(delay_since(time, recorder.last_sr_timestamp) * 65_536),
           last_sr: recorder.last_sr_ntp_timestamp,
           last_sequence_number: (cycle <<< 16 &&& @max_u32) ||| seq_no,
-          fraction_lost: round(lost * 256 / received),
+          fraction_lost: if(received == 0, do: 0, else: round(lost * 256 / received)),
           total_lost: total_lost,
           jitter: round(recorder.jitter)
         }
@@ -115,7 +124,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
         total_lost: total_lost
     }
 
-    {report, recorder}
+    {:ok, report, recorder}
   end
 
   defp record_seq_no(recorder, rtp_seq_no) do

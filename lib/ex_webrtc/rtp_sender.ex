@@ -6,6 +6,7 @@ defmodule ExWebRTC.RTPSender do
 
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils}
   alias ExSDP.Attribute.Extmap
+  alias __MODULE__.ReportRecorder
 
   @mid_uri "urn:ietf:params:rtp-hdrext:sdes:mid"
 
@@ -22,10 +23,11 @@ defmodule ExWebRTC.RTPSender do
           last_seq_num: non_neg_integer(),
           packets_sent: non_neg_integer(),
           bytes_sent: non_neg_integer(),
-          markers_sent: non_neg_integer()
+          markers_sent: non_neg_integer(),
+          report_recorder: ReportRecorder.t()
         }
 
-  @enforce_keys [:id, :last_seq_num]
+  @enforce_keys [:id, :last_seq_num, :report_recorder]
   defstruct @enforce_keys ++
               [
                 :track,
@@ -61,12 +63,13 @@ defmodule ExWebRTC.RTPSender do
       pt: pt,
       ssrc: ssrc,
       last_seq_num: random_seq_num(),
-      mid: mid
+      mid: mid,
+      report_recorder: %ReportRecorder{clock_rate: codec && codec.clock_rate}
     }
   end
 
   @doc false
-  @spec update(t(), String.t(), RTPCodecParameters.t(), [Extmap.t()]) :: t()
+  @spec update(t(), String.t(), RTPCodecParameters.t() | nil, [Extmap.t()]) :: t()
   def update(sender, mid, codec, rtp_hdr_exts) do
     if sender.mid != nil and mid != sender.mid, do: raise(ArgumentError)
     # convert to a map to be able to find extension id using extension uri
@@ -74,15 +77,27 @@ defmodule ExWebRTC.RTPSender do
     # TODO: handle cases when codec == nil (no valid codecs after negotiation)
     pt = if codec != nil, do: codec.payload_type, else: nil
 
-    %__MODULE__{sender | mid: mid, codec: codec, rtp_hdr_exts: rtp_hdr_exts, pt: pt}
+    report_recorder = %ReportRecorder{
+      sender.report_recorder
+      | clock_rate: codec && codec.clock_rate
+    }
+
+    %__MODULE__{
+      sender
+      | mid: mid,
+        codec: codec,
+        rtp_hdr_exts: rtp_hdr_exts,
+        pt: pt,
+        report_recorder: report_recorder
+    }
   end
 
   # Prepares packet for sending i.e.:
   # * assigns SSRC, pt, seq_num, mid
   # * serializes to binary
   @doc false
-  @spec send(t(), ExRTP.Packet.t()) :: {binary(), t()}
-  def send(sender, packet) do
+  @spec send_packet(t(), ExRTP.Packet.t()) :: {binary(), t()}
+  def send_packet(sender, packet) do
     %Extmap{} = mid_extmap = Map.fetch!(sender.rtp_hdr_exts, @mid_uri)
 
     mid_ext =
@@ -91,6 +106,8 @@ defmodule ExWebRTC.RTPSender do
 
     next_seq_num = sender.last_seq_num + 1 &&& 0xFFFF
     packet = %{packet | payload_type: sender.pt, ssrc: sender.ssrc, sequence_number: next_seq_num}
+
+    report_recorder = ReportRecorder.record_packet(sender.report_recorder, packet)
 
     data =
       packet
@@ -102,7 +119,8 @@ defmodule ExWebRTC.RTPSender do
       | last_seq_num: next_seq_num,
         packets_sent: sender.packets_sent + 1,
         bytes_sent: sender.bytes_sent + byte_size(data),
-        markers_sent: sender.markers_sent + Utils.to_int(packet.marker)
+        markers_sent: sender.markers_sent + Utils.to_int(packet.marker),
+        report_recorder: report_recorder
     }
 
     {data, sender}

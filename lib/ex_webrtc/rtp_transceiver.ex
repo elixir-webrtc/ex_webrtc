@@ -13,6 +13,10 @@ defmodule ExWebRTC.RTPTransceiver do
     Utils
   }
 
+  alias ExRTCP.Packet.{ReceiverReport, SenderReport}
+
+  @report_interval 1000
+
   @type id() :: integer()
   @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
   @type kind() :: :audio | :video
@@ -72,15 +76,20 @@ defmodule ExWebRTC.RTPTransceiver do
       end
 
     track = MediaStreamTrack.new(kind)
+    codec = List.first(codecs)
+
+    id = Utils.generate_id()
+    send(self(), {:send_report, :sender, id})
+    send(self(), {:send_report, :receiver, id})
 
     %__MODULE__{
-      id: Utils.generate_id(),
+      id: id,
       direction: direction,
       kind: kind,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
-      receiver: %RTPReceiver{track: track},
-      sender: RTPSender.new(sender_track, List.first(codecs), rtp_hdr_exts, options[:ssrc]),
+      receiver: RTPReceiver.new(track, codec),
+      sender: RTPSender.new(sender_track, codec, rtp_hdr_exts, options[:ssrc]),
       added_by_add_track: Keyword.get(options, :added_by_add_track, false)
     }
   end
@@ -93,17 +102,22 @@ defmodule ExWebRTC.RTPTransceiver do
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
     track = MediaStreamTrack.new(mline.type)
+    codec = List.first(codecs)
+
+    id = Utils.generate_id()
+    send(self(), {:send_report, :sender, id})
+    send(self(), {:send_report, :receiver, id})
 
     %__MODULE__{
-      id: Utils.generate_id(),
+      id: id,
       mid: mid,
       mline_idx: mline_idx,
       direction: :recvonly,
       kind: mline.type,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
-      receiver: %RTPReceiver{track: track},
-      sender: RTPSender.new(nil, List.first(codecs), rtp_hdr_exts, mid, nil)
+      receiver: RTPReceiver.new(track, codec),
+      sender: RTPSender.new(nil, codec, rtp_hdr_exts, mid, nil)
     }
   end
 
@@ -132,14 +146,18 @@ defmodule ExWebRTC.RTPTransceiver do
 
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    sender = RTPSender.update(transceiver.sender, mid, List.first(codecs), rtp_hdr_exts)
+    codec = List.first(codecs)
+
+    receiver = RTPReceiver.update(transceiver.receiver, codec)
+    sender = RTPSender.update(transceiver.sender, mid, codec, rtp_hdr_exts)
 
     %__MODULE__{
       transceiver
       | mid: mid,
         codecs: codecs,
         rtp_hdr_exts: rtp_hdr_exts,
-        sender: sender
+        sender: sender,
+        receiver: receiver
     }
   end
 
@@ -179,6 +197,54 @@ defmodule ExWebRTC.RTPTransceiver do
       end
 
     %__MODULE__{transceiver | sender: sender, direction: direction}
+  end
+
+  @doc false
+  @spec receive_packet(t(), ExRTP.Packet.t(), non_neg_integer()) :: t()
+  def receive_packet(transceiver, packet, size) do
+    receiver = RTPReceiver.receive_packet(transceiver.receiver, packet, size)
+    %__MODULE__{transceiver | receiver: receiver}
+  end
+
+  @doc false
+  @spec receive_report(t(), ExRTCP.Packet.SenderReport.t()) :: t()
+  def receive_report(transceiver, report) do
+    receiver = RTPReceiver.receive_report(transceiver.receiver, report)
+
+    %__MODULE__{transceiver | receiver: receiver}
+  end
+
+  @doc false
+  @spec send_packet(t(), ExRTP.Packet.t()) :: {binary(), t()}
+  def send_packet(transceiver, packet) do
+    {packet, sender} = RTPSender.send_packet(transceiver.sender, packet)
+    receiver = RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
+    {packet, %__MODULE__{transceiver | sender: sender, receiver: receiver}}
+  end
+
+  @doc false
+  @spec get_report(t(), :sender | :receiver) :: {SenderReport.t() | ReceiverReport.t() | nil, t()}
+  def get_report(transceiver, type) do
+    Process.send_after(self(), {:send_report, type, transceiver.id}, report_interval())
+
+    module =
+      case type do
+        :sender -> RTPSender.ReportRecorder
+        :receiver -> RTPReceiver.ReportRecorder
+      end
+
+    send_or_recv = Map.fetch!(transceiver, type)
+    recorder = send_or_recv.report_recorder
+
+    case module.get_report(recorder) do
+      {:ok, report, recorder} ->
+        send_or_recv = %{send_or_recv | report_recorder: recorder}
+        transceiver = Map.replace!(transceiver, type, send_or_recv)
+        {report, transceiver}
+
+      {:error, _reason} ->
+        {nil, transceiver}
+    end
   end
 
   @doc false
@@ -316,5 +382,14 @@ defmodule ExWebRTC.RTPTransceiver do
     mline
     |> ExSDP.get_attributes(ExSDP.Attribute.Extmap)
     |> Enum.filter(&Configuration.supported_rtp_hdr_extension?(config, &1, mline.type))
+  end
+
+  defp report_interval do
+    # we use const interval for RTCP reports
+    # that is varied randomly over the range [0.5, 1.5]
+    # of it's original value to avoid synchronization
+    # https://datatracker.ietf.org/doc/html/rfc3550#page-27
+    factor = :rand.uniform() + 0.5
+    trunc(factor * @report_interval)
   end
 end

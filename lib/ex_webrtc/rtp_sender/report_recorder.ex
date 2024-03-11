@@ -1,5 +1,5 @@
 defmodule ExWebRTC.RTPSender.ReportRecorder do
-  @moduledoc false
+  @moduledoc nil
 
   import Bitwise
 
@@ -12,33 +12,37 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   @micro_in_sec 1_000_000
 
   @type t() :: %__MODULE__{
-          sender_ssrc: non_neg_integer(),
-          clock_rate: non_neg_integer(),
-          last_rtp_timestamp: ExRTP.Packet.uint32(),
-          last_seq_no: ExRTP.Packet.uint16(),
-          last_timestamp: integer(),
+          sender_ssrc: non_neg_integer() | nil,
+          clock_rate: non_neg_integer() | nil,
+          last_rtp_timestamp: ExRTP.Packet.uint32() | nil,
+          last_seq_no: ExRTP.Packet.uint16() | nil,
+          last_timestamp: integer() | nil,
           packet_count: non_neg_integer(),
           octet_count: non_neg_integer()
         }
 
-  @enforce_keys [:sender_ssrc, :clock_rate]
-  defstruct [
-              last_rtp_timestamp: nil,
-              last_seq_no: nil,
-              last_timestamp: nil,
-              packet_count: 0,
-              octet_count: 0
-            ] ++ @enforce_keys
+  defstruct clock_rate: nil,
+            sender_ssrc: nil,
+            last_rtp_timestamp: nil,
+            last_seq_no: nil,
+            last_timestamp: nil,
+            packet_count: 0,
+            octet_count: 0
 
   @doc """
   Records outgoing RTP Packet.
   `time` parameter accepts output of `System.os_time(:native)` as a value (UNIX timestamp in :native units).
   """
   @spec record_packet(t(), ExRTP.Packet.t(), integer()) :: t()
-  def record_packet(%{last_timestamp: nil} = recorder, packet, time) do
+  def record_packet(recorder, packet, time \\ System.os_time(:native))
+
+  def record_packet(%{clock_rate: nil}, _packet, _time), do: raise("Clock rate was not set")
+
+  def record_packet(%{last_seq_no: nil} = recorder, packet, time) do
     %__MODULE__{
       recorder
-      | last_rtp_timestamp: packet.timestamp,
+      | sender_ssrc: packet.ssrc,
+        last_rtp_timestamp: packet.timestamp,
         last_seq_no: packet.sequence_number,
         last_timestamp: time,
         packet_count: 1,
@@ -83,20 +87,24 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   This function can be called only if at least one packet has been recorded,
   otherwise it will raise.
   """
-  @spec get_report(t(), integer()) :: SenderReport.t()
-  def get_report(%{last_timestamp: nil}, _time), do: raise("No packet has been recorded yet")
+  @spec get_report(t(), integer()) :: {:ok, SenderReport.t(), t()} | {:error, term()}
+  def get_report(recorder, time \\ System.os_time(:native))
+
+  def get_report(%{sender_ssrc: nil}, _time), do: {:error, :no_packets}
 
   def get_report(recorder, time) do
     ntp_time = to_ntp(time)
     rtp_delta = delay_since(time, recorder.last_timestamp) * recorder.clock_rate
 
-    %SenderReport{
+    report = %SenderReport{
       ssrc: recorder.sender_ssrc,
       packet_count: recorder.packet_count,
       octet_count: recorder.octet_count,
       ntp_timestamp: ntp_time,
       rtp_timestamp: round(recorder.last_rtp_timestamp + rtp_delta)
     }
+
+    {:ok, report, recorder}
   end
 
   defp to_ntp(time) do

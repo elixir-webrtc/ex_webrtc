@@ -769,10 +769,10 @@ defmodule ExWebRTC.PeerConnection do
               {packet, state}
           end
 
-        {packet, sender} = RTPSender.send(transceiver.sender, packet)
+        {packet, transceiver} = RTPTransceiver.send_packet(transceiver, packet)
         :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
 
-        transceivers = List.update_at(state.transceivers, idx, &%{&1 | sender: sender})
+        transceivers = List.replace_at(state.transceivers, idx, transceiver)
         state = %{state | transceivers: transceivers}
 
         {:noreply, state}
@@ -853,8 +853,8 @@ defmodule ExWebRTC.PeerConnection do
           _other -> twcc_recorder
         end
 
-      receiver = RTPReceiver.recv(t.receiver, packet, data)
-      transceivers = List.update_at(state.transceivers, idx, &%{&1 | receiver: receiver})
+      t = RTPTransceiver.receive_packet(t, packet, byte_size(data))
+      transceivers = List.replace_at(state.transceivers, idx, t)
 
       notify(state.owner, {:rtp, t.receiver.track.id, packet})
 
@@ -881,7 +881,13 @@ defmodule ExWebRTC.PeerConnection do
   def handle_info({:dtls_transport, _pid, {:rtcp, data}}, state) do
     case ExRTCP.CompoundPacket.decode(data) do
       {:ok, packets} ->
+        transceivers =
+          Enum.reduce(packets, state.transceivers, fn packet, transceivers ->
+            handle_report(packet, transceivers)
+          end)
+
         notify(state.owner, {:rtcp, packets})
+        {:noreply, %{state | transceivers: transceivers}}
 
       {:error, _res} ->
         case data do
@@ -891,9 +897,9 @@ defmodule ExWebRTC.PeerConnection do
           _ ->
             Logger.warning("Failed to decode RTCP packet, packet is too short")
         end
-    end
 
-    {:noreply, state}
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -912,6 +918,32 @@ defmodule ExWebRTC.PeerConnection do
     else
       {:noreply, state}
     end
+  end
+
+  @impl true
+  def handle_info({:send_report, type, transceiver_id}, state) do
+    transceiver =
+      state.transceivers
+      |> Enum.with_index()
+      |> Enum.find(fn {tr, _idx} -> tr.id == transceiver_id end)
+
+    transceivers =
+      case transceiver do
+        nil ->
+          state.transceivers
+
+        {tr, idx} ->
+          {report, tr} = RTPTransceiver.get_report(tr, type)
+
+          if report != nil do
+            encoded = ExRTCP.Packet.encode(report)
+            :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
+          end
+
+          List.replace_at(state.transceivers, idx, tr)
+      end
+
+    {:noreply, %{state | transceivers: transceivers}}
   end
 
   @impl true
@@ -1478,6 +1510,24 @@ defmodule ExWebRTC.PeerConnection do
         negotiation_needed?(transceivers, state)
     end
   end
+
+  defp handle_report(%ExRTCP.Packet.SenderReport{} = report, transceivers) do
+    transceiver =
+      transceivers
+      |> Enum.with_index()
+      |> Enum.find(fn {tr, _idx} -> tr.receiver.ssrc == report.ssrc end)
+
+    case transceiver do
+      nil ->
+        transceivers
+
+      {tr, idx} ->
+        tr = RTPTransceiver.receive_report(tr, report)
+        List.replace_at(transceivers, idx, tr)
+    end
+  end
+
+  defp handle_report(_report, transceivers), do: transceivers
 
   defp do_get_description(nil, _candidates), do: nil
 

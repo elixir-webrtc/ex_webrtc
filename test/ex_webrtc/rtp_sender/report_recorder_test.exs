@@ -68,10 +68,10 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
 
   describe "get_report/2" do
     test "properly calculates NTP timestamp" do
-      report =
-        @recorder
-        |> ReportRecorder.record_packet(@packet, 0)
-        |> ReportRecorder.get_report(0)
+      assert {:ok, report, _recorder} =
+               @recorder
+               |> ReportRecorder.record_packet(@packet, 0)
+               |> ReportRecorder.get_report(0)
 
       assert report.ntp_timestamp >>> 32 == @ntp_offset
       assert (report.ntp_timestamp &&& @max_u32) == 0
@@ -81,10 +81,10 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
       # 1/8, so 0.001 in binary 
       frac = 0.125
 
-      report =
-        @recorder
-        |> ReportRecorder.record_packet(@packet, 0)
-        |> ReportRecorder.get_report(trunc((seconds + frac) * native_in_sec))
+      assert {:ok, report, _recorder} =
+               @recorder
+               |> ReportRecorder.record_packet(@packet, 0)
+               |> ReportRecorder.get_report(trunc((seconds + frac) * native_in_sec))
 
       assert report.ntp_timestamp >>> 32 == @ntp_offset + seconds
       assert (report.ntp_timestamp &&& @max_u32) == 1 <<< 29
@@ -93,10 +93,10 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
     test "properly calculates delay since last packet" do
       delta = System.convert_time_unit(250, :millisecond, :native)
 
-      report =
-        @recorder
-        |> ReportRecorder.record_packet(@packet, @rand_ts)
-        |> ReportRecorder.get_report(@rand_ts + delta)
+      assert {:ok, report, _recorder} =
+               @recorder
+               |> ReportRecorder.record_packet(@packet, @rand_ts)
+               |> ReportRecorder.get_report(@rand_ts + delta)
 
       assert report.rtp_timestamp == @rtp_ts + 0.25 * @clock_rate
     end
