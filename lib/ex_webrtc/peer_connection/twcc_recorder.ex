@@ -62,8 +62,10 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
   # start, end - actual range where map values might be set
   # base - from where packets should be added to next feedback
   # if end == start, no packets are available
-  @enforce_keys [:timer, :media_ssrc, :sender_ssrc]
+  @enforce_keys [:timer]
   defstruct [
+              sender_ssrc: nil,
+              media_ssrc: nil,
               base_seq_no: nil,
               start_seq_no: nil,
               end_seq_no: nil,
