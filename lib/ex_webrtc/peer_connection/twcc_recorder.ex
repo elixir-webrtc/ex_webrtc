@@ -49,7 +49,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
   @default_sender_ssrc 1
 
   @type t() :: %__MODULE__{
-          media_ssrc: non_neg_integer(),
+          media_ssrc: non_neg_integer() | nil,
           sender_ssrc: non_neg_integer() | nil,
           base_seq_no: non_neg_integer() | nil,
           start_seq_no: non_neg_integer() | nil,
@@ -62,14 +62,25 @@ defmodule ExWebRTC.PeerConnection.TWCCRecorder do
   # start, end - actual range where map values might be set
   # base - from where packets should be added to next feedback
   # if end == start, no packets are available
-  defstruct media_ssrc: nil,
-            sender_ssrc: nil,
-            timer: Timer.new(),
-            base_seq_no: nil,
-            start_seq_no: nil,
-            end_seq_no: nil,
-            timestamps: %{},
-            fb_pkt_count: 0
+  @enforce_keys [:timer]
+  defstruct [
+              sender_ssrc: nil,
+              media_ssrc: nil,
+              base_seq_no: nil,
+              start_seq_no: nil,
+              end_seq_no: nil,
+              timestamps: %{},
+              fb_pkt_count: 0
+            ] ++ @enforce_keys
+
+  @spec new(non_neg_integer() | nil, non_neg_integer() | nil) :: t()
+  def new(media_ssrc \\ nil, sender_ssrc \\ nil) do
+    %__MODULE__{
+      media_ssrc: media_ssrc,
+      sender_ssrc: sender_ssrc,
+      timer: Timer.new()
+    }
+  end
 
   @spec record_packet(t(), non_neg_integer()) :: t()
   def record_packet(%{start_seq_no: nil, end_seq_no: nil} = recorder, seq_no) do
