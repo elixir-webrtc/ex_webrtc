@@ -218,19 +218,17 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   defp update_rtp_hdr_extensions(sdp_extmaps, audio_exts, video_exts)
   defp update_rtp_hdr_extensions([], audio_exts, video_exts), do: {audio_exts, video_exts}
 
-  defp update_rtp_hdr_extensions([extmap | sdp_extmaps], audio_exts, video_exts)
-       when is_map_key(audio_exts, extmap.uri) do
-    update_rtp_hdr_extensions(sdp_extmaps, Map.put(audio_exts, extmap.uri, extmap), video_exts)
-  end
+  defp update_rtp_hdr_extensions([extmap | sdp_extmaps], audio_exts, video_exts) do
+    audio_exts = update_exts(audio_exts, extmap)
+    video_exts = update_exts(video_exts, extmap)
 
-  defp update_rtp_hdr_extensions([extmap | sdp_extmaps], audio_exts, video_exts)
-       when is_map_key(video_exts, extmap.uri) do
-    update_rtp_hdr_extensions(sdp_extmaps, audio_exts, Map.put(video_exts, extmap.uri, extmap))
-  end
-
-  defp update_rtp_hdr_extensions([_extmap | sdp_extmaps], audio_exts, video_exts) do
     update_rtp_hdr_extensions(sdp_extmaps, audio_exts, video_exts)
   end
+
+  defp update_exts(exts, extmap) when is_map_key(exts, extmap.uri),
+    do: Map.put(exts, extmap.uri, extmap)
+
+  defp update_exts(exts, _extmap), do: exts
 
   defp update_codecs(sdp_codecs, audio_codecs, video_codecs)
 
