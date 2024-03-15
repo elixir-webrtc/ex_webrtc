@@ -55,8 +55,8 @@ defmodule ExWebRTC.RTPReceiver do
   @spec receive_packet(t(), ExRTP.Packet.t(), non_neg_integer()) :: t()
   def receive_packet(receiver, packet, size) do
     if packet.payload_type != receiver.codec.payload_type do
-      Logger.warning("Received packet with unexpected payload_type
-        (received #{packet.payload_type}, expected #{receiver.codec.payload_type}")
+      Logger.warning("Received packet with unexpected payload_type \
+(received #{packet.payload_type}, expected #{receiver.codec.payload_type})")
     end
 
     report_recorder = ReportRecorder.record_packet(receiver.report_recorder, packet)
@@ -70,6 +70,16 @@ defmodule ExWebRTC.RTPReceiver do
         markers_received: receiver.markers_received + Utils.to_int(packet.marker),
         report_recorder: report_recorder
     }
+  end
+
+  @spec receive_rtx(t(), ExRTP.Packet.t(), non_neg_integer()) :: {:ok, ExRTP.Packet.t()} | :error
+  def receive_rtx(receiver, packet, apt) do
+    with <<seq_no::16, rest::binary>> <- packet.payload,
+         ssrc when ssrc != nil <- receiver.ssrc do
+      {:ok, %ExRTP.Packet{packet | sequence_number: seq_no, payload_type: apt, payload: rest}}
+    else
+      _other -> :error
+    end
   end
 
   @spec receive_report(t(), ExRTCP.Packet.SenderReport.t()) :: t()

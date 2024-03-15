@@ -856,10 +856,15 @@ defmodule ExWebRTC.PeerConnection do
           _other -> twcc_recorder
         end
 
-      t = RTPTransceiver.receive_packet(t, packet, byte_size(data))
-      transceivers = List.replace_at(state.transceivers, idx, t)
+      transceivers =
+        case RTPTransceiver.receive_packet(t, packet, byte_size(data)) do
+          {:ok, t, packet} ->
+            notify(state.owner, {:rtp, t.receiver.track.id, packet})
+            List.replace_at(state.transceivers, idx, t)
 
-      notify(state.owner, {:rtp, t.receiver.track.id, packet})
+          :error ->
+            state.transceivers
+        end
 
       state = %{
         state
