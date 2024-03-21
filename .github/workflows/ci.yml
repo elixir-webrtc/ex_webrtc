@@ -67,6 +67,9 @@ jobs:
     - name: Check docs
       run: mix docs 2>&1 | (! grep -q "warning:")
 
-    - name: Run tests and submit test coverage report
-      uses: codecov/codecov-action@v3
+    - name: Run tests and check test coverage
       run: mix coveralls.json
+
+    - name: Upload test coverage results to Codecov
+      uses: codecov/codecov-action@v3
+
