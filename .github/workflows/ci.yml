@@ -55,28 +55,31 @@ jobs:
       run: mix deps.get
 
     - name: Compiles without warnings
+      id: compile
       run: mix compile --warnings-as-errors
 
     - name: Check formatting
-      continue-on-error: true
+      if: steps.compile.outcome == "success"
       run: mix format --check-formatted
 
     - name: Check with credo
-      continue-on-error: true
+      if: steps.compile.outcome == "success"
       run: mix credo
 
     - name: Check with dialyzer
-      continue-on-error: true
+      if: steps.compile.outcome == "success"
       run: mix dialyzer
 
     - name: Check docs
-      continue-on-error: true
+      if: steps.compile.outcome == "success"
       run: mix docs 2>&1 | (! grep -q "warning:")
 
     - name: Run tests and check test coverage
+      if: steps.compile.outcome == "success"
       run: mix coveralls.json
 
     - name: Upload test coverage results to Codecov
+      if: steps.compile.outcome == "success"
       uses: codecov/codecov-action@v4
       with:
         fail_ci_if_error: true,
