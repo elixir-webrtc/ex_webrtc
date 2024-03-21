@@ -44,13 +44,12 @@ jobs:
           ${{ runner.os }}-mix-
 
     - name: Cache dialyzer artifacts
-      id: cache-dialyzer
       uses: actions/cache@v4
       with:
         path: _dialyzer
         key: ${{ runner.os }}-dialyzer-${{ hashFiles('**/mix.lock') }}
         restore-keys: |
-          ${{ runner.os }}-mix-dialyzer-
+          ${{ runner.os }}-dialyzer-
 
     - name: Install dependencies
       run: mix deps.get
