@@ -1009,8 +1009,7 @@ defmodule ExWebRTC.PeerConnection do
     final_mlines =
       current_local_desc.media
       |> Stream.with_index()
-                     |> Enum.map(fn {local_mline, idx} ->
-
+      |> Enum.map(fn {local_mline, idx} ->
         case Enum.find(transceivers, &(&1.mline_idx == idx)) do
           # if there is no transceiver, the mline must have been rejected
           # in the past (in the offer or answer) so we always set the port to 0
