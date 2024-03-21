@@ -59,28 +59,28 @@ jobs:
       run: mix compile --warnings-as-errors
 
     - name: Check formatting
-      if: ${{ steps.compile.outcome == 'success' }}
+      if: ${{ !canceled() && steps.compile.outcome == 'success' }}
       run: mix format --check-formatted
 
     - name: Check with credo
-      if: ${{ steps.compile.outcome == 'success' }}
+      if: ${{ !canceled() && steps.compile.outcome == 'success' }}
       run: mix credo
 
     - name: Check with dialyzer
-      if: ${{ steps.compile.outcome == 'success' }}
+      if: ${{ !canceled() && steps.compile.outcome == 'success' }}
       run: mix dialyzer
 
     - name: Check docs
-      if: ${{ steps.compile.outcome == 'success' }}
+      if: ${{ !canceled() && steps.compile.outcome == 'success' }}
       run: mix docs 2>&1 | (! grep -q "warning:")
 
     - name: Run tests and check test coverage
-      if: ${{ steps.compile.outcome == 'success' }}
+      if: ${{ !canceled() && steps.compile.outcome == 'success' }}
       id: test
       run: mix coveralls.json
 
     - name: Upload test coverage results to Codecov
-      if: ${{ steps.test.outcome == 'success' }}
+      if: ${{ !canceled() && steps.test.outcome == 'success' }}
       uses: codecov/codecov-action@v4
       with:
         fail_ci_if_error: true,
