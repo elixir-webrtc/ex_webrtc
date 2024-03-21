@@ -19,6 +19,12 @@ defmodule ExWebRTC.MixProject do
       docs: docs(),
       source_url: @source_url,
 
+      # dialyzer
+      dialyzer: [
+        plt_local_path: "_dialyzer",
+        plt_core_path: "_dialyzer"
+      ],
+
       # code coverage
       test_coverage: [tool: ExCoveralls],
       preferred_cli_env: [
