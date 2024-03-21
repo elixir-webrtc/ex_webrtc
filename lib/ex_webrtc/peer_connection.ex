@@ -433,9 +433,12 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_call({:add_ice_candidate, _}, _from, %{current_remote_desc: nil} = state) do
-    {:reply, {:error, :no_remote_description}, state}
-  end
+  def handle_call(
+        {:add_ice_candidate, _},
+        _from,
+        %{current_remote_desc: nil, pending_remote_desc: nil} = state
+      ),
+      do: {:reply, {:error, :no_remote_description}, state}
 
   @impl true
   def handle_call({:add_ice_candidate, %{candidate: ""}}, _from, state) do
