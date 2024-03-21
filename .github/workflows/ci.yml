@@ -11,7 +11,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    name: Test on OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}}
+    name: CI on OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}}
     strategy:
       matrix:
         otp: ['26']
@@ -23,7 +23,7 @@ jobs:
         otp-version: ${{matrix.otp}}
         elixir-version: ${{matrix.elixir}}
 
-    - name: Checkout code
+    - name: Checkout the code
       uses: actions/checkout@v4
 
     - name: Cache dependencies
@@ -54,7 +54,7 @@ jobs:
     - name: Install dependencies
       run: mix deps.get
 
-    - name: Compiles without warnings
+    - name: Compile without warnings
       id: compile
       run: mix compile --warnings-as-errors
 
