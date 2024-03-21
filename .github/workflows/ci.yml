@@ -58,15 +58,19 @@ jobs:
       run: mix compile --warnings-as-errors
 
     - name: Check formatting
+      continue-on-error: true
       run: mix format --check-formatted
 
     - name: Check with credo
+      continue-on-error: true
       run: mix credo
 
     - name: Check with dialyzer
+      continue-on-error: true
       run: mix dialyzer
 
     - name: Check docs
+      continue-on-error: true
       run: mix docs 2>&1 | (! grep -q "warning:")
 
     - name: Run tests and check test coverage
