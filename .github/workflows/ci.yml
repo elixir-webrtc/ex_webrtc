@@ -24,10 +24,10 @@ jobs:
         elixir-version: ${{matrix.elixir}}
 
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: deps
         key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
@@ -35,7 +35,7 @@ jobs:
           ${{ runner.os }}-mix-deps-
 
     - name: Cache compiled build
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: _build
         key: ${{ runner.os }}-mix-build-${{ hashFiles('**/mix.lock') }}
@@ -45,7 +45,7 @@ jobs:
 
     - name: Cache dialyzer artifacts
       id: cache-dialyzer
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: _dialyzer
         key: ${{ runner.os }}-dialyzer-${{ hashFiles('**/mix.lock') }}
@@ -74,5 +74,5 @@ jobs:
       run: mix coveralls.json
 
     - name: Upload test coverage results to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
 
