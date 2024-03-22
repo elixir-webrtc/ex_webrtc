@@ -1,5 +1,5 @@
 defmodule ExWebRTC.RTPReceiver.NACKGenerator do
-  @moduledoc false
+  @moduledoc nil
   # for now, it mimics the Pion implementation, but there's some issues and remarks
   # 1) NACKs are send at constant interval
   # 2) no timing rules (like rtt) are taken into account
@@ -99,7 +99,7 @@ defmodule ExWebRTC.RTPReceiver.NACKGenerator do
       end)
 
     if length(missing_sn) != 0 do
-      feedback = NACK.from_sequence_numbers(media_ssrc, sender_ssrc, missing_sn)
+      feedback = NACK.from_sequence_numbers(sender_ssrc, media_ssrc, missing_sn)
       generator = %__MODULE__{generator | lost_packets: lost_packets}
 
       {feedback, generator}

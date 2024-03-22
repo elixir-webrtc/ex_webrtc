@@ -5,7 +5,8 @@ defmodule ExWebRTC.RTPReceiver.NACKGeneratorTest do
   alias ExRTCP.Packet.TransportFeedback.NACK
 
   @generator %NACKGenerator{}
-  @packet ExRTP.Packet.new(<<>>)
+  @media_ssrc 123_321
+  @packet ExRTP.Packet.new(<<>>, ssrc: @media_ssrc)
 
   describe "record_packet/2" do
     test "subsequent packets" do
@@ -87,7 +88,7 @@ defmodule ExWebRTC.RTPReceiver.NACKGeneratorTest do
 
       {feedback, generator} = NACKGenerator.get_feedback(generator)
 
-      assert %NACK{nacks: [nack]} = feedback
+      assert %NACK{media_ssrc: @media_ssrc, nacks: [nack]} = feedback
       assert %{pid: 555, blp: <<0::14, 1::1, 0::1>>} = nack
       assert %{555 => 1, 557 => 1} == generator.lost_packets
 
