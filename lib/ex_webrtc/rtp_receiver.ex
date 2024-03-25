@@ -6,7 +6,7 @@ defmodule ExWebRTC.RTPReceiver do
   require Logger
 
   alias ExWebRTC.{MediaStreamTrack, Utils, RTPCodecParameters}
-  alias __MODULE__.ReportRecorder
+  alias __MODULE__.{NACKGenerator, ReportRecorder}
 
   @type t() :: %__MODULE__{
           track: MediaStreamTrack.t(),
@@ -15,7 +15,8 @@ defmodule ExWebRTC.RTPReceiver do
           bytes_received: non_neg_integer(),
           packets_received: non_neg_integer(),
           markers_received: non_neg_integer(),
-          report_recorder: ReportRecorder.t()
+          report_recorder: ReportRecorder.t(),
+          nack_generator: NACKGenerator.t()
         }
 
   @enforce_keys [:track, :codec, :report_recorder]
@@ -23,7 +24,8 @@ defmodule ExWebRTC.RTPReceiver do
               ssrc: nil,
               bytes_received: 0,
               packets_received: 0,
-              markers_received: 0
+              markers_received: 0,
+              nack_generator: %NACKGenerator{}
             ] ++ @enforce_keys
 
   @doc false
@@ -60,6 +62,7 @@ defmodule ExWebRTC.RTPReceiver do
     end
 
     report_recorder = ReportRecorder.record_packet(receiver.report_recorder, packet)
+    nack_generator = NACKGenerator.record_packet(receiver.nack_generator, packet)
 
     # TODO assign ssrc when applying local/remote description.
     %__MODULE__{
@@ -68,15 +71,24 @@ defmodule ExWebRTC.RTPReceiver do
         bytes_received: receiver.bytes_received + size,
         packets_received: receiver.packets_received + 1,
         markers_received: receiver.markers_received + Utils.to_int(packet.marker),
-        report_recorder: report_recorder
+        report_recorder: report_recorder,
+        nack_generator: nack_generator
     }
   end
 
   @spec receive_rtx(t(), ExRTP.Packet.t(), non_neg_integer()) :: {:ok, ExRTP.Packet.t()} | :error
-  def receive_rtx(receiver, packet, apt) do
-    with <<seq_no::16, rest::binary>> <- packet.payload,
+  def receive_rtx(receiver, rtx_packet, apt) do
+    with <<seq_no::16, rest::binary>> <- rtx_packet.payload,
          ssrc when ssrc != nil <- receiver.ssrc do
-      {:ok, %ExRTP.Packet{packet | sequence_number: seq_no, payload_type: apt, payload: rest}}
+      packet = %ExRTP.Packet{
+        rtx_packet
+        | ssrc: ssrc,
+          sequence_number: seq_no,
+          payload_type: apt,
+          payload: rest
+      }
+
+      {:ok, packet}
     else
       _other -> :error
     end
@@ -93,7 +105,8 @@ defmodule ExWebRTC.RTPReceiver do
   @spec update_sender_ssrc(t(), non_neg_integer()) :: t()
   def update_sender_ssrc(receiver, ssrc) do
     report_recorder = %ReportRecorder{receiver.report_recorder | sender_ssrc: ssrc}
-    %__MODULE__{receiver | report_recorder: report_recorder}
+    nack_generator = %NACKGenerator{receiver.nack_generator | sender_ssrc: ssrc}
+    %__MODULE__{receiver | report_recorder: report_recorder, nack_generator: nack_generator}
   end
 
   @doc false

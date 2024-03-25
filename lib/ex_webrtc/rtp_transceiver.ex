@@ -15,9 +15,10 @@ defmodule ExWebRTC.RTPTransceiver do
     Utils
   }
 
-  alias ExRTCP.Packet.{ReceiverReport, SenderReport}
+  alias ExRTCP.Packet.{ReceiverReport, SenderReport, TransportFeedback.NACK}
 
   @report_interval 1000
+  @nack_interval 100
 
   @type id() :: integer()
   @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
@@ -76,6 +77,7 @@ defmodule ExWebRTC.RTPTransceiver do
     id = Utils.generate_id()
     send(self(), {:send_report, :sender, id})
     send(self(), {:send_report, :receiver, id})
+    send(self(), {:send_nack, id})
 
     %__MODULE__{
       id: id,
@@ -260,6 +262,22 @@ defmodule ExWebRTC.RTPTransceiver do
       {:error, _reason} ->
         {nil, transceiver}
     end
+  end
+
+  @doc false
+  @spec get_nack(t()) :: {NACK.t() | nil, t()}
+  def get_nack(transceiver) do
+    Process.send_after(self(), {:send_nack, transceiver.id}, @nack_interval)
+
+    nack_generator = transceiver.receiver.nack_generator
+
+    {feedback, nack_generator} =
+      RTPReceiver.NACKGenerator.get_feedback(nack_generator)
+
+    receiver = %{transceiver.receiver | nack_generator: nack_generator}
+    transceiver = %{transceiver | receiver: receiver}
+
+    {feedback, transceiver}
   end
 
   @doc false
