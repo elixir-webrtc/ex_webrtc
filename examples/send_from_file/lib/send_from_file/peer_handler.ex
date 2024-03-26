@@ -20,6 +20,7 @@ defmodule SendFromFile.PeerHandler do
   @audio_file "./audio.ogg"
 
   @max_rtp_timestamp (1 <<< 32) - 1
+  @max_rtp_seq_no (1 <<< 16) - 1
 
   @ice_servers [
     %{urls: "stun:stun.l.google.com:19302"}
@@ -69,8 +70,10 @@ defmodule SendFromFile.PeerHandler do
       video_reader: video_reader,
       video_payloader: video_payloader,
       audio_reader: audio_reader,
-      last_video_timestamp: Enum.random(0..@max_rtp_timestamp),
-      last_audio_timestamp: Enum.random(0..@max_rtp_timestamp)
+      next_video_timestamp: Enum.random(0..@max_rtp_timestamp),
+      next_audio_timestamp: Enum.random(0..@max_rtp_timestamp),
+      next_video_sequence_number: Enum.random(0..@max_rtp_seq_no),
+      next_audio_sequence_number: Enum.random(0..@max_rtp_seq_no)
     }
 
     {:ok, offer} = PeerConnection.create_offer(pc)
@@ -111,16 +114,29 @@ defmodule SendFromFile.PeerHandler do
         {rtp_packets, payloader} = VP8Payloader.payload(state.video_payloader, frame.data)
 
         # 3_000 = 90_000 (VP8 clock rate) / 30 FPS
-        last_timestamp = state.last_video_timestamp + 3_000 &&& @max_rtp_timestamp
+        next_sequence_number =
+          Enum.reduce(rtp_packets, state.next_video_sequence_number, fn packet, sequence_number ->
+            packet = %{
+              packet
+              | timestamp: state.next_video_timestamp,
+                sequence_number: sequence_number
+            }
 
-        rtp_packets =
-          Enum.map(rtp_packets, fn rtp_packet -> %{rtp_packet | timestamp: last_timestamp} end)
+            PeerConnection.send_rtp(state.peer_connection, state.video_track_id, packet)
 
-        Enum.each(rtp_packets, fn rtp_packet ->
-          PeerConnection.send_rtp(state.peer_connection, state.video_track_id, rtp_packet)
-        end)
+            sequence_number + 1 &&& @max_rtp_seq_no
+          end)
 
-        {:ok, %{state | video_payloader: payloader, last_video_timestamp: last_timestamp}}
+        next_timestamp = state.next_video_timestamp + 3_000 &&& @max_rtp_timestamp
+
+        state = %{
+          state
+          | video_payloader: payloader,
+            next_video_timestamp: next_timestamp,
+            next_video_sequence_number: next_sequence_number
+        }
+
+        {:ok, state}
 
       :eof ->
         Logger.info("Video file finished. Looping...")
@@ -142,15 +158,28 @@ defmodule SendFromFile.PeerHandler do
         Process.send_after(self(), :send_audio, duration)
 
         rtp_packet = OpusPayloader.payload(packet)
-        rtp_packet = %{rtp_packet | timestamp: state.last_audio_timestamp}
+
+        rtp_packet = %{
+          rtp_packet
+          | timestamp: state.next_audio_timestamp,
+            sequence_number: state.next_audio_sequence_number
+        }
+
         PeerConnection.send_rtp(state.peer_connection, state.audio_track_id, rtp_packet)
 
         # Ogg.Reader.next_packet/1 returns duration in ms
         # we have to convert it to RTP timestamp difference
         timestamp_delta = trunc(duration * 48_000 / 1000)
-        new_timestamp = state.last_audio_timestamp + timestamp_delta
+        next_timestamp = state.next_audio_timestamp + timestamp_delta &&& @max_rtp_timestamp
+        next_sequence_number = state.next_audio_sequence_number + 1 &&& @max_rtp_seq_no
 
-        state = %{state | audio_reader: reader, last_audio_timestamp: new_timestamp}
+        state = %{
+          state
+          | audio_reader: reader,
+            next_audio_timestamp: next_timestamp,
+            next_audio_sequence_number: next_sequence_number
+        }
+
         {:ok, state}
 
       :eof ->
