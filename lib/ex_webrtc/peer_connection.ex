@@ -764,7 +764,11 @@ defmodule ExWebRTC.PeerConnection do
                 ExRTP.Packet.Extension.TWCC.new(state.sent_packets)
                 |> ExRTP.Packet.Extension.TWCC.to_raw(id)
 
-              packet = ExRTP.Packet.add_extension(packet, twcc)
+              packet =
+                packet
+                |> ExRTP.Packet.remove_extension(id)
+                |> ExRTP.Packet.add_extension(twcc)
+
               state = %{state | sent_packets: state.sent_packets + 1 &&& 0xFFFF}
               {packet, state}
 
@@ -856,10 +860,15 @@ defmodule ExWebRTC.PeerConnection do
           _other -> twcc_recorder
         end
 
-      t = RTPTransceiver.receive_packet(t, packet, byte_size(data))
-      transceivers = List.replace_at(state.transceivers, idx, t)
+      transceivers =
+        case RTPTransceiver.receive_packet(t, packet, byte_size(data)) do
+          {:ok, t, packet} ->
+            notify(state.owner, {:rtp, t.receiver.track.id, packet})
+            List.replace_at(state.transceivers, idx, t)
 
-      notify(state.owner, {:rtp, t.receiver.track.id, packet})
+          :error ->
+            state.transceivers
+        end
 
       state = %{
         state
@@ -940,6 +949,32 @@ defmodule ExWebRTC.PeerConnection do
 
           if report != nil do
             encoded = ExRTCP.Packet.encode(report)
+            :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
+          end
+
+          List.replace_at(state.transceivers, idx, tr)
+      end
+
+    {:noreply, %{state | transceivers: transceivers}}
+  end
+
+  @impl true
+  def handle_info({:send_nack, transceiver_id}, state) do
+    transceiver =
+      state.transceivers
+      |> Enum.with_index()
+      |> Enum.find(fn {tr, _idx} -> tr.id == transceiver_id end)
+
+    transceivers =
+      case transceiver do
+        nil ->
+          state.transceivers
+
+        {tr, idx} ->
+          {nack, tr} = RTPTransceiver.get_nack(tr)
+
+          if nack != nil do
+            encoded = ExRTCP.Packet.encode(nack)
             :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
           end
 

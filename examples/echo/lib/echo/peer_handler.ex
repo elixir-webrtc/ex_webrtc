@@ -20,6 +20,12 @@ defmodule Echo.PeerHandler do
       payload_type: 96,
       mime_type: "video/VP8",
       clock_rate: 90_000
+    },
+    %RTPCodecParameters{
+      payload_type: 97,
+      mime_type: "video/rtx",
+      clock_rate: 90_000,
+      sdp_fmtp_line: %{pt: 97, apt: 96}
     }
   ]
 
@@ -29,6 +35,12 @@ defmodule Echo.PeerHandler do
       mime_type: "audio/opus",
       clock_rate: 48_000,
       channels: 2
+    },
+    %RTPCodecParameters{
+      payload_type: 112,
+      mime_type: "audio/rtx",
+      clock_rate: 48_000,
+      sdp_fmtp_line: %{pt: 112, apt: 111}
     }
   ]
 
