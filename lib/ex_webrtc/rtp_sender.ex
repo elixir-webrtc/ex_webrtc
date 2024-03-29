@@ -90,7 +90,7 @@ defmodule ExWebRTC.RTPSender do
   end
 
   # Prepares packet for sending i.e.:
-  # * assigns SSRC, pt, seq_num, mid
+  # * assigns SSRC, pt, mid
   # * serializes to binary
   @doc false
   @spec send_packet(t(), ExRTP.Packet.t()) :: {binary(), t()}
