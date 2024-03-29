@@ -15,9 +15,10 @@ defmodule ExWebRTC.RTPTransceiver do
     Utils
   }
 
-  alias ExRTCP.Packet.{ReceiverReport, SenderReport}
+  alias ExRTCP.Packet.{ReceiverReport, SenderReport, TransportFeedback.NACK}
 
   @report_interval 1000
+  @nack_interval 100
 
   @type id() :: integer()
   @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
@@ -70,19 +71,13 @@ defmodule ExWebRTC.RTPTransceiver do
     # In other case, if PeerConnection negotiated multiple codecs,
     # user would have to pass RTP codec when sending RTP packets,
     # or assign payload type on their own.
-    codecs =
-      if direction in [:sendrecv, :sendonly] do
-        Enum.slice(codecs, 0, 1)
-      else
-        codecs
-      end
-
-    track = MediaStreamTrack.new(kind)
     codec = List.first(codecs)
+    track = MediaStreamTrack.new(kind)
 
     id = Utils.generate_id()
     send(self(), {:send_report, :sender, id})
     send(self(), {:send_report, :receiver, id})
+    send(self(), {:send_nack, id})
 
     %__MODULE__{
       id: id,
@@ -211,10 +206,21 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec receive_packet(t(), ExRTP.Packet.t(), non_neg_integer()) :: t()
+  @spec receive_packet(t(), ExRTP.Packet.t(), non_neg_integer()) ::
+          {:ok, t(), ExRTP.Packet.t()} | :error
   def receive_packet(transceiver, packet, size) do
-    receiver = RTPReceiver.receive_packet(transceiver.receiver, packet, size)
-    %__MODULE__{transceiver | receiver: receiver}
+    case check_if_rtx(transceiver.codecs, packet) do
+      {:ok, apt} -> RTPReceiver.receive_rtx(transceiver.receiver, packet, apt)
+      :error -> {:ok, packet}
+    end
+    |> case do
+      {:ok, packet} ->
+        receiver = RTPReceiver.receive_packet(transceiver.receiver, packet, size)
+        {:ok, %__MODULE__{transceiver | receiver: receiver}, packet}
+
+      _other ->
+        :error
+    end
   end
 
   @doc false
@@ -256,6 +262,22 @@ defmodule ExWebRTC.RTPTransceiver do
       {:error, _reason} ->
         {nil, transceiver}
     end
+  end
+
+  @doc false
+  @spec get_nack(t()) :: {NACK.t() | nil, t()}
+  def get_nack(transceiver) do
+    Process.send_after(self(), {:send_nack, transceiver.id}, @nack_interval)
+
+    nack_generator = transceiver.receiver.nack_generator
+
+    {feedback, nack_generator} =
+      RTPReceiver.NACKGenerator.get_feedback(nack_generator)
+
+    receiver = %{transceiver.receiver | nack_generator: nack_generator}
+    transceiver = %{transceiver | receiver: receiver}
+
+    {feedback, transceiver}
   end
 
   @doc false
@@ -393,6 +415,16 @@ defmodule ExWebRTC.RTPTransceiver do
     mline
     |> ExSDP.get_attributes(ExSDP.Attribute.Extmap)
     |> Enum.filter(&Configuration.supported_rtp_hdr_extension?(config, &1, mline.type))
+  end
+
+  defp check_if_rtx(codecs, packet) do
+    codec = Enum.find(codecs, &(&1.payload_type == packet.payload_type))
+
+    if String.ends_with?(codec.mime_type, "rtx") do
+      {:ok, codec.sdp_fmtp_line.apt}
+    else
+      :error
+    end
   end
 
   defp report_interval do

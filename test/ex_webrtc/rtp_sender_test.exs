@@ -1,14 +1,11 @@
 defmodule ExWebRTC.RTPSenderTest do
   use ExUnit.Case, async: true
 
-  import Bitwise
-
   alias ExRTP.Packet.Extension.SourceDescription
   alias ExSDP.Attribute.{Extmap, FMTP}
 
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, RTPSender}
 
-  @max_seq_num (1 <<< 32) - 1
   @ssrc 354_947
 
   setup do
@@ -30,8 +27,6 @@ defmodule ExWebRTC.RTPSenderTest do
   end
 
   test "send/2", %{sender: sender} do
-    sender = %RTPSender{sender | last_seq_num: 10_000}
-
     packet = ExRTP.Packet.new(<<>>)
 
     {packet, sender} = RTPSender.send_packet(sender, packet)
@@ -41,19 +36,18 @@ defmodule ExWebRTC.RTPSenderTest do
     assert packet.ssrc == @ssrc
     assert packet.marker == false
     assert packet.payload_type == 111
-    assert packet.sequence_number == 10_001
-    # timestamp shouldn't be overwritten
+    # timestamp and sequence number shouldn't be overwritten
     assert packet.timestamp == 0
+    assert packet.sequence_number == 0
     # there should only be one extension
     assert [ext] = packet.extensions
     assert {:ok, %{text: "1"}} = SourceDescription.from_raw(ext)
 
     # check sequence number rollover and marker flag
-    sender = %RTPSender{sender | last_seq_num: @max_seq_num}
     packet = ExRTP.Packet.new(<<>>, sequence_number: 1, marker: true)
     {packet, _sender} = RTPSender.send_packet(sender, packet)
     {:ok, packet} = ExRTP.Packet.decode(packet)
-    assert packet.sequence_number == 0
+    assert packet.sequence_number == 1
     # marker flag shouldn't be overwritten
     assert packet.marker == true
   end

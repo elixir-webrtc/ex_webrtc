@@ -219,7 +219,7 @@ defmodule ExWebRTC.DTLSTransport do
   def handle_cast({:send_rtp, data}, %{dtls_state: :connected, ice_connected: true} = state) do
     case ExLibSRTP.protect(state.out_srtp, data) do
       {:ok, protected} -> state.ice_transport.send_data(state.ice_pid, protected)
-      {:error, reason} -> Logger.error("Unable to protect RTP: #{inspect(reason)}")
+      {:error, reason} -> Logger.warning("Unable to protect RTP: #{inspect(reason)}")
     end
 
     {:noreply, state}
@@ -235,7 +235,7 @@ defmodule ExWebRTC.DTLSTransport do
   def handle_cast({:send_rtcp, data}, state) do
     case ExLibSRTP.protect_rtcp(state.out_srtp, data) do
       {:ok, protected} -> state.ice_transport.send_data(state.ice_pid, protected)
-      {:error, reason} -> Logger.error("Unable to protect RTCP: #{inspect(reason)}")
+      {:error, reason} -> Logger.warning("Unable to protect RTCP: #{inspect(reason)}")
     end
 
     {:noreply, state}
