@@ -1165,16 +1165,16 @@ defmodule ExWebRTC.PeerConnection do
       transceivers =
         process_mlines_remote(sdp.media, state.transceivers, type, state.config, state.owner)
 
+      # infer our role from the remote role
+      dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
+      DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
+
       # TODO: this can result in ICE restart (when it should, e.g. when this is answer)
       :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
 
       for candidate <- SDPUtils.get_ice_candidates(sdp) do
         state.ice_transport.add_remote_candidate(state.ice_pid, candidate)
       end
-
-      # infer our role from the remote role
-      dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
-      DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
 
       state =
         state

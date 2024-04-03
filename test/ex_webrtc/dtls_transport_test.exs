@@ -92,6 +92,25 @@ defmodule ExWebRTC.DTLSTransportTest do
     refute_receive {:mock_ice, _data}
   end
 
+  test "buffers incoming data if DTLSTransport has not been started", %{
+    dtls: dtls,
+    ice_transport: ice_transport,
+    ice_pid: ice_pid
+  } do
+    :ok = DTLSTransport.set_ice_connected(dtls)
+
+    remote_dtls = ExDTLS.init(mode: :client, dtls_srtp: true)
+    {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
+
+    ice_transport.send_dtls(ice_pid, {:data, packets})
+    refute_receive {:mock_ice, _packets}
+
+    :ok = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
+
+    assert_receive {:mock_ice, packets}
+    assert is_binary(packets)
+  end
+
   test "cannot start dtls more than once", %{dtls: dtls} do
     assert :ok = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
     assert {:error, :already_started} = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
