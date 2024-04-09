@@ -95,7 +95,7 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.start(__MODULE__, {self(), configuration})
   end
 
-  @spec controlling_process(peer_connection(), pid()) :: :ok
+  @spec controlling_process(peer_connection(), Process.dest()) :: :ok
   def controlling_process(peer_connection, controlling_process) do
     GenServer.call(peer_connection, {:controlling_process, controlling_process})
   end

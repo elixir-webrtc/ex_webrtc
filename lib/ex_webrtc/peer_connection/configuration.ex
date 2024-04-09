@@ -115,7 +115,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   This config cannot be changed.
   """
   @type options() :: [
-          controlling_process: pid(),
+          controlling_process: Process.dest(),
           ice_servers: [ice_server()],
           ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
