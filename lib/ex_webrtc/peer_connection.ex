@@ -40,12 +40,20 @@ defmodule ExWebRTC.PeerConnection do
           {:ex_webrtc, pid(),
            :negotiation_needed
            | {:ice_candidate, ICECandidate.t()}
+           | {:ice_gathering_state_change, gathering_state()}
            | {:signaling_state_change, signaling_state()}
            | {:connection_state_change, connection_state()}
            | {:track, MediaStreamTrack.t()}
            | {:track_muted, MediaStreamTrack.id()}
            | {:track_ended, MediaStreamTrack.id()}
            | {:rtp, MediaStreamTrack.id(), ExRTP.Packet.t()}}
+
+  @typedoc """
+  Possible ICE gathering states.
+
+  For the exact meaning, refer to the [WebRTC W3C, section 4.3.2](https://www.w3.org/TR/webrtc/#rtcicegatheringstate-enum)
+  """
+  @type gathering_state() :: :new | :gathering | :complete
 
   @typedoc """
   Possible PeerConnection signaling states.
@@ -814,6 +822,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info({:ex_ice, _from, {:gathering_state_change, new_gathering_state}}, state) do
     state = %{state | ice_gathering_state: new_gathering_state}
+    notify(state.owner, {:ice_gathering_state_change, new_gathering_state})
     {:noreply, state}
   end
 
