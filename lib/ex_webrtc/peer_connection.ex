@@ -811,16 +811,16 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_cast({:send_pli, track_id}, state) do
-    sender =
+    receiver =
       state.transceivers
       |> Enum.find_value(fn
-        %{sender: %{track: %{id: ^track_id}} = sender} -> sender
+        %{receiver: %{track: %{id: ^track_id}} = receiver} -> receiver
         _ -> nil
       end)
 
-    if sender != nil and sender.ssrc != nil do
+    if receiver.ssrc != nil do
       encoded =
-        %ExRTCP.Packet.PayloadFeedback.PLI{sender_ssrc: 1, media_ssrc: sender.ssrc}
+        %ExRTCP.Packet.PayloadFeedback.PLI{sender_ssrc: 1, media_ssrc: receiver.ssrc}
         |> ExRTCP.Packet.encode()
 
       :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
