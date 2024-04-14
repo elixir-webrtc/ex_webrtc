@@ -40,12 +40,20 @@ defmodule ExWebRTC.PeerConnection do
           {:ex_webrtc, pid(),
            :negotiation_needed
            | {:ice_candidate, ICECandidate.t()}
+           | {:ice_gathering_state_change, gathering_state()}
            | {:signaling_state_change, signaling_state()}
            | {:connection_state_change, connection_state()}
            | {:track, MediaStreamTrack.t()}
            | {:track_muted, MediaStreamTrack.id()}
            | {:track_ended, MediaStreamTrack.id()}
            | {:rtp, MediaStreamTrack.id(), ExRTP.Packet.t()}}
+
+  @typedoc """
+  Possible ICE gathering states.
+
+  For the exact meaning, refer to the [WebRTC W3C, section 4.3.2](https://www.w3.org/TR/webrtc/#rtcicegatheringstate-enum)
+  """
+  @type gathering_state() :: :new | :gathering | :complete
 
   @typedoc """
   Possible PeerConnection signaling states.
@@ -87,7 +95,7 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.start(__MODULE__, {self(), configuration})
   end
 
-  @spec controlling_process(peer_connection(), pid()) :: :ok
+  @spec controlling_process(peer_connection(), Process.dest()) :: :ok
   def controlling_process(peer_connection, controlling_process) do
     GenServer.call(peer_connection, {:controlling_process, controlling_process})
   end
@@ -433,9 +441,12 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_call({:add_ice_candidate, _}, _from, %{current_remote_desc: nil} = state) do
-    {:reply, {:error, :no_remote_description}, state}
-  end
+  def handle_call(
+        {:add_ice_candidate, _},
+        _from,
+        %{current_remote_desc: nil, pending_remote_desc: nil} = state
+      ),
+      do: {:reply, {:error, :no_remote_description}, state}
 
   @impl true
   def handle_call({:add_ice_candidate, %{candidate: ""}}, _from, state) do
@@ -761,7 +772,11 @@ defmodule ExWebRTC.PeerConnection do
                 ExRTP.Packet.Extension.TWCC.new(state.sent_packets)
                 |> ExRTP.Packet.Extension.TWCC.to_raw(id)
 
-              packet = ExRTP.Packet.add_extension(packet, twcc)
+              packet =
+                packet
+                |> ExRTP.Packet.remove_extension(id)
+                |> ExRTP.Packet.add_extension(twcc)
+
               state = %{state | sent_packets: state.sent_packets + 1 &&& 0xFFFF}
               {packet, state}
 
@@ -807,6 +822,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info({:ex_ice, _from, {:gathering_state_change, new_gathering_state}}, state) do
     state = %{state | ice_gathering_state: new_gathering_state}
+    notify(state.owner, {:ice_gathering_state_change, new_gathering_state})
     {:noreply, state}
   end
 
@@ -853,10 +869,15 @@ defmodule ExWebRTC.PeerConnection do
           _other -> twcc_recorder
         end
 
-      t = RTPTransceiver.receive_packet(t, packet, byte_size(data))
-      transceivers = List.replace_at(state.transceivers, idx, t)
+      transceivers =
+        case RTPTransceiver.receive_packet(t, packet, byte_size(data)) do
+          {:ok, t, packet} ->
+            notify(state.owner, {:rtp, t.receiver.track.id, packet})
+            List.replace_at(state.transceivers, idx, t)
 
-      notify(state.owner, {:rtp, t.receiver.track.id, packet})
+          :error ->
+            state.transceivers
+        end
 
       state = %{
         state
@@ -937,6 +958,32 @@ defmodule ExWebRTC.PeerConnection do
 
           if report != nil do
             encoded = ExRTCP.Packet.encode(report)
+            :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
+          end
+
+          List.replace_at(state.transceivers, idx, tr)
+      end
+
+    {:noreply, %{state | transceivers: transceivers}}
+  end
+
+  @impl true
+  def handle_info({:send_nack, transceiver_id}, state) do
+    transceiver =
+      state.transceivers
+      |> Enum.with_index()
+      |> Enum.find(fn {tr, _idx} -> tr.id == transceiver_id end)
+
+    transceivers =
+      case transceiver do
+        nil ->
+          state.transceivers
+
+        {tr, idx} ->
+          {nack, tr} = RTPTransceiver.get_nack(tr)
+
+          if nack != nil do
+            encoded = ExRTCP.Packet.encode(nack)
             :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
           end
 
@@ -1127,16 +1174,16 @@ defmodule ExWebRTC.PeerConnection do
       transceivers =
         process_mlines_remote(sdp.media, state.transceivers, type, state.config, state.owner)
 
+      # infer our role from the remote role
+      dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
+      DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
+
       # TODO: this can result in ICE restart (when it should, e.g. when this is answer)
       :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
 
       for candidate <- SDPUtils.get_ice_candidates(sdp) do
         state.ice_transport.add_remote_candidate(state.ice_pid, candidate)
       end
-
-      # infer our role from the remote role
-      dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
-      DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
 
       state =
         state

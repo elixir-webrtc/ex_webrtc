@@ -94,13 +94,9 @@ defmodule ExWebRTC.Media.IVF.Writer do
     len_frame = byte_size(frame.data)
     serialized_frame = <<len_frame::little-32, frame.timestamp::little-64, frame.data::binary>>
 
-    case IO.binwrite(writer.file, serialized_frame) do
-      :ok ->
-        writer = %{writer | frames_cnt: writer.frames_cnt + 1}
-        {:ok, writer}
+    :ok = IO.binwrite(writer.file, serialized_frame)
 
-      {:error, _reason} = error ->
-        error
-    end
+    writer = %{writer | frames_cnt: writer.frames_cnt + 1}
+    {:ok, writer}
   end
 end

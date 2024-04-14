@@ -2,7 +2,6 @@ defmodule ExWebRTC.RTPSender do
   @moduledoc """
   Implementation of the [RTCRtpSender](https://www.w3.org/TR/webrtc/#rtcrtpsender-interface).
   """
-  import Bitwise
 
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils}
   alias ExSDP.Attribute.Extmap
@@ -20,14 +19,13 @@ defmodule ExWebRTC.RTPSender do
           mid: String.t() | nil,
           pt: non_neg_integer() | nil,
           ssrc: non_neg_integer() | nil,
-          last_seq_num: non_neg_integer(),
           packets_sent: non_neg_integer(),
           bytes_sent: non_neg_integer(),
           markers_sent: non_neg_integer(),
           report_recorder: ReportRecorder.t()
         }
 
-  @enforce_keys [:id, :last_seq_num, :report_recorder]
+  @enforce_keys [:id, :report_recorder]
   defstruct @enforce_keys ++
               [
                 :track,
@@ -62,7 +60,6 @@ defmodule ExWebRTC.RTPSender do
       rtp_hdr_exts: rtp_hdr_exts,
       pt: pt,
       ssrc: ssrc,
-      last_seq_num: random_seq_num(),
       mid: mid,
       report_recorder: %ReportRecorder{clock_rate: codec && codec.clock_rate}
     }
@@ -93,7 +90,7 @@ defmodule ExWebRTC.RTPSender do
   end
 
   # Prepares packet for sending i.e.:
-  # * assigns SSRC, pt, seq_num, mid
+  # * assigns SSRC, pt, mid
   # * serializes to binary
   @doc false
   @spec send_packet(t(), ExRTP.Packet.t()) :: {binary(), t()}
@@ -104,20 +101,19 @@ defmodule ExWebRTC.RTPSender do
       %ExRTP.Packet.Extension.SourceDescription{text: sender.mid}
       |> ExRTP.Packet.Extension.SourceDescription.to_raw(mid_extmap.id)
 
-    next_seq_num = sender.last_seq_num + 1 &&& 0xFFFF
-    packet = %{packet | payload_type: sender.pt, ssrc: sender.ssrc, sequence_number: next_seq_num}
+    packet = %{packet | payload_type: sender.pt, ssrc: sender.ssrc}
 
     report_recorder = ReportRecorder.record_packet(sender.report_recorder, packet)
 
     data =
       packet
+      |> ExRTP.Packet.remove_extension(mid_extmap.id)
       |> ExRTP.Packet.add_extension(mid_ext)
       |> ExRTP.Packet.encode()
 
     sender = %{
       sender
-      | last_seq_num: next_seq_num,
-        packets_sent: sender.packets_sent + 1,
+      | packets_sent: sender.packets_sent + 1,
         bytes_sent: sender.bytes_sent + byte_size(data),
         markers_sent: sender.markers_sent + Utils.to_int(packet.marker),
         report_recorder: report_recorder
@@ -139,6 +135,4 @@ defmodule ExWebRTC.RTPSender do
       markers_sent: sender.markers_sent
     }
   end
-
-  defp random_seq_num(), do: Enum.random(0..65_535)
 end

@@ -106,7 +106,8 @@ defmodule ExWebRTC.DTLSTransport do
       ice_transport: ice_transport,
       ice_pid: ice_pid,
       ice_connected: false,
-      buffered_packets: nil,
+      buffered_local_packets: nil,
+      buffered_remote_packets: nil,
       cert: cert,
       base64_cert: Base.encode64(cert),
       pkey: pkey,
@@ -148,10 +149,10 @@ defmodule ExWebRTC.DTLSTransport do
   def handle_call(:set_ice_connected, _from, state) do
     state = %{state | ice_connected: true}
 
-    if state.buffered_packets do
+    if state.buffered_local_packets do
       Logger.debug("Sending buffered DTLS packets")
-      :ok = state.ice_transport.send_data(state.ice_pid, state.buffered_packets)
-      state = %{state | buffered_packets: nil}
+      :ok = state.ice_transport.send_data(state.ice_pid, state.buffered_local_packets)
+      state = %{state | buffered_local_packets: nil}
       {:reply, :ok, state}
     else
       {:reply, :ok, state}
@@ -205,7 +206,21 @@ defmodule ExWebRTC.DTLSTransport do
         verify_peer: true
       )
 
-    state = %{state | dtls: dtls, mode: mode, peer_fingerprint: peer_fingerprint}
+    # plant the buffered remote packets in the mailbox
+    # as if it came from the ICE transport
+    case state.buffered_remote_packets do
+      nil -> :ok
+      data -> send(self(), {:ex_ice, state.ice_pid, {:data, data}})
+    end
+
+    state = %{
+      state
+      | dtls: dtls,
+        mode: mode,
+        peer_fingerprint: peer_fingerprint,
+        buffered_remote_packets: nil
+    }
+
     {:reply, :ok, state}
   end
 
@@ -219,7 +234,7 @@ defmodule ExWebRTC.DTLSTransport do
   def handle_cast({:send_rtp, data}, %{dtls_state: :connected, ice_connected: true} = state) do
     case ExLibSRTP.protect(state.out_srtp, data) do
       {:ok, protected} -> state.ice_transport.send_data(state.ice_pid, protected)
-      {:error, reason} -> Logger.error("Unable to protect RTP: #{inspect(reason)}")
+      {:error, reason} -> Logger.warning("Unable to protect RTP: #{inspect(reason)}")
     end
 
     {:noreply, state}
@@ -235,21 +250,21 @@ defmodule ExWebRTC.DTLSTransport do
   def handle_cast({:send_rtcp, data}, state) do
     case ExLibSRTP.protect_rtcp(state.out_srtp, data) do
       {:ok, protected} -> state.ice_transport.send_data(state.ice_pid, protected)
-      {:error, reason} -> Logger.error("Unable to protect RTCP: #{inspect(reason)}")
+      {:error, reason} -> Logger.warning("Unable to protect RTCP: #{inspect(reason)}")
     end
 
     {:noreply, state}
   end
 
   @impl true
-  def handle_info(:dtls_timeout, %{buffered_packets: buffered_packets} = state) do
+  def handle_info(:dtls_timeout, %{buffered_local_packets: buffered_local_packets} = state) do
     case ExDTLS.handle_timeout(state.dtls) do
       {:retransmit, packets, timeout} when state.ice_connected ->
         state.ice_transport.send_data(state.ice_pid, packets)
         Logger.debug("Retransmitted DTLS packets")
         Process.send_after(self(), :dtls_timeout, timeout)
 
-      {:retransmit, ^buffered_packets, timeout} ->
+      {:retransmit, ^buffered_local_packets, timeout} ->
         # we got DTLS packets from the other side but
         # we haven't established ICE connection yet so
         # packets to retransmit have to be the same as dtls_buffered_packets
@@ -282,6 +297,13 @@ defmodule ExWebRTC.DTLSTransport do
     Logger.debug("Stopping DTLSTransport with reason: #{inspect(reason)}")
   end
 
+  defp handle_ice_data({:data, data}, %{dtls: nil} = state) do
+    # received DTLS data from remote peer before receiving an
+    # SDP answer and initializing the DTLS Transport, will buffer the data
+    state = %{state | buffered_remote_packets: data}
+    {:ok, state}
+  end
+
   defp handle_ice_data({:data, <<f, _rest::binary>> = data}, state) when f in 20..64 do
     case ExDTLS.handle_data(state.dtls, data) do
       {:handshake_packets, packets, timeout} when state.ice_connected ->
@@ -297,7 +319,7 @@ defmodule ExWebRTC.DTLSTransport do
         """)
 
         Process.send_after(self(), :dtls_timeout, timeout)
-        state = %{state | buffered_packets: packets}
+        state = %{state | buffered_local_packets: packets}
         state = update_dtls_state(state, :connecting)
         {:ok, state}
 

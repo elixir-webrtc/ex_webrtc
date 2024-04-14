@@ -1,42 +1,87 @@
-name: CI 
+name: CI
 
 on: push
 
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    name: Lint (OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}})
-    strategy:
-      matrix:
-        otp: ['26']
-        elixir: ['1.15']
-    steps:
-      - uses: actions/checkout@v3
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{matrix.otp}}
-          elixir-version: ${{matrix.elixir}}
-      - run: mix deps.get
-      - run: mix credo
-      - run: mix dialyzer
-      - run: mix format --check-formatted
-      - run: mix docs 2>&1 | (! grep -q "warning:")
+env:
+  MIX_ENV: test
 
+permissions:
+  contents: read
+
+jobs:
   test:
     runs-on: ubuntu-latest
-    name: Test (OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}})
+    name: CI on OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}}
     strategy:
       matrix:
         otp: ['26']
-        elixir: ['1.15']
-    env:
-      MIX_ENV: test
+        elixir: ['1.16']
     steps:
-      - uses: actions/checkout@v3
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{matrix.otp}}
-          elixir-version: ${{matrix.elixir}}
-      - run: mix deps.get
-      - run: mix coveralls.json
-      - uses: codecov/codecov-action@v3
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{matrix.otp}}
+        elixir-version: ${{matrix.elixir}}
+
+    - name: Checkout the code
+      uses: actions/checkout@v4
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: deps
+        key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-mix-deps-
+
+    - name: Cache compiled build
+      uses: actions/cache@v4
+      with:
+        path: _build
+        key: ${{ runner.os }}-mix-build-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-mix-build-
+          ${{ runner.os }}-mix-
+
+    - name: Cache dialyzer artifacts
+      uses: actions/cache@v4
+      with:
+        path: _dialyzer
+        key: ${{ runner.os }}-dialyzer-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-dialyzer-
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Compile without warnings
+      id: compile
+      run: mix compile --warnings-as-errors
+
+    - name: Check formatting
+      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+      run: mix format --check-formatted
+
+    - name: Check with credo
+      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+      run: mix credo
+
+    - name: Check with dialyzer
+      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+      run: mix dialyzer
+
+    - name: Check docs
+      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+      run: mix docs 2>&1 | (! grep -q "warning:")
+
+    - name: Run tests and check test coverage
+      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+      id: test
+      run: mix coveralls.json
+
+    - name: Upload test coverage results to Codecov
+      if: ${{ !cancelled() && steps.test.outcome == 'success' }}
+      uses: codecov/codecov-action@v4
+      with:
+        fail_ci_if_error: true,
+        token: ${{ secrets.CODECOV_TOKEN }}

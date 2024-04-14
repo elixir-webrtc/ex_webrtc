@@ -160,4 +160,50 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
     :ok = PeerConnection.close(pc)
   end
+
+  test "properly handles RTX" do
+    video_codecs = [
+      %RTPCodecParameters{
+        payload_type: 100,
+        mime_type: "video/VP8",
+        clock_rate: 90_000
+      },
+      %RTPCodecParameters{
+        payload_type: 105,
+        mime_type: "video/rtx",
+        clock_rate: 90_000,
+        sdp_fmtp_line: %{pt: 105, apt: 100}
+      }
+    ]
+
+    {:ok, pc} =
+      PeerConnection.start_link(
+        video_codecs: video_codecs,
+        audio_codecs: []
+      )
+
+    # in the SDP, codecs and rtx have different payload types
+    offer = %SessionDescription{
+      type: :offer,
+      sdp: File.read!("test/fixtures/sdp/chromium_audio_video_sdp.txt")
+    }
+
+    :ok = PeerConnection.set_remote_description(pc, offer)
+    {:ok, answer} = PeerConnection.create_answer(pc)
+    :ok = PeerConnection.set_local_description(pc, answer)
+
+    assert [%RTPTransceiver{kind: :video, codecs: codecs}] = PeerConnection.get_transceivers(pc)
+
+    assert [
+             %RTPCodecParameters{
+               mime_type: "video/VP8",
+               payload_type: 96
+             },
+             %RTPCodecParameters{
+               mime_type: "video/rtx",
+               payload_type: 97,
+               sdp_fmtp_line: %{pt: 97, apt: 96}
+             }
+           ] = codecs
+  end
 end

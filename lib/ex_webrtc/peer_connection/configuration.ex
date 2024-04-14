@@ -115,7 +115,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   This config cannot be changed.
   """
   @type options() :: [
-          controlling_process: pid(),
+          controlling_process: Process.dest(),
           ice_servers: [ice_server()],
           ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
@@ -173,7 +173,16 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     # rtcp-fb that are not supported.
     # TODO: this function doesn't compare fmtp at all
     Enum.any?(config.audio_codecs ++ config.video_codecs, fn supported_codec ->
-      %{supported_codec | rtcp_fbs: codec.rtcp_fbs, sdp_fmtp_line: codec.sdp_fmtp_line} == codec
+      # For the purposes of comparison, lowercase mime check
+      %{
+        supported_codec
+        | mime_type: String.downcase(supported_codec.mime_type),
+          rtcp_fbs: codec.rtcp_fbs,
+          sdp_fmtp_line: codec.sdp_fmtp_line
+      } == %{
+        codec
+        | mime_type: String.downcase(codec.mime_type)
+      }
     end)
   end
 
@@ -198,13 +207,17 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @spec update(t(), ExSDP.t()) :: t()
   def update(config, sdp) do
     sdp_extmaps = SDPUtils.get_extensions(sdp)
-    sdp_codecs = SDPUtils.get_rtp_codec_parameters(sdp)
+
+    {sdp_rtx, sdp_codecs} =
+      sdp
+      |> SDPUtils.get_rtp_codec_parameters()
+      |> Enum.split_with(&String.ends_with?(&1.mime_type, "rtx"))
 
     {audio_exts, video_exts} =
       update_rtp_hdr_extensions(sdp_extmaps, config.audio_rtp_hdr_exts, config.video_rtp_hdr_exts)
 
     {audio_codecs, video_codecs} =
-      update_codecs(sdp_codecs, config.audio_codecs, config.video_codecs)
+      update_codecs(sdp_codecs, sdp_rtx, config.audio_codecs, config.video_codecs)
 
     %__MODULE__{
       config
@@ -218,27 +231,25 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   defp update_rtp_hdr_extensions(sdp_extmaps, audio_exts, video_exts)
   defp update_rtp_hdr_extensions([], audio_exts, video_exts), do: {audio_exts, video_exts}
 
-  defp update_rtp_hdr_extensions([extmap | sdp_extmaps], audio_exts, video_exts)
-       when is_map_key(audio_exts, extmap.uri) do
-    update_rtp_hdr_extensions(sdp_extmaps, Map.put(audio_exts, extmap.uri, extmap), video_exts)
-  end
+  defp update_rtp_hdr_extensions([extmap | sdp_extmaps], audio_exts, video_exts) do
+    audio_exts = update_exts(audio_exts, extmap)
+    video_exts = update_exts(video_exts, extmap)
 
-  defp update_rtp_hdr_extensions([extmap | sdp_extmaps], audio_exts, video_exts)
-       when is_map_key(video_exts, extmap.uri) do
-    update_rtp_hdr_extensions(sdp_extmaps, audio_exts, Map.put(video_exts, extmap.uri, extmap))
-  end
-
-  defp update_rtp_hdr_extensions([_extmap | sdp_extmaps], audio_exts, video_exts) do
     update_rtp_hdr_extensions(sdp_extmaps, audio_exts, video_exts)
   end
 
-  defp update_codecs(sdp_codecs, audio_codecs, video_codecs)
+  defp update_exts(exts, extmap) when is_map_key(exts, extmap.uri),
+    do: Map.put(exts, extmap.uri, extmap)
 
-  defp update_codecs([], audio_codecs, video_codecs) do
+  defp update_exts(exts, _extmap), do: exts
+
+  defp update_codecs(sdp_codecs, sdp_rtx, audio_codecs, video_codecs)
+
+  defp update_codecs([], _sdp_rtx, audio_codecs, video_codecs) do
     {audio_codecs, video_codecs}
   end
 
-  defp update_codecs([sdp_codec | sdp_codecs], audio_codecs, video_codecs) do
+  defp update_codecs([sdp_codec | sdp_codecs], sdp_rtx, audio_codecs, video_codecs) do
     type =
       case sdp_codec.mime_type do
         "audio/" <> _ -> :audio
@@ -266,9 +277,11 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
     case codec do
       nil ->
-        update_codecs(sdp_codecs, audio_codecs, video_codecs)
+        update_codecs(sdp_codecs, sdp_rtx, audio_codecs, video_codecs)
 
       {codec, idx} ->
+        codecs = update_rtx(codecs, sdp_rtx, codec.payload_type, sdp_codec.payload_type)
+
         fmtp =
           if codec.sdp_fmtp_line != nil do
             %{codec.sdp_fmtp_line | pt: sdp_codec.payload_type}
@@ -282,12 +295,35 @@ defmodule ExWebRTC.PeerConnection.Configuration do
             sdp_fmtp_line: fmtp
         }
 
-        codecs = List.insert_at(codecs, idx, codec)
+        codecs = List.replace_at(codecs, idx, codec)
 
         case type do
-          :audio -> update_codecs(sdp_codecs, codecs, video_codecs)
-          :video -> update_codecs(sdp_codecs, audio_codecs, codecs)
+          :audio -> update_codecs(sdp_codecs, sdp_rtx, codecs, video_codecs)
+          :video -> update_codecs(sdp_codecs, sdp_rtx, audio_codecs, codecs)
         end
+    end
+  end
+
+  defp update_rtx(codecs, sdp_rtx, old_pt, new_pt) do
+    new_rtx = Enum.find(sdp_rtx, fn codec -> codec.sdp_fmtp_line.apt == new_pt end)
+
+    rtx =
+      codecs
+      |> Enum.with_index()
+      |> Enum.find(fn {codec, _idx} ->
+        String.ends_with?(codec.mime_type, "rtx") and codec.sdp_fmtp_line.apt == old_pt
+      end)
+
+    case rtx do
+      {_rtx, idx} when new_rtx != nil ->
+        List.replace_at(codecs, idx, new_rtx)
+
+      {rtx, idx} ->
+        fmtp = %{rtx.sdp_fmtp_line | apt: new_pt}
+        List.replace_at(codecs, idx, %RTPCodecParameters{rtx | sdp_fmtp_line: fmtp})
+
+      nil ->
+        codecs
     end
   end
 

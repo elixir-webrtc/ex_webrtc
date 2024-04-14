@@ -19,6 +19,12 @@ defmodule ExWebRTC.MixProject do
       docs: docs(),
       source_url: @source_url,
 
+      # dialyzer
+      dialyzer: [
+        plt_local_path: "_dialyzer",
+        plt_core_path: "_dialyzer"
+      ],
+
       # code coverage
       test_coverage: [tool: ExCoveralls],
       preferred_cli_env: [
@@ -54,8 +60,8 @@ defmodule ExWebRTC.MixProject do
       {:ex_ice, github: "elixir-webrtc/ex_ice"},
       {:ex_dtls, "~> 0.15.0"},
       {:ex_libsrtp, "~> 0.7.1"},
-      {:ex_rtp, "~> 0.3.0"},
-      {:ex_rtcp, "~> 0.2.0"},
+      {:ex_rtp, github: "elixir-webrtc/ex_rtp"},
+      {:ex_rtcp, github: "elixir-webrtc/ex_rtcp"},
       {:crc, "~> 0.10"},
 
       # dev/test
