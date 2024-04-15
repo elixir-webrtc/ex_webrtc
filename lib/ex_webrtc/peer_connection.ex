@@ -212,6 +212,14 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
+  Send an RTCP PLI feedback to the remote peer using specified track.
+  """
+  @spec send_pli(peer_connection(), MediaStreamTrack.id()) :: :ok
+  def send_pli(peer_connection, track_id) do
+    GenServer.cast(peer_connection, {:send_pli, track_id})
+  end
+
+  @doc """
   Returns peer connection's statistics.
 
   See [RTCStatsReport](https://www.w3.org/TR/webrtc/#rtcstatsreport-object) for the output structure.
@@ -799,6 +807,28 @@ defmodule ExWebRTC.PeerConnection do
 
         {:noreply, state}
     end
+  end
+
+  @impl true
+  def handle_cast({:send_pli, track_id}, state) do
+    receiver =
+      state.transceivers
+      |> Enum.find_value(fn
+        %{receiver: %{track: %{id: ^track_id}} = receiver} -> receiver
+        _ -> nil
+      end)
+
+    if receiver.ssrc != nil do
+      encoded =
+        %ExRTCP.Packet.PayloadFeedback.PLI{sender_ssrc: 1, media_ssrc: receiver.ssrc}
+        |> ExRTCP.Packet.encode()
+
+      :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
+    else
+      Logger.warning("Attempted to send PLI for non existent track")
+    end
+
+    {:noreply, state}
   end
 
   @impl true
