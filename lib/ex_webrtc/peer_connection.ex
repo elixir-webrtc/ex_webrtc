@@ -81,12 +81,12 @@ defmodule ExWebRTC.PeerConnection do
     |> Enum.filter(fn pid -> Process.alive?(pid) end)
   end
 
-  @spec start_link(Configuration.options()) :: GenServer.on_start()
-  def start_link(options \\ []) do
-    {controlling_process, options} = Keyword.pop(options, :controlling_process)
+  @spec start_link(Configuration.options(), GenServer.options()) :: GenServer.on_start()
+  def start_link(pc_opts \\ [], gen_server_opts \\ []) do
+    {controlling_process, pc_opts} = Keyword.pop(pc_opts, :controlling_process)
     controlling_process = controlling_process || self()
-    configuration = Configuration.from_options!(options)
-    GenServer.start_link(__MODULE__, {controlling_process, configuration})
+    configuration = Configuration.from_options!(pc_opts)
+    GenServer.start_link(__MODULE__, {controlling_process, configuration}, gen_server_opts)
   end
 
   @spec start(Configuration.options()) :: GenServer.on_start()
