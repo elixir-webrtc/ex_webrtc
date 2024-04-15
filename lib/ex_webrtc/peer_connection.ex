@@ -212,7 +212,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
-  Send and RTCP PLI feedback to the remote peer using specified track.
+  Send an RTCP PLI feedback to the remote peer using specified track.
   """
   @spec send_pli(peer_connection(), MediaStreamTrack.id()) :: :ok
   def send_pli(peer_connection, track_id) do
