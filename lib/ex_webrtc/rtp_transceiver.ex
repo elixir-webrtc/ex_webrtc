@@ -71,7 +71,8 @@ defmodule ExWebRTC.RTPTransceiver do
     # In other case, if PeerConnection negotiated multiple codecs,
     # user would have to pass RTP codec when sending RTP packets,
     # or assign payload type on their own.
-    codec = List.first(codecs)
+    codec = get_codec(codecs)
+    rtx_codec = get_rtx(codecs, codec)
     track = MediaStreamTrack.new(kind)
 
     id = Utils.generate_id()
@@ -86,7 +87,15 @@ defmodule ExWebRTC.RTPTransceiver do
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
       receiver: RTPReceiver.new(track, codec),
-      sender: RTPSender.new(sender_track, codec, rtp_hdr_exts, options[:ssrc]),
+      sender:
+        RTPSender.new(
+          sender_track,
+          codec,
+          rtx_codec,
+          rtp_hdr_exts,
+          options[:ssrc],
+          options[:rtx_ssrc]
+        ),
       added_by_add_track: Keyword.get(options, :added_by_add_track, false)
     }
   end
@@ -108,7 +117,8 @@ defmodule ExWebRTC.RTPTransceiver do
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
     track = MediaStreamTrack.new(mline.type)
-    codec = List.first(codecs)
+    codec = get_codec(codecs)
+    rtx_codec = get_rtx(codecs, codec)
 
     id = Utils.generate_id()
     send(self(), {:send_report, :sender, id})
@@ -123,7 +133,7 @@ defmodule ExWebRTC.RTPTransceiver do
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
       receiver: RTPReceiver.new(track, codec),
-      sender: RTPSender.new(nil, codec, rtp_hdr_exts, mid, nil)
+      sender: RTPSender.new(nil, codec, rtx_codec, rtp_hdr_exts, mid, nil, nil)
     }
   end
 
@@ -152,10 +162,11 @@ defmodule ExWebRTC.RTPTransceiver do
 
     codecs = get_codecs(mline, config)
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    codec = List.first(codecs)
+    codec = get_codec(codecs)
+    rtx_codec = get_rtx(codecs, codec)
 
     receiver = RTPReceiver.update(transceiver.receiver, codec)
-    sender = RTPSender.update(transceiver.sender, mid, codec, rtp_hdr_exts)
+    sender = RTPSender.update(transceiver.sender, mid, codec, rtx_codec, rtp_hdr_exts)
 
     %__MODULE__{
       transceiver
@@ -168,9 +179,9 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec add_track(t(), MediaStreamTrack.t(), non_neg_integer()) :: t()
-  def add_track(transceiver, track, ssrc) do
-    sender = %RTPSender{transceiver.sender | track: track, ssrc: ssrc}
+  @spec add_track(t(), MediaStreamTrack.t(), non_neg_integer(), non_neg_integer()) :: t()
+  def add_track(transceiver, track, ssrc, rtx_ssrc) do
+    sender = %RTPSender{transceiver.sender | track: track, ssrc: ssrc, rtx_ssrc: rtx_ssrc}
 
     direction =
       case transceiver.direction do
@@ -183,10 +194,10 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec replace_track(t(), MediaStreamTrack.t(), non_neg_integer()) :: t()
-  def replace_track(transceiver, track, ssrc) do
+  @spec replace_track(t(), MediaStreamTrack.t(), non_neg_integer(), non_neg_integer()) :: t()
+  def replace_track(transceiver, track, ssrc, rtx_ssrc) do
     ssrc = transceiver.sender.ssrc || ssrc
-    sender = %RTPSender{transceiver.sender | track: track, ssrc: ssrc}
+    sender = %RTPSender{transceiver.sender | track: track, ssrc: ssrc, rtx_ssrc: rtx_ssrc}
     %__MODULE__{transceiver | sender: sender}
   end
 
@@ -232,10 +243,26 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec send_packet(t(), ExRTP.Packet.t()) :: {binary(), t()}
-  def send_packet(transceiver, packet) do
-    {packet, sender} = RTPSender.send_packet(transceiver.sender, packet)
-    receiver = RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
+  @spec receive_nack(t(), ExRTCP.Packet.TransportFeedback.NACK.t()) :: {[ExRTP.Packet.t()], t()}
+  def receive_nack(transceiver, nack) do
+    {packets, sender} = RTPSender.receive_nack(transceiver.sender, nack)
+
+    tr = %__MODULE__{transceiver | sender: sender}
+    {packets, tr}
+  end
+
+  @doc false
+  @spec send_packet(t(), ExRTP.Packet.t(), boolean()) :: {binary(), t()}
+  def send_packet(transceiver, packet, rtx?) do
+    {packet, sender} = RTPSender.send_packet(transceiver.sender, packet, rtx?)
+
+    receiver =
+      if rtx? do
+        RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
+      else
+        transceiver.receiver
+      end
+
     {packet, %__MODULE__{transceiver | sender: sender, receiver: receiver}}
   end
 
@@ -434,5 +461,19 @@ defmodule ExWebRTC.RTPTransceiver do
     # https://datatracker.ietf.org/doc/html/rfc3550#page-27
     factor = :rand.uniform() + 0.5
     trunc(factor * @report_interval)
+  end
+
+  defp get_codec(codecs) do
+    codecs
+    |> Enum.reject(&String.ends_with?(&1.mime_type, "rtx"))
+    |> List.first()
+  end
+
+  defp get_rtx(_codecs, nil), do: nil
+
+  defp get_rtx(codecs, %{payload_type: pt}) do
+    codecs
+    |> Enum.filter(&(String.ends_with?(&1.mime_type, "rtx") and &1.sdp_fmtp_line.apt == pt))
+    |> List.first()
   end
 end

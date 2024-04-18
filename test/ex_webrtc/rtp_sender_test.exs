@@ -7,6 +7,7 @@ defmodule ExWebRTC.RTPSenderTest do
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, RTPSender}
 
   @ssrc 354_947
+  @rtx_ssrc 123_455
 
   setup do
     track = MediaStreamTrack.new(:audio)
@@ -21,7 +22,7 @@ defmodule ExWebRTC.RTPSenderTest do
 
     rtp_hdr_exts = [%Extmap{id: 1, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}]
 
-    sender = RTPSender.new(track, codec, rtp_hdr_exts, "1", @ssrc)
+    sender = RTPSender.new(track, codec, nil, rtp_hdr_exts, "1", @ssrc, @rtx_ssrc)
 
     %{sender: sender}
   end
@@ -29,7 +30,7 @@ defmodule ExWebRTC.RTPSenderTest do
   test "send/2", %{sender: sender} do
     packet = ExRTP.Packet.new(<<>>)
 
-    {packet, sender} = RTPSender.send_packet(sender, packet)
+    {packet, sender} = RTPSender.send_packet(sender, packet, false)
 
     {:ok, packet} = ExRTP.Packet.decode(packet)
 
@@ -45,7 +46,7 @@ defmodule ExWebRTC.RTPSenderTest do
 
     # check sequence number rollover and marker flag
     packet = ExRTP.Packet.new(<<>>, sequence_number: 1, marker: true)
-    {packet, _sender} = RTPSender.send_packet(sender, packet)
+    {packet, _sender} = RTPSender.send_packet(sender, packet, false)
     {:ok, packet} = ExRTP.Packet.decode(packet)
     assert packet.sequence_number == 1
     # marker flag shouldn't be overwritten
@@ -67,7 +68,7 @@ defmodule ExWebRTC.RTPSenderTest do
            } == RTPSender.get_stats(sender, timestamp)
 
     packet = ExRTP.Packet.new(payload)
-    {data1, sender} = RTPSender.send_packet(sender, packet)
+    {data1, sender} = RTPSender.send_packet(sender, packet, false)
 
     assert %{
              timestamp: timestamp,
@@ -80,7 +81,7 @@ defmodule ExWebRTC.RTPSenderTest do
            } == RTPSender.get_stats(sender, timestamp)
 
     packet = ExRTP.Packet.new(payload, marker: true)
-    {data2, sender} = RTPSender.send_packet(sender, packet)
+    {data2, sender} = RTPSender.send_packet(sender, packet, false)
 
     assert %{
              timestamp: timestamp,
