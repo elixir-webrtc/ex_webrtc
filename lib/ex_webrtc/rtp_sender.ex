@@ -5,7 +5,7 @@ defmodule ExWebRTC.RTPSender do
 
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils}
   alias ExSDP.Attribute.Extmap
-  alias __MODULE__.{NackResponder, ReportRecorder}
+  alias __MODULE__.{NACKResponder, ReportRecorder}
 
   @mid_uri "urn:ietf:params:rtp-hdrext:sdes:mid"
 
@@ -25,7 +25,7 @@ defmodule ExWebRTC.RTPSender do
           bytes_sent: non_neg_integer(),
           markers_sent: non_neg_integer(),
           report_recorder: ReportRecorder.t(),
-          nack_responder: NackResponder.t()
+          nack_responder: NACKResponder.t()
         }
 
   @enforce_keys [:id, :report_recorder, :nack_responder]
@@ -72,7 +72,7 @@ defmodule ExWebRTC.RTPSender do
       rtx_ssrc: rtx_ssrc,
       mid: mid,
       report_recorder: %ReportRecorder{clock_rate: codec && codec.clock_rate},
-      nack_responder: %NackResponder{}
+      nack_responder: %NACKResponder{}
     }
   end
 
@@ -129,7 +129,7 @@ defmodule ExWebRTC.RTPSender do
       |> ExRTP.Packet.add_extension(mid_ext)
 
     report_recorder = ReportRecorder.record_packet(sender.report_recorder, packet)
-    nack_responder = NackResponder.record_packet(sender.nack_responder, packet)
+    nack_responder = NACKResponder.record_packet(sender.nack_responder, packet)
 
     data = ExRTP.Packet.encode(packet)
 
@@ -148,7 +148,7 @@ defmodule ExWebRTC.RTPSender do
   @doc false
   @spec receive_nack(t(), ExRTCP.Packet.TransportFeedback.NACK.t()) :: {[ExRTP.Packet.t()], t()}
   def receive_nack(sender, nack) do
-    {packets, nack_responder} = NackResponder.get_rtx(sender.nack_responder, nack)
+    {packets, nack_responder} = NACKResponder.get_rtx(sender.nack_responder, nack)
     sender = %{sender | nack_responder: nack_responder}
 
     {packets, sender}

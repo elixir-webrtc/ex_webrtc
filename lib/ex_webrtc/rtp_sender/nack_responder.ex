@@ -1,4 +1,4 @@
-defmodule ExWebRTC.RTPSender.NackResponder do
+defmodule ExWebRTC.RTPSender.NACKResponder do
   @moduledoc nil
 
   alias ExRTP.Packet
