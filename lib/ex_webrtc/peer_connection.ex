@@ -198,17 +198,18 @@ defmodule ExWebRTC.PeerConnection do
 
   @doc """
   Send an RTP packet to the remote peer using specified track or its id.
+
+  Options:
+    * `rtx?` - send the packet as if it was retransmited (use SSRC and payload type specific to RTX)
   """
   @spec send_rtp(
           peer_connection(),
-          MediaStreamTrack.t() | MediaStreamTrack.id(),
-          ExRTP.Packet.t()
+          MediaStreamTrack.id(),
+          ExRTP.Packet.t(),
+          rtx?: boolean()
         ) :: :ok
-  def send_rtp(peer_connection, %MediaStreamTrack{id: track_id}, packet),
-    do: send_rtp(peer_connection, track_id, packet)
-
-  def send_rtp(peer_connection, track_id, packet) when is_integer(track_id) do
-    GenServer.cast(peer_connection, {:send_rtp, track_id, packet})
+  def send_rtp(peer_connection, track_id, packet, opts \\ []) do
+    GenServer.cast(peer_connection, {:send_rtp, track_id, packet, opts})
   end
 
   @doc """
@@ -244,9 +245,6 @@ defmodule ExWebRTC.PeerConnection do
     {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid)
     # route data to the DTLSTransport
     :ok = DefaultICETransport.on_data(ice_pid, dtls_transport)
-
-    # TODO: should keep track of previous ice candidates
-    # and add them to local description
 
     state = %{
       owner: owner,
@@ -479,7 +477,9 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:add_transceiver, kind, options}, _from, state)
       when kind in [:audio, :video] do
-    options = Keyword.put(options, :ssrc, generate_ssrc(state))
+    {ssrc, rtx_ssrc} = generate_ssrcs(state)
+    options = [{:ssrc, ssrc}, {:rtx_ssrc, rtx_ssrc} | options]
+
     transceiver = RTPTransceiver.new(kind, nil, state.config, options)
     state = %{state | transceivers: state.transceivers ++ [transceiver]}
 
@@ -490,7 +490,9 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call({:add_transceiver, %MediaStreamTrack{} = track, options}, _from, state) do
-    options = Keyword.put(options, :ssrc, generate_ssrc(state))
+    {ssrc, rtx_ssrc} = generate_ssrcs(state)
+    options = [{:ssrc, ssrc}, {:rtx_ssrc, rtx_ssrc} | options]
+
     transceiver = RTPTransceiver.new(track.kind, track, state.config, options)
     state = %{state | transceivers: state.transceivers ++ [transceiver]}
 
@@ -558,16 +560,24 @@ defmodule ExWebRTC.PeerConnection do
           false
       end)
 
+    {ssrc, rtx_ssrc} = generate_ssrcs(state)
+
     {transceivers, sender} =
       case free_transceiver_idx do
         nil ->
-          options = [direction: :sendrecv, ssrc: generate_ssrc(state), added_by_add_track: true]
+          options = [
+            direction: :sendrecv,
+            added_by_add_track: true,
+            ssrc: ssrc,
+            rtx_ssrc: rtx_ssrc
+          ]
+
           tr = RTPTransceiver.new(kind, track, state.config, options)
           {state.transceivers ++ [tr], tr.sender}
 
         idx ->
           tr = Enum.at(state.transceivers, idx)
-          tr = RTPTransceiver.add_track(tr, track, generate_ssrc(state))
+          tr = RTPTransceiver.add_track(tr, track, ssrc, rtx_ssrc)
           {List.replace_at(state.transceivers, idx, tr), tr.sender}
       end
 
@@ -594,7 +604,8 @@ defmodule ExWebRTC.PeerConnection do
             {:reply, {:error, :invalid_track_type}, state}
 
           tr.direction in [:sendrecv, :sendonly] ->
-            tr = RTPTransceiver.replace_track(tr, track, generate_ssrc(state))
+            {ssrc, rtx_ssrc} = generate_ssrcs(state)
+            tr = RTPTransceiver.replace_track(tr, track, ssrc, rtx_ssrc)
             transceivers = List.replace_at(state.transceivers, tr_idx, tr)
             state = %{state | transceivers: transceivers}
             {:reply, :ok, state}
@@ -760,7 +771,9 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_cast({:send_rtp, track_id, packet}, state) do
+  def handle_cast({:send_rtp, track_id, packet, opts}, state) do
+    rtx? = Keyword.get(opts, :rtx?, false)
+
     # TODO: iterating over transceivers is not optimal
     # but this is, most likely, going to be refactored anyways
     {transceiver, idx} =
@@ -792,7 +805,7 @@ defmodule ExWebRTC.PeerConnection do
               {packet, state}
           end
 
-        {packet, transceiver} = RTPTransceiver.send_packet(transceiver, packet)
+        {packet, transceiver} = RTPTransceiver.send_packet(transceiver, packet, rtx?)
         :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
 
         transceivers = List.replace_at(state.transceivers, idx, transceiver)
@@ -932,13 +945,13 @@ defmodule ExWebRTC.PeerConnection do
   def handle_info({:dtls_transport, _pid, {:rtcp, data}}, state) do
     case ExRTCP.CompoundPacket.decode(data) do
       {:ok, packets} ->
-        transceivers =
-          Enum.reduce(packets, state.transceivers, fn packet, transceivers ->
-            handle_report(packet, transceivers)
+        state =
+          Enum.reduce(packets, state, fn packet, state ->
+            handle_rtcp_packet(state, packet)
           end)
 
         notify(state.owner, {:rtcp, packets})
-        {:noreply, %{state | transceivers: transceivers}}
+        {:noreply, state}
 
       {:error, _res} ->
         case data do
@@ -1588,23 +1601,47 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  defp handle_report(%ExRTCP.Packet.SenderReport{} = report, transceivers) do
+  defp handle_rtcp_packet(state, %ExRTCP.Packet.SenderReport{} = report) do
     transceiver =
-      transceivers
+      state.transceivers
       |> Enum.with_index()
       |> Enum.find(fn {tr, _idx} -> tr.receiver.ssrc == report.ssrc end)
 
     case transceiver do
       nil ->
-        transceivers
+        state
 
       {tr, idx} ->
         tr = RTPTransceiver.receive_report(tr, report)
-        List.replace_at(transceivers, idx, tr)
+        transceivers = List.replace_at(state.transceivers, idx, tr)
+        %{state | transceivers: transceivers}
     end
   end
 
-  defp handle_report(_report, transceivers), do: transceivers
+  defp handle_rtcp_packet(state, %ExRTCP.Packet.TransportFeedback.NACK{} = nack) do
+    transceiver =
+      state.transceivers
+      |> Enum.with_index()
+      |> Enum.find(fn {tr, _idx} -> tr.sender.ssrc == nack.media_ssrc end)
+
+    case transceiver do
+      nil ->
+        state
+
+      # in case NACK was received, but RTX was not negotiated
+      # as NACK and RTX are negotited independently
+      {%RTPTransceiver{sender: %RTPSender{rtx_pt: nil}}, _idx} ->
+        state
+
+      {tr, idx} ->
+        {packets, tr} = RTPTransceiver.receive_nack(tr, nack)
+        for packet <- packets, do: send_rtp(self(), tr.sender.track.id, packet, rtx?: true)
+        transceivers = List.replace_at(state.transceivers, idx, tr)
+        %{state | transceivers: transceivers}
+    end
+  end
+
+  defp handle_rtcp_packet(state, _packet), do: state
 
   defp do_get_description(nil, _candidates), do: nil
 
@@ -1613,10 +1650,12 @@ defmodule ExWebRTC.PeerConnection do
     %SessionDescription{type: type, sdp: to_string(sdp)}
   end
 
-  defp generate_ssrc(state) do
+  defp generate_ssrcs(state) do
     rtp_sender_ssrcs = Enum.map(state.transceivers, & &1.sender.ssrc)
     ssrcs = MapSet.new(Map.keys(state.demuxer.ssrc_to_mid) ++ rtp_sender_ssrcs)
-    do_generate_ssrc(ssrcs, 200)
+    ssrc = do_generate_ssrc(ssrcs, 200)
+    rtx_ssrc = do_generate_ssrc(MapSet.put(ssrcs, ssrc), 200)
+    {ssrc, rtx_ssrc}
   end
 
   # this is practically impossible so it's easier to raise
