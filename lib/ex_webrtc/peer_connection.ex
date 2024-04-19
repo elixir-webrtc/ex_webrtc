@@ -198,6 +198,9 @@ defmodule ExWebRTC.PeerConnection do
 
   @doc """
   Send an RTP packet to the remote peer using specified track or its id.
+
+  Options:
+    * `rtx?` - send the packet as it was retransmited (use SSRC and payload type specific to RTX)
   """
   @spec send_rtp(
           peer_connection(),
@@ -1625,6 +1628,8 @@ defmodule ExWebRTC.PeerConnection do
       nil ->
         state
 
+      # in case NACK was received, but RTX was not negotiated
+      # as NACK and RTX are negotited independently
       {%RTPTransceiver{sender: %RTPSender{rtx_pt: nil}}, _idx} ->
         state
 

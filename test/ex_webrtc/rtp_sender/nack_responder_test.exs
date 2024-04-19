@@ -24,7 +24,7 @@ defmodule ExWebRTC.RTPReceiver.NACKResponderTest do
       |> NACKResponder.record_packet(%{@packet | sequence_number: 39})
       |> NACKResponder.record_packet(%{@packet | sequence_number: 40})
 
-    nack = NACK.from_sequence_numbers(@media_ssrc, @sender_ssrc, [38, 39])
+    nack = NACK.from_sequence_numbers(@media_ssrc, @sender_ssrc, [38, 39, 237])
     {rtx_packets, nack_responder} = NACKResponder.get_rtx(nack_responder, nack)
 
     assert nack_responder.seq_no == @responder.seq_no + 2
