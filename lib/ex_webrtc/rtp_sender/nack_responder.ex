@@ -14,9 +14,7 @@ defmodule ExWebRTC.RTPSender.NACKResponder do
   defstruct packets: %{},
             seq_no: Enum.random(0..0xFFFF)
 
-  @doc """
-  Records send RTP packets.
-  """
+  @doc false
   @spec record_packet(t(), Packet.t()) :: t()
   def record_packet(responder, packet) do
     key = rem(packet.sequence_number, @max_packets)
@@ -25,9 +23,7 @@ defmodule ExWebRTC.RTPSender.NACKResponder do
     %__MODULE__{responder | packets: packets}
   end
 
-  @doc """
-  Returns RTX RTP packets to be retransmited based on received NACK feedback.
-  """
+  @doc false
   @spec get_rtx(t(), NACK.t()) :: {[ExRTP.Packet.t()], t()}
   def get_rtx(responder, nack) do
     seq_nos = NACK.to_sequence_numbers(nack)
