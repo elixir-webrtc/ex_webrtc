@@ -123,6 +123,7 @@ defmodule ExWebRTC.RTPTransceiver do
     id = Utils.generate_id()
     send(self(), {:send_report, :sender, id})
     send(self(), {:send_report, :receiver, id})
+    send(self(), {:send_nack, id})
 
     %__MODULE__{
       id: id,
