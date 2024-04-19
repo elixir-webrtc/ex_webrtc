@@ -318,11 +318,7 @@ defmodule ExWebRTC.PeerConnection do
 
     {transceivers, mlines} = generate_offer_mlines(state, opts)
 
-    mids =
-      Enum.map(mlines, fn mline ->
-        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
-        mid
-      end)
+    mids = SDPUtils.get_bundle_mids(mlines)
 
     offer =
       offer
@@ -377,11 +373,7 @@ defmodule ExWebRTC.PeerConnection do
         RTPTransceiver.to_answer_mline(transceiver, mline, opts)
       end)
 
-    mids =
-      Enum.map(mlines, fn mline ->
-        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
-        mid
-      end)
+    mids = SDPUtils.get_bundle_mids(mlines)
 
     answer =
       answer

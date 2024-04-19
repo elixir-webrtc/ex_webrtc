@@ -276,7 +276,12 @@ defmodule ExWebRTC.PeerConnectionTest do
     test "BUNDLE group" do
       {:ok, pc} = PeerConnection.start_link()
 
-      sdp = ExSDP.add_media(ExSDP.new(), [@audio_mline, @video_mline])
+      rejected_mline =
+        %ExSDP.Media{@audio_mline | port: 0}
+        |> ExSDP.delete_attribute(:mid)
+        |> ExSDP.add_attribute({:mid, "2"})
+
+      sdp = ExSDP.add_media(ExSDP.new(), [@audio_mline, @video_mline, rejected_mline])
 
       [
         {[], {:error, :missing_bundle_group}},
