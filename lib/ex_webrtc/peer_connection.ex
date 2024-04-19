@@ -200,7 +200,7 @@ defmodule ExWebRTC.PeerConnection do
   Send an RTP packet to the remote peer using specified track or its id.
 
   Options:
-    * `rtx?` - send the packet as it was retransmited (use SSRC and payload type specific to RTX)
+    * `rtx?` - send the packet as if it was retransmited (use SSRC and payload type specific to RTX)
   """
   @spec send_rtp(
           peer_connection(),
