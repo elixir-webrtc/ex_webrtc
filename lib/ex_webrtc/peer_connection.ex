@@ -243,9 +243,6 @@ defmodule ExWebRTC.PeerConnection do
     # route data to the DTLSTransport
     :ok = DefaultICETransport.on_data(ice_pid, dtls_transport)
 
-    # TODO: should keep track of previous ice candidates
-    # and add them to local description
-
     state = %{
       owner: owner,
       config: config,
@@ -1628,6 +1625,9 @@ defmodule ExWebRTC.PeerConnection do
       nil ->
         state
 
+      {%RTPTransceiver{sender: %RTPSender{rtx_pt: nil}}, _idx} ->
+        state
+
       {tr, idx} ->
         {packets, tr} = RTPTransceiver.receive_nack(tr, nack)
         for packet <- packets, do: send_rtp(self(), tr.sender.track.id, packet, rtx?: true)
@@ -1646,7 +1646,6 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp generate_ssrcs(state) do
-    # we need other ssrcs when generating 2 ssrcs back to back (i.e. ssrc and rtx ssrc)
     rtp_sender_ssrcs = Enum.map(state.transceivers, & &1.sender.ssrc)
     ssrcs = MapSet.new(Map.keys(state.demuxer.ssrc_to_mid) ++ rtp_sender_ssrcs)
     ssrc = do_generate_ssrc(ssrcs, 200)
