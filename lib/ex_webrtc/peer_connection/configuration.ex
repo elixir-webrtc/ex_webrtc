@@ -159,8 +159,6 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       options
       |> resolve_rtp_hdr_extensions()
       |> add_mandatory_rtp_hdr_extensions()
-      # ATM, ExICE does not support relay via TURN
-      |> reject_turn_servers()
 
     struct!(__MODULE__, options)
   end
@@ -359,13 +357,5 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     |> Keyword.put(:audio_rtp_hdr_exts, audio_exts)
     |> Keyword.put(:video_rtp_hdr_exts, video_exts)
     |> Keyword.delete(:rtp_hdr_extensions)
-  end
-
-  defp reject_turn_servers(options) do
-    Keyword.update(options, :ice_servers, [], fn ice_servers ->
-      ice_servers
-      |> Enum.flat_map(&List.wrap(&1.urls))
-      |> Enum.filter(&String.starts_with?(&1, "stun:"))
-    end)
   end
 end

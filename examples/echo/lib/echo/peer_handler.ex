@@ -12,7 +12,7 @@ defmodule Echo.PeerHandler do
   @behaviour WebSock
 
   @ice_servers [
-    %{urls: "stun:stun.l.google.com:19302"}
+    %{url: "stun:stun.l.google.com:19302"}
   ]
 
   @video_codecs [

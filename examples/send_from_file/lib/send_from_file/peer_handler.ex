@@ -23,7 +23,7 @@ defmodule SendFromFile.PeerHandler do
   @max_rtp_seq_no (1 <<< 16) - 1
 
   @ice_servers [
-    %{urls: "stun:stun.l.google.com:19302"}
+    %{url: "stun:stun.l.google.com:19302"}
   ]
 
   @video_codecs [
