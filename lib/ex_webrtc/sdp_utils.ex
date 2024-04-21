@@ -76,7 +76,8 @@ defmodule ExWebRTC.SDPUtils do
 
   @spec get_bundle_mids([ExSDP.Media.t()]) :: [String.t()]
   def get_bundle_mids(mlines) do
-    # rejected m-lines are not included in the BUNDLE group
+    # Rejected m-lines are not included in the BUNDLE group.
+    # See RFC 8829, sec. 5.2.2, p. 10.
     Enum.map(mlines, fn mline ->
       unless rejected?(mline) do
         {:mid, mid} = ExSDP.get_attribute(mline, :mid)

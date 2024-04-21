@@ -247,12 +247,12 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       assert desc != nil
 
-      "a=" <> desc_cand =
+      desc_cands =
         desc.sdp
         |> String.split("\r\n")
-        |> Enum.find(&String.starts_with?(&1, "a=candidate:"))
+        |> Enum.filter(&String.starts_with?(&1, "a=candidate:"))
 
-      assert desc_cand == cand.candidate
+      assert ("a=" <> cand.candidate) in desc_cands
     end
   end
 

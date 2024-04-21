@@ -240,7 +240,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def init({owner, config}) do
     {:ok, _} = Registry.register(ExWebRTC.Registry, self(), self())
-    ice_config = [stun_servers: config.ice_servers, ip_filter: config.ice_ip_filter, on_data: nil]
+    ice_config = [ice_servers: config.ice_servers, ip_filter: config.ice_ip_filter, on_data: nil]
     {:ok, ice_pid} = DefaultICETransport.start_link(:controlled, ice_config)
     {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid)
     # route data to the DTLSTransport
