@@ -73,7 +73,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @type ice_server() :: %{
           optional(:credential) => String.t(),
           optional(:username) => String.t(),
-          :url => String.t()
+          :urls => [String.t()] | String.t()
         }
 
   @typedoc """

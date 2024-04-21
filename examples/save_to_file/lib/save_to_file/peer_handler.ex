@@ -18,7 +18,7 @@ defmodule SaveToFile.PeerHandler do
   @audio_file "./audio.ogg"
 
   @ice_servers [
-    %{url: "stun:stun.l.google.com:19302"}
+    %{urls: "stun:stun.l.google.com:19302"}
   ]
 
   @video_codecs [
