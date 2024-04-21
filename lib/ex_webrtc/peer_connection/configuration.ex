@@ -80,8 +80,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   Options that can be passed to `ExWebRTC.PeerConnection.start_link/1`.
 
   * `controlling_process` - a pid of a process where all messages will be sent.
-  * `ice_servers` - list of STUN servers to use.
-  TURN servers are not supported right now and will be filtered out.
+  * `ice_servers` - list of STUN/TURN servers to use.
+  * `ice_transport_policy` - which type of ICE candidates should be used. Defaults to `all`.
   * `ice_ip_filter` - filter applied when gathering local candidates
   * `audio_codecs` - list of audio codecs to use.
   Use `default_audio_codecs/0` to get a list of default audio codecs.
@@ -109,7 +109,6 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   Besides options listed above, ExWebRTC uses the following config:
   * bundle_policy - max_bundle
   * ice_candidate_pool_size - 0
-  * ice_transport_policy - all
   * rtcp_mux_policy - require
 
   This config cannot be changed.
@@ -117,6 +116,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @type options() :: [
           controlling_process: Process.dest(),
           ice_servers: [ice_server()],
+          ice_transport_policy: :relay | :all,
           ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
@@ -126,6 +126,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @typedoc false
   @type t() :: %__MODULE__{
           ice_servers: [ice_server()],
+          ice_transport_policy: :relay | :all,
           ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
@@ -134,6 +135,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         }
 
   defstruct ice_servers: [],
+            ice_transport_policy: :all,
             ice_ip_filter: nil,
             audio_codecs: @default_audio_codecs,
             video_codecs: @default_video_codecs,
