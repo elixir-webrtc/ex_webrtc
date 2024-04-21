@@ -238,7 +238,8 @@ defmodule ExWebRTC.PeerConnectionTest do
   describe "get_local_description/1" do
     test "includes ICE candidates" do
       {:ok, pc} = PeerConnection.start()
-      {:ok, _sender} = PeerConnection.add_transceiver(pc, :audio)
+      {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
+      {:ok, _tr} = PeerConnection.add_transceiver(pc, :video)
       {:ok, offer} = PeerConnection.create_offer(pc)
       :ok = PeerConnection.set_local_description(pc, offer)
 
@@ -247,12 +248,13 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       assert desc != nil
 
-      desc_cands =
-        desc.sdp
-        |> String.split("\r\n")
-        |> Enum.filter(&String.starts_with?(&1, "a=candidate:"))
+      sdp = ExSDP.parse!(desc.sdp)
+      [audio_mline, video_mline] = sdp.media
+      "candidate:" <> candidate = cand.candidate
 
-      assert ("a=" <> cand.candidate) in desc_cands
+      assert {"candidate", candidate} in ExSDP.get_attributes(audio_mline, "candidate")
+      # candidates should only be present in the first m-line
+      assert [] == ExSDP.get_attributes(video_mline, "candidate")
     end
   end
 
