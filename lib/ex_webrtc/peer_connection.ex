@@ -240,7 +240,14 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def init({owner, config}) do
     {:ok, _} = Registry.register(ExWebRTC.Registry, self(), self())
-    ice_config = [stun_servers: config.ice_servers, ip_filter: config.ice_ip_filter, on_data: nil]
+
+    ice_config = [
+      ice_servers: config.ice_servers,
+      ice_transport_policy: config.ice_transport_policy,
+      ip_filter: config.ice_ip_filter,
+      on_data: nil
+    ]
+
     {:ok, ice_pid} = DefaultICETransport.start_link(:controlled, ice_config)
     {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid)
     # route data to the DTLSTransport
@@ -318,11 +325,7 @@ defmodule ExWebRTC.PeerConnection do
 
     {transceivers, mlines} = generate_offer_mlines(state, opts)
 
-    mids =
-      Enum.map(mlines, fn mline ->
-        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
-        mid
-      end)
+    mids = SDPUtils.get_bundle_mids(mlines)
 
     offer =
       offer
@@ -377,11 +380,7 @@ defmodule ExWebRTC.PeerConnection do
         RTPTransceiver.to_answer_mline(transceiver, mline, opts)
       end)
 
-    mids =
-      Enum.map(mlines, fn mline ->
-        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
-        mid
-      end)
+    mids = SDPUtils.get_bundle_mids(mlines)
 
     answer =
       answer

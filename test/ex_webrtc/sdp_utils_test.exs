@@ -9,5 +9,11 @@ defmodule ExWebRTC.SDPUtilsTest do
 
     mline = ExSDP.Media.new(:audio, 9, "UDP/TLS/RTP/SAVPF", [8])
     assert false == SDPUtils.rejected?(mline)
+
+    mline =
+      ExSDP.Media.new(:audio, 0, "UDP/TLS/RTP/SAVPF", [8])
+      |> ExSDP.add_attribute("bundle-only")
+
+    assert false == SDPUtils.rejected?(mline)
   end
 end

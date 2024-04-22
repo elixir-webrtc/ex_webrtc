@@ -238,7 +238,8 @@ defmodule ExWebRTC.PeerConnectionTest do
   describe "get_local_description/1" do
     test "includes ICE candidates" do
       {:ok, pc} = PeerConnection.start()
-      {:ok, _sender} = PeerConnection.add_transceiver(pc, :audio)
+      {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
+      {:ok, _tr} = PeerConnection.add_transceiver(pc, :video)
       {:ok, offer} = PeerConnection.create_offer(pc)
       :ok = PeerConnection.set_local_description(pc, offer)
 
@@ -247,12 +248,13 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       assert desc != nil
 
-      "a=" <> desc_cand =
-        desc.sdp
-        |> String.split("\r\n")
-        |> Enum.find(&String.starts_with?(&1, "a=candidate:"))
+      sdp = ExSDP.parse!(desc.sdp)
+      [audio_mline, video_mline] = sdp.media
+      "candidate:" <> candidate = cand.candidate
 
-      assert desc_cand == cand.candidate
+      assert {"candidate", candidate} in ExSDP.get_attributes(audio_mline, "candidate")
+      # candidates should only be present in the first m-line
+      assert [] == ExSDP.get_attributes(video_mline, "candidate")
     end
   end
 
@@ -276,7 +278,12 @@ defmodule ExWebRTC.PeerConnectionTest do
     test "BUNDLE group" do
       {:ok, pc} = PeerConnection.start_link()
 
-      sdp = ExSDP.add_media(ExSDP.new(), [@audio_mline, @video_mline])
+      rejected_mline =
+        %ExSDP.Media{@audio_mline | port: 0}
+        |> ExSDP.delete_attribute(:mid)
+        |> ExSDP.add_attribute({:mid, "2"})
+
+      sdp = ExSDP.add_media(ExSDP.new(), [@audio_mline, @video_mline, rejected_mline])
 
       [
         {[], {:error, :missing_bundle_group}},

@@ -8,14 +8,6 @@ defmodule ExWebRTC.SDPUtils do
 
   @type extension() :: {Extension.SourceDescription, atom()}
 
-  @spec get_media_direction(ExSDP.Media.t()) ::
-          :sendrecv | :sendonly | :recvonly | :inactive | nil
-  def get_media_direction(media) do
-    Enum.find(media.attributes, fn attr ->
-      attr in [:sendrecv, :sendonly, :recvonly, :inactive]
-    end)
-  end
-
   @spec ensure_mid(ExSDP.t()) :: :ok | {:error, :missing_mid | :duplicated_mid}
   def ensure_mid(sdp) do
     sdp.media
@@ -42,11 +34,7 @@ defmodule ExWebRTC.SDPUtils do
   def ensure_bundle(sdp) do
     groups = ExSDP.get_attributes(sdp, ExSDP.Attribute.Group)
 
-    mline_mids =
-      Enum.map(sdp.media, fn media ->
-        {:mid, mid} = ExSDP.get_attribute(media, :mid)
-        mid
-      end)
+    mline_mids = get_bundle_mids(sdp.media)
 
     case filter_groups(groups, "BUNDLE") do
       [%ExSDP.Attribute.Group{semantics: "BUNDLE", mids: group_mids}] ->
@@ -76,6 +64,27 @@ defmodule ExWebRTC.SDPUtils do
       true -> :ok
       false -> {:error, :missing_rtcp_mux}
     end
+  end
+
+  @spec get_media_direction(ExSDP.Media.t()) ::
+          :sendrecv | :sendonly | :recvonly | :inactive | nil
+  def get_media_direction(media) do
+    Enum.find(media.attributes, fn attr ->
+      attr in [:sendrecv, :sendonly, :recvonly, :inactive]
+    end)
+  end
+
+  @spec get_bundle_mids([ExSDP.Media.t()]) :: [String.t()]
+  def get_bundle_mids(mlines) do
+    # Rejected m-lines are not included in the BUNDLE group.
+    # See RFC 8829, sec. 5.2.2, p. 10.
+    Enum.map(mlines, fn mline ->
+      unless rejected?(mline) do
+        {:mid, mid} = ExSDP.get_attribute(mline, :mid)
+        mid
+      end
+    end)
+    |> Enum.reject(&(&1 == nil))
   end
 
   @spec get_ice_credentials(ExSDP.t()) ::
@@ -129,9 +138,22 @@ defmodule ExWebRTC.SDPUtils do
 
   @spec add_ice_candidates(ExSDP.t(), [String.t()]) :: ExSDP.t()
   def add_ice_candidates(sdp, candidates) do
+    # We only add candidates to the first mline
+    # as we don't support bundle-policies other than "max-bundle".
+    # See RFC 8829, sec. 4.1.1.
     candidates = Enum.map(candidates, &{"candidate", &1})
-    media = Enum.map(sdp.media, &ExSDP.add_attributes(&1, candidates))
-    %ExSDP{sdp | media: media}
+
+    if sdp.media != [] do
+      mline =
+        sdp.media
+        |> List.first()
+        |> ExSDP.add_attributes(candidates)
+
+      media = List.replace_at(sdp.media, 0, mline)
+      %ExSDP{sdp | media: media}
+    else
+      sdp
+    end
   end
 
   @spec get_dtls_role(ExSDP.t()) ::
@@ -284,7 +306,13 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   @spec rejected?(ExSDP.Media.t()) :: boolean()
-  def rejected?(%ExSDP.Media{port: 0}), do: true
+  def rejected?(%ExSDP.Media{port: 0} = media) do
+    # An m-line is only rejected when its port is set to 0,
+    # and there is no `bundle-only` attribute.
+    # See RFC 8843, sec. 6.
+    "bundle-only" not in media.attributes
+  end
+
   def rejected?(%ExSDP.Media{}), do: false
 
   defp do_get_ice_credentials(sdp_or_mline) do
