@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./logo_text.svg">
+<img src="https://raw.githubusercontent.com/elixir-webrtc/ex_webrtc/8404c58384a42f1173ac391e0ad9f69be47881d0/logo_text.svg">
 
 [![Hex.pm](https://img.shields.io/hexpm/v/ex_webrtc.svg)](https://hex.pm/packages/ex_webrtc)
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](https://hexdocs.pm/ex_webrtc)
