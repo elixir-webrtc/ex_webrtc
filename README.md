@@ -1,15 +1,13 @@
-<div align="center">
-
-<img src="https://raw.githubusercontent.com/elixir-webrtc/ex_webrtc/8404c58384a42f1173ac391e0ad9f69be47881d0/logo_text.svg">
-
-[![Hex.pm](https://img.shields.io/hexpm/v/ex_webrtc.svg)](https://hex.pm/packages/ex_webrtc)
-[![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](https://hexdocs.pm/ex_webrtc)
-[![CI](https://img.shields.io/github/actions/workflow/status/elixir-webrtc/ex_webrtc/ci.yml?logo=github&label=CI)](https://github.com/elixir-webrtc/ex_webrtc/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/elixir-webrtc/ex_webrtc/graph/badge.svg?token=PdnXfnnmNw)](https://codecov.io/gh/elixir-webrtc/ex_webrtc)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/elixir-webrtc/ex_webrtc/8404c58384a42f1173ac391e0ad9f69be47881d0/logo_text.svg">
+  <br />
+  <a href="https://hex.pm/packages/ex_webrtc"><img src="https://img.shields.io/hexpm/v/ex_webrtc.svg" /></a>
+  <a href="https://hexdocs.pm/ex_webrtc"><img src="https://img.shields.io/badge/api-docs-yellow.svg?style=flat"  /></a>
+  <a href="https://github.com/elixir-webrtc/ex_webrtc/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elixir-webrtc/ex_webrtc/ci.yml?logo=github&label=CI"  /></a>
+  <a href="https://codecov.io/gh/elixir-webrtc/ex_webrtc"><img src="https://codecov.io/gh/elixir-webrtc/ex_webrtc/graph/badge.svg?token=PdnXfnnmNw"  /></a>
+</p>
 
 ---
-
-</div>
 
 **Elixir WebRTC** is an implementation of the [W3C WebRTC API](https://www.w3.org/TR/webrtc/) in the Elixir programming language.
 
