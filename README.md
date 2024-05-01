@@ -25,9 +25,9 @@ end
 
 ## Getting started
 
-To get started with using Elixir WebRTC, checkout out:
-* the [examples directory](https://github.com/elixir-webrtc/ex_webrtc/tree/master/examples) which contains a bunch of very simple usage examples of the library
-* the [`apps` repo](https://github.com/elixir-webrtc/apps) with example applications built on top of Elixir WebRTC
+To get started with Elixir WebRTC, check out:
+* the [examples directory](https://github.com/elixir-webrtc/ex_webrtc/tree/master/examples) that contains a bunch of very simple usage examples of the library
+* the [`apps` repo](https://github.com/elixir-webrtc/apps) with example applications built on top of `ex_webrtc`
 * the [documentation](https://hexdocs.pm/ex_webrtc/readme.html), especially the [`PeerConnection` module page](https://hexdocs.pm/ex_webrtc/ExWebRTC.PeerConnection.html)
 
 If you have any questions, ideas or topics to discuss about Elixir WebRTC, head to the [discussions page](https://github.com/orgs/elixir-webrtc/discussions).
