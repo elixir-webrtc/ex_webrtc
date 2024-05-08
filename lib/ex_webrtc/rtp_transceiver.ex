@@ -67,6 +67,8 @@ defmodule ExWebRTC.RTPTransceiver do
           current_direction: direction() | nil,
           direction: direction(),
           mid: String.t() | nil,
+          stopping: boolean(),
+          stopped: boolean(),
           receiver: RTPReceiver.t(),
           sender: RTPSender.t(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
@@ -79,6 +81,8 @@ defmodule ExWebRTC.RTPTransceiver do
     :direction,
     :current_direction,
     :mid,
+    :stopping,
+    :stopped,
     :receiver,
     :sender,
     :rtp_hdr_exts,
@@ -93,7 +97,17 @@ defmodule ExWebRTC.RTPTransceiver do
     receiver = RTPReceiver.to_struct(transceiver.receiver)
 
     transceiver
-    |> Map.take([:id, :kind, :direction, :current_direction, :mid, :rtp_hdr_exts, :codecs])
+    |> Map.take([
+      :id,
+      :kind,
+      :direction,
+      :current_direction,
+      :mid,
+      :rtp_hdr_exts,
+      :codecs,
+      :stopping,
+      :stopped
+    ])
     |> Map.merge(%{sender: sender, receiver: receiver})
     |> then(&struct!(__MODULE__, &1))
   end

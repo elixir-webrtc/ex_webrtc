@@ -329,7 +329,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
-  Adds a new transceiver to this PeerConnection.
+  Adds a new transceiver.
 
   For more information, refer to the [RTCPeerConnection: addTransceiver() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addTransceiver).
   """
@@ -793,7 +793,7 @@ defmodule ExWebRTC.PeerConnection do
 
     state = update_negotiation_needed(state)
 
-    {:reply, {:ok, sender}, state}
+    {:reply, {:ok, RTPSender.to_struct(sender)}, state}
   end
 
   @impl true
