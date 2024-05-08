@@ -1,5 +1,5 @@
 defmodule ExWebRTC.RTPSender.ReportRecorder do
-  @moduledoc nil
+  @moduledoc false
 
   import Bitwise
 
@@ -29,10 +29,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
             packet_count: 0,
             octet_count: 0
 
-  @doc """
-  Records outgoing RTP Packet.
-  `time` parameter accepts output of `System.os_time(:native)` as a value (UNIX timestamp in :native units).
-  """
+  # `time` parameter accepts output of `System.os_time(:native)` as a value (UNIX timestamp in :native units).
   @spec record_packet(t(), ExRTP.Packet.t(), integer()) :: t()
   def record_packet(recorder, packet, time \\ System.os_time(:native))
 
@@ -80,13 +77,9 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
     }
   end
 
-  @doc """
-  Creates an RTCP Sender Report.
-  `time` parameter accepts output of `System.os_time(:native)` as a value (UNIX timestamp in :native units).
-
-  This function can be called only if at least one packet has been recorded,
-  otherwise it will raise.
-  """
+  # `time` parameter accepts output of `System.os_time(:native)` as a value (UNIX timestamp in :native units).
+  # This function can be called only if at least one packet has been recorded,
+  # otherwise it will raise.
   @spec get_report(t(), integer()) :: {:ok, SenderReport.t(), t()} | {:error, term()}
   def get_report(recorder, time \\ System.os_time(:native))
 

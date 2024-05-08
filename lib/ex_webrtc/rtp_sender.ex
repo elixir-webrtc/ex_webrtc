@@ -11,7 +11,8 @@ defmodule ExWebRTC.RTPSender do
 
   @type id() :: integer()
 
-  @type t() :: %__MODULE__{
+  @typedoc false
+  @type sender() :: %{
           id: id(),
           track: MediaStreamTrack.t() | nil,
           codec: RTPCodecParameters.t() | nil,
@@ -28,21 +29,30 @@ defmodule ExWebRTC.RTPSender do
           nack_responder: NACKResponder.t()
         }
 
-  @enforce_keys [:id, :report_recorder, :nack_responder]
-  defstruct @enforce_keys ++
-              [
-                :track,
-                :codec,
-                :mid,
-                :pt,
-                :rtx_pt,
-                :ssrc,
-                :rtx_ssrc,
-                rtp_hdr_exts: %{},
-                packets_sent: 0,
-                bytes_sent: 0,
-                markers_sent: 0
-              ]
+  @typedoc """
+  Struct representing a sender.
+
+  The fields mostly match these of [RTCRtpSender](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpSender),
+  except for:
+  * `id` - to uniquely identify the sender.
+  * `codec` - codec this sender is going to send.
+  """
+  @type t() :: %__MODULE__{
+          id: id(),
+          track: MediaStreamTrack.t() | nil,
+          codec: RTPCodecParameters.t() | nil
+        }
+
+  @enforce_keys [:id, :track, :codec]
+  defstruct @enforce_keys
+
+  @doc false
+  @spec to_struct(sender()) :: t()
+  def to_struct(sender) do
+    sender
+    |> Map.take([:id, :track, :codec])
+    |> then(&struct!(__MODULE__, &1))
+  end
 
   @doc false
   @spec new(
@@ -53,7 +63,7 @@ defmodule ExWebRTC.RTPSender do
           String.t() | nil,
           non_neg_integer() | nil,
           non_neg_integer() | nil
-        ) :: t()
+        ) :: sender()
   def new(track, codec, rtx_codec, rtp_hdr_exts, mid \\ nil, ssrc, rtx_ssrc) do
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
@@ -61,7 +71,7 @@ defmodule ExWebRTC.RTPSender do
     pt = if codec != nil, do: codec.payload_type, else: nil
     rtx_pt = if rtx_codec != nil, do: rtx_codec.payload_type, else: nil
 
-    %__MODULE__{
+    %{
       id: Utils.generate_id(),
       track: track,
       codec: codec,
@@ -71,15 +81,18 @@ defmodule ExWebRTC.RTPSender do
       ssrc: ssrc,
       rtx_ssrc: rtx_ssrc,
       mid: mid,
+      packets_sent: 0,
+      bytes_sent: 0,
+      markers_sent: 0,
       report_recorder: %ReportRecorder{clock_rate: codec && codec.clock_rate},
       nack_responder: %NACKResponder{}
     }
   end
 
   @doc false
-  @spec update(t(), String.t(), RTPCodecParameters.t() | nil, RTPCodecParameters.t() | nil, [
+  @spec update(sender(), String.t(), RTPCodecParameters.t() | nil, RTPCodecParameters.t() | nil, [
           Extmap.t()
-        ]) :: t()
+        ]) :: sender()
   def update(sender, mid, codec, rtx_codec, rtp_hdr_exts) do
     if sender.mid != nil and mid != sender.mid, do: raise(ArgumentError)
     # convert to a map to be able to find extension id using extension uri
@@ -93,7 +106,7 @@ defmodule ExWebRTC.RTPSender do
       | clock_rate: codec && codec.clock_rate
     }
 
-    %__MODULE__{
+    %{
       sender
       | mid: mid,
         codec: codec,
@@ -104,11 +117,8 @@ defmodule ExWebRTC.RTPSender do
     }
   end
 
-  # Prepares packet for sending i.e.:
-  # * assigns SSRC, pt, mid
-  # * serializes to binary
   @doc false
-  @spec send_packet(t(), ExRTP.Packet.t(), boolean()) :: {binary(), t()}
+  @spec send_packet(sender(), ExRTP.Packet.t(), boolean()) :: {binary(), sender()}
   def send_packet(sender, packet, rtx?) do
     %Extmap{} = mid_extmap = Map.fetch!(sender.rtp_hdr_exts, @mid_uri)
 
@@ -146,7 +156,8 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec receive_nack(t(), ExRTCP.Packet.TransportFeedback.NACK.t()) :: {[ExRTP.Packet.t()], t()}
+  @spec receive_nack(sender(), ExRTCP.Packet.TransportFeedback.NACK.t()) ::
+          {[ExRTP.Packet.t()], sender()}
   def receive_nack(sender, nack) do
     {packets, nack_responder} = NACKResponder.get_rtx(sender.nack_responder, nack)
     sender = %{sender | nack_responder: nack_responder}
@@ -155,7 +166,7 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec get_stats(t(), non_neg_integer()) :: map()
+  @spec get_stats(sender(), non_neg_integer()) :: map()
   def get_stats(sender, timestamp) do
     %{
       timestamp: timestamp,

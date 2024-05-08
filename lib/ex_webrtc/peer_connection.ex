@@ -466,6 +466,26 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_call(:get_connection_state, _from, state) do
+    {:reply, state.conn_state, state}
+  end
+
+  @impl true
+  def handle_call(:get_ice_connection_state, _from, state) do
+    {:reply, state.ice_state, state}
+  end
+
+  @impl true
+  def handle_call(:get_ice_gathering_state, _from, state) do
+    {:reply, state.ice_gathering_state, state}
+  end
+
+  @impl true
+  def handle_call(:get_signaling_state, _from, state) do
+    {:reply, state.signaling_state, state}
+  end
+
+  @impl true
   def handle_call({:create_offer, _options}, _from, %{signaling_state: ss} = state)
       when ss not in [:stable, :have_local_offer] do
     {:reply, {:error, :invalid_state}, state}
@@ -658,7 +678,8 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call(:get_transceivers, _from, state) do
-    {:reply, state.transceivers, state}
+    transceivers = Enum.map(state.transceivers, &RTPTransceiver.to_struct/1)
+    {:reply, transceivers, state}
   end
 
   @impl true
@@ -667,12 +688,12 @@ defmodule ExWebRTC.PeerConnection do
     {ssrc, rtx_ssrc} = generate_ssrcs(state)
     options = [{:ssrc, ssrc}, {:rtx_ssrc, rtx_ssrc} | options]
 
-    transceiver = RTPTransceiver.new(kind, nil, state.config, options)
-    state = %{state | transceivers: state.transceivers ++ [transceiver]}
+    tr = RTPTransceiver.new(kind, nil, state.config, options)
+    state = %{state | transceivers: state.transceivers ++ [tr]}
 
     state = update_negotiation_needed(state)
 
-    {:reply, {:ok, transceiver}, state}
+    {:reply, {:ok, RTPTransceiver.to_struct(tr)}, state}
   end
 
   @impl true
@@ -680,12 +701,12 @@ defmodule ExWebRTC.PeerConnection do
     {ssrc, rtx_ssrc} = generate_ssrcs(state)
     options = [{:ssrc, ssrc}, {:rtx_ssrc, rtx_ssrc} | options]
 
-    transceiver = RTPTransceiver.new(track.kind, track, state.config, options)
-    state = %{state | transceivers: state.transceivers ++ [transceiver]}
+    tr = RTPTransceiver.new(track.kind, track, state.config, options)
+    state = %{state | transceivers: state.transceivers ++ [tr]}
 
     state = update_negotiation_needed(state)
 
-    {:reply, {:ok, transceiver}, state}
+    {:reply, {:ok, RTPTransceiver.to_struct(tr)}, state}
   end
 
   @impl true
@@ -698,7 +719,7 @@ defmodule ExWebRTC.PeerConnection do
 
       idx ->
         tr = Enum.at(state.transceivers, idx)
-        tr = %RTPTransceiver{tr | direction: direction}
+        tr = %{tr | direction: direction}
         transceivers = List.replace_at(state.transceivers, idx, tr)
         state = %{state | transceivers: transceivers}
         state = update_negotiation_needed(state)
@@ -735,9 +756,9 @@ defmodule ExWebRTC.PeerConnection do
     # we ignore the condition that sender has never been used to send
     free_transceiver_idx =
       Enum.find_index(state.transceivers, fn
-        %RTPTransceiver{
+        %{
           kind: ^kind,
-          sender: %RTPSender{track: nil},
+          sender: %{track: nil},
           current_direction: direction
         }
         when direction not in [:sendrecv, :sendonly] ->
@@ -972,7 +993,12 @@ defmodule ExWebRTC.PeerConnection do
       end)
 
     case transceiver do
-      %RTPTransceiver{} ->
+      nil ->
+        Logger.warning(
+          "Attempted to send packet to track with unrecognized id: #{inspect(track_id)}"
+        )
+
+      _other ->
         {packet, state} =
           case Map.fetch(state.config.video_rtp_hdr_exts, @twcc_uri) do
             {:ok, %{id: id}} ->
@@ -999,11 +1025,6 @@ defmodule ExWebRTC.PeerConnection do
         state = %{state | transceivers: transceivers}
 
         {:noreply, state}
-
-      nil ->
-        Logger.warning(
-          "Attempted to send packet to track with unrecognized id: #{inspect(track_id)}"
-        )
 
         {:noreply, state}
     end
@@ -1083,7 +1104,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info({:dtls_transport, _pid, {:rtp, data}}, state) do
     with {:ok, demuxer, mid, packet} <- Demuxer.demux(state.demuxer, data),
-         {idx, %RTPTransceiver{} = t} <- find_transceiver(state.transceivers, mid) do
+         {idx, t} <- find_transceiver(state.transceivers, mid) do
       # we always update the ssrc's for the one's from the latest packet
       # although this is not a necessity, the feedbacks are transport-wide
       twcc_recorder = %TWCCRecorder{
@@ -1248,13 +1269,13 @@ defmodule ExWebRTC.PeerConnection do
       Enum.map_reduce(state.transceivers, next_mid, fn
         # In the initial offer, we can't have stopped transceivers, only stopping ones.
         # Also, stopped transceivers are immediately removed.
-        %RTPTransceiver{stopping: true, mid: nil} = tr, nm ->
+        %{stopping: true, mid: nil} = tr, nm ->
           {tr, nm}
 
-        %RTPTransceiver{stopping: false, mid: nil} = tr, nm ->
+        %{stopping: false, mid: nil} = tr, nm ->
           tr = RTPTransceiver.assign_mid(tr, to_string(nm))
           # in the initial offer, mline_idx is the same as mid
-          tr = %RTPTransceiver{tr | mline_idx: nm}
+          tr = %{tr | mline_idx: nm}
           {tr, nm + 1}
       end)
 
@@ -1326,7 +1347,7 @@ defmodule ExWebRTC.PeerConnection do
   defp assign_mlines([], _, _, _, _, result), do: Enum.reverse(result)
 
   defp assign_mlines(
-         [%RTPTransceiver{mid: nil, mline_idx: nil, stopped: false} = tr | trs],
+         [%{mid: nil, mline_idx: nil, stopped: false} = tr | trs],
          last_answer,
          next_mid,
          next_mline_idx,
@@ -1337,12 +1358,12 @@ defmodule ExWebRTC.PeerConnection do
 
     case SDPUtils.find_free_mline_idx(last_answer, recycled_mlines) do
       nil ->
-        tr = %RTPTransceiver{tr | mline_idx: next_mline_idx}
+        tr = %{tr | mline_idx: next_mline_idx}
         result = [tr | result]
         assign_mlines(trs, last_answer, next_mid + 1, next_mline_idx + 1, recycled_mlines, result)
 
       idx ->
-        tr = %RTPTransceiver{tr | mline_idx: idx}
+        tr = %{tr | mline_idx: idx}
         result = [tr | result]
         recycled_mlines = [idx | recycled_mlines]
         assign_mlines(trs, last_answer, next_mid + 1, next_mline_idx, recycled_mlines, result)
@@ -1448,7 +1469,7 @@ defmodule ExWebRTC.PeerConnection do
         # This might result in unremovable transceiver when
         # we add and stop it before the first offer.
         # See https://github.com/w3c/webrtc-pc/issues/2923
-        %RTPTransceiver{mid: nil} ->
+        %{mid: nil} ->
           false
 
         tr ->
@@ -1566,7 +1587,7 @@ defmodule ExWebRTC.PeerConnection do
       notify(owner, {:track_muted, tr.receiver.track.id})
     end
 
-    tr = %RTPTransceiver{tr | current_direction: direction, fired_direction: direction}
+    tr = %{tr | current_direction: direction, fired_direction: direction}
 
     # This is not defined in the W3C but see https://github.com/w3c/webrtc-pc/issues/2927
     tr =
@@ -1596,12 +1617,12 @@ defmodule ExWebRTC.PeerConnection do
     # after processing remote track but this shouldn't have any impact
     {idx, tr} =
       case find_transceiver_from_remote(transceivers, mline) do
-        {idx, %RTPTransceiver{} = tr} -> {idx, RTPTransceiver.update(tr, mline, config)}
+        {idx, tr} -> {idx, RTPTransceiver.update(tr, mline, config)}
         nil -> {nil, RTPTransceiver.from_mline(mline, idx, config)}
       end
 
     tr = process_remote_track(tr, direction, owner)
-    tr = if sdp_type == :answer, do: %RTPTransceiver{tr | current_direction: direction}, else: tr
+    tr = if sdp_type == :answer, do: %{tr | current_direction: direction}, else: tr
 
     tr =
       if SDPUtils.rejected?(mline),
@@ -1623,7 +1644,7 @@ defmodule ExWebRTC.PeerConnection do
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
     case find_transceiver(transceivers, mid) do
-      {idx, %RTPTransceiver{} = tr} -> {idx, tr}
+      {idx, tr} -> {idx, tr}
       nil -> find_associable_transceiver(transceivers, mline)
     end
   end
@@ -1649,7 +1670,7 @@ defmodule ExWebRTC.PeerConnection do
         :ok
     end
 
-    %RTPTransceiver{transceiver | fired_direction: direction}
+    %{transceiver | fired_direction: direction}
   end
 
   defp reverse_direction(:recvonly), do: :sendonly
@@ -1819,7 +1840,7 @@ defmodule ExWebRTC.PeerConnection do
 
       # in case NACK was received, but RTX was not negotiated
       # as NACK and RTX are negotited independently
-      {%RTPTransceiver{sender: %RTPSender{rtx_pt: nil}}, _idx} ->
+      {%{sender: %{rtx_pt: nil}}, _idx} ->
         state
 
       {tr, idx} ->

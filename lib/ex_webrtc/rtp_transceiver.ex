@@ -21,10 +21,9 @@ defmodule ExWebRTC.RTPTransceiver do
   @nack_interval 100
 
   @type id() :: integer()
-  @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
-  @type kind() :: :audio | :video
 
-  @type t() :: %__MODULE__{
+  @typedoc false
+  @type transceiver() :: %{
           id: id(),
           mid: String.t() | nil,
           mline_idx: non_neg_integer() | nil,
@@ -34,29 +33,73 @@ defmodule ExWebRTC.RTPTransceiver do
           kind: kind(),
           rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()],
-          receiver: RTPReceiver.t(),
-          sender: RTPSender.t(),
+          receiver: RTPReceiver.receiver(),
+          sender: RTPSender.sender(),
           stopping: boolean(),
           stopped: boolean(),
           added_by_add_track: boolean()
         }
 
-  @enforce_keys [:id, :direction, :kind, :sender, :receiver]
-  defstruct @enforce_keys ++
-              [
-                :mid,
-                :mline_idx,
-                :current_direction,
-                :fired_direction,
-                codecs: [],
-                rtp_hdr_exts: [],
-                stopping: false,
-                stopped: false,
-                added_by_add_track: false
-              ]
+  @typedoc """
+  Possible directions of the transceiver.
+
+  For the exact meaning, refer to the [RTCRtpTransceiver: direction property](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpTransceiver/direction).
+  """
+  @type direction() :: :sendonly | :recvonly | :sendrecv | :inactive | :stopped
+
+  @typedoc """
+  Possible types of media that a transceiver can handle.
+  """
+  @type kind() :: :audio | :video
+
+  @typedoc """
+  Struct representing a transceiver.
+
+  The fields mostly match these of [RTCRtpTransceiver](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpTransceiver),
+  except for:
+  * `id` - to uniquely identify the transceiver.
+  * `kind` - kind of the handled media, added for convinience.
+  * `codecs` and `rtp_hdr_exts` - codecs and RTP header extensions that the transceiver can handle.
+  """
+  @type t() :: %__MODULE__{
+          id: id(),
+          kind: kind(),
+          current_direction: direction() | nil,
+          direction: direction(),
+          mid: String.t() | nil,
+          receiver: RTPReceiver.t(),
+          sender: RTPSender.t(),
+          rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
+          codecs: [RTPCodecParameters.t()]
+        }
+
+  @enforce_keys [
+    :id,
+    :kind,
+    :direction,
+    :current_direction,
+    :mid,
+    :receiver,
+    :sender,
+    :rtp_hdr_exts,
+    :codecs
+  ]
+  defstruct @enforce_keys
 
   @doc false
-  @spec new(kind(), MediaStreamTrack.t() | nil, Configuration.t(), Keyword.t()) :: t()
+  @spec to_struct(transceiver()) :: t()
+  def to_struct(transceiver) do
+    sender = RTPSender.to_struct(transceiver.sender)
+    receiver = RTPReceiver.to_struct(transceiver.receiver)
+
+    transceiver
+    |> Map.take([:id, :kind, :direction, :current_direction, :mid, :rtp_hdr_exts, :codecs])
+    |> Map.merge(%{sender: sender, receiver: receiver})
+    |> then(&struct!(__MODULE__, &1))
+  end
+
+  @doc false
+  @spec new(kind(), MediaStreamTrack.t() | nil, Configuration.t(), Keyword.t()) :: transceiver()
   def new(kind, sender_track, config, options) do
     direction = Keyword.get(options, :direction, :sendrecv)
 
@@ -80,28 +123,38 @@ defmodule ExWebRTC.RTPTransceiver do
     send(self(), {:send_report, :receiver, id})
     send(self(), {:send_nack, id})
 
-    %__MODULE__{
+    receiver = RTPReceiver.new(track, codec)
+
+    sender =
+      RTPSender.new(
+        sender_track,
+        codec,
+        rtx_codec,
+        rtp_hdr_exts,
+        options[:ssrc],
+        options[:rtx_ssrc]
+      )
+
+    %{
       id: id,
       direction: direction,
+      current_direction: nil,
+      fired_direction: nil,
+      mid: nil,
+      mline_idx: nil,
       kind: kind,
+      receiver: receiver,
+      sender: sender,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
-      receiver: RTPReceiver.new(track, codec),
-      sender:
-        RTPSender.new(
-          sender_track,
-          codec,
-          rtx_codec,
-          rtp_hdr_exts,
-          options[:ssrc],
-          options[:rtx_ssrc]
-        ),
-      added_by_add_track: Keyword.get(options, :added_by_add_track, false)
+      added_by_add_track: Keyword.get(options, :added_by_add_track, false),
+      stopping: false,
+      stopped: false
     }
   end
 
   @doc false
-  @spec from_mline(ExSDP.Media.t(), non_neg_integer(), Configuration.t()) :: t()
+  @spec from_mline(ExSDP.Media.t(), non_neg_integer(), Configuration.t()) :: transceiver()
   def from_mline(mline, mline_idx, config) do
     codecs = get_codecs(mline, config)
 
@@ -125,23 +178,31 @@ defmodule ExWebRTC.RTPTransceiver do
     send(self(), {:send_report, :receiver, id})
     send(self(), {:send_nack, id})
 
-    %__MODULE__{
+    receiver = RTPReceiver.new(track, codec)
+    sender = RTPSender.new(nil, codec, rtx_codec, rtp_hdr_exts, mid, nil, nil)
+
+    %{
       id: id,
+      direction: :recvonly,
+      current_direction: nil,
+      fired_direction: nil,
       mid: mid,
       mline_idx: mline_idx,
-      direction: :recvonly,
       kind: mline.type,
+      receiver: receiver,
+      sender: sender,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
-      receiver: RTPReceiver.new(track, codec),
-      sender: RTPSender.new(nil, codec, rtx_codec, rtp_hdr_exts, mid, nil, nil)
+      added_by_add_track: false,
+      stopping: false,
+      stopped: false
     }
   end
 
   @doc false
-  @spec associable?(t(), ExSDP.Media.t()) :: boolean()
+  @spec associable?(transceiver(), ExSDP.Media.t()) :: boolean()
   def associable?(transceiver, mline) do
-    %__MODULE__{
+    %{
       mid: mid,
       kind: kind,
       added_by_add_track: added_by_add_track,
@@ -156,7 +217,7 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec update(t(), ExSDP.Media.t(), Configuration.t()) :: t()
+  @spec update(transceiver(), ExSDP.Media.t(), Configuration.t()) :: transceiver()
   def update(transceiver, mline, config) do
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
     if transceiver.mid != nil and mid != transceiver.mid, do: raise(ArgumentError)
@@ -169,7 +230,7 @@ defmodule ExWebRTC.RTPTransceiver do
     receiver = RTPReceiver.update(transceiver.receiver, codec)
     sender = RTPSender.update(transceiver.sender, mid, codec, rtx_codec, rtp_hdr_exts)
 
-    %__MODULE__{
+    %{
       transceiver
       | mid: mid,
         codecs: codecs,
@@ -180,9 +241,10 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec add_track(t(), MediaStreamTrack.t(), non_neg_integer(), non_neg_integer()) :: t()
+  @spec add_track(transceiver(), MediaStreamTrack.t(), non_neg_integer(), non_neg_integer()) ::
+          transceiver()
   def add_track(transceiver, track, ssrc, rtx_ssrc) do
-    sender = %RTPSender{transceiver.sender | track: track, ssrc: ssrc, rtx_ssrc: rtx_ssrc}
+    sender = %{transceiver.sender | track: track, ssrc: ssrc, rtx_ssrc: rtx_ssrc}
 
     direction =
       case transceiver.direction do
@@ -191,21 +253,22 @@ defmodule ExWebRTC.RTPTransceiver do
         other -> other
       end
 
-    %__MODULE__{transceiver | sender: sender, direction: direction}
+    %{transceiver | sender: sender, direction: direction}
   end
 
   @doc false
-  @spec replace_track(t(), MediaStreamTrack.t(), non_neg_integer(), non_neg_integer()) :: t()
+  @spec replace_track(transceiver(), MediaStreamTrack.t(), non_neg_integer(), non_neg_integer()) ::
+          transceiver()
   def replace_track(transceiver, track, ssrc, rtx_ssrc) do
     ssrc = transceiver.sender.ssrc || ssrc
-    sender = %RTPSender{transceiver.sender | track: track, ssrc: ssrc, rtx_ssrc: rtx_ssrc}
-    %__MODULE__{transceiver | sender: sender}
+    sender = %{transceiver.sender | track: track, ssrc: ssrc, rtx_ssrc: rtx_ssrc}
+    %{transceiver | sender: sender}
   end
 
   @doc false
-  @spec remove_track(t()) :: t()
+  @spec remove_track(transceiver()) :: transceiver()
   def remove_track(transceiver) do
-    sender = %RTPSender{transceiver.sender | track: nil}
+    sender = %{transceiver.sender | track: nil}
 
     direction =
       case transceiver.direction do
@@ -214,13 +277,14 @@ defmodule ExWebRTC.RTPTransceiver do
         other -> other
       end
 
-    %__MODULE__{transceiver | sender: sender, direction: direction}
+    %{transceiver | sender: sender, direction: direction}
   end
 
   @doc false
-  @spec receive_packet(t(), ExRTP.Packet.t(), non_neg_integer()) ::
-          {:ok, t(), ExRTP.Packet.t()} | :error
+  @spec receive_packet(transceiver(), ExRTP.Packet.t(), non_neg_integer()) ::
+          {:ok, transceiver(), ExRTP.Packet.t()} | :error
   def receive_packet(transceiver, packet, size) do
+    # TODO: direction of returned values is agains the convention in this function
     case check_if_rtx(transceiver.codecs, packet) do
       {:ok, apt} -> RTPReceiver.receive_rtx(transceiver.receiver, packet, apt)
       :error -> {:ok, packet}
@@ -228,7 +292,8 @@ defmodule ExWebRTC.RTPTransceiver do
     |> case do
       {:ok, packet} ->
         receiver = RTPReceiver.receive_packet(transceiver.receiver, packet, size)
-        {:ok, %__MODULE__{transceiver | receiver: receiver}, packet}
+        transceiver = %{transceiver | receiver: receiver}
+        {:ok, transceiver, packet}
 
       _other ->
         :error
@@ -236,24 +301,23 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec receive_report(t(), ExRTCP.Packet.SenderReport.t()) :: t()
+  @spec receive_report(transceiver(), ExRTCP.Packet.SenderReport.t()) :: transceiver()
   def receive_report(transceiver, report) do
     receiver = RTPReceiver.receive_report(transceiver.receiver, report)
-
-    %__MODULE__{transceiver | receiver: receiver}
+    %{transceiver | receiver: receiver}
   end
 
   @doc false
-  @spec receive_nack(t(), ExRTCP.Packet.TransportFeedback.NACK.t()) :: {[ExRTP.Packet.t()], t()}
+  @spec receive_nack(transceiver(), ExRTCP.Packet.TransportFeedback.NACK.t()) ::
+          {[ExRTP.Packet.t()], transceiver()}
   def receive_nack(transceiver, nack) do
     {packets, sender} = RTPSender.receive_nack(transceiver.sender, nack)
-
-    tr = %__MODULE__{transceiver | sender: sender}
-    {packets, tr}
+    transceiver = %{transceiver | sender: sender}
+    {packets, transceiver}
   end
 
   @doc false
-  @spec send_packet(t(), ExRTP.Packet.t(), boolean()) :: {binary(), t()}
+  @spec send_packet(transceiver(), ExRTP.Packet.t(), boolean()) :: {binary(), transceiver()}
   def send_packet(transceiver, packet, rtx?) do
     {packet, sender} = RTPSender.send_packet(transceiver.sender, packet, rtx?)
 
@@ -264,11 +328,14 @@ defmodule ExWebRTC.RTPTransceiver do
         transceiver.receiver
       end
 
-    {packet, %__MODULE__{transceiver | sender: sender, receiver: receiver}}
+    transceiver = %{transceiver | sender: sender, receiver: receiver}
+
+    {packet, transceiver}
   end
 
   @doc false
-  @spec get_report(t(), :sender | :receiver) :: {SenderReport.t() | ReceiverReport.t() | nil, t()}
+  @spec get_report(transceiver(), :sender | :receiver) ::
+          {SenderReport.t() | ReceiverReport.t() | nil, transceiver()}
   def get_report(transceiver, type) do
     Process.send_after(self(), {:send_report, type, transceiver.id}, report_interval())
 
@@ -293,7 +360,7 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec get_nack(t()) :: {NACK.t() | nil, t()}
+  @spec get_nack(transceiver()) :: {NACK.t() | nil, transceiver()}
   def get_nack(transceiver) do
     Process.send_after(self(), {:send_nack, transceiver.id}, @nack_interval)
 
@@ -309,7 +376,7 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec to_answer_mline(t(), ExSDP.Media.t(), Keyword.t()) :: ExSDP.Media.t()
+  @spec to_answer_mline(transceiver(), ExSDP.Media.t(), Keyword.t()) :: ExSDP.Media.t()
   def to_answer_mline(transceiver, mline, opts) do
     # Reject mline. See RFC 8829 sec. 5.3.1 and RFC 3264 sec. 6.
     # We could reject earlier (as RFC suggests) but we generate
@@ -321,7 +388,7 @@ defmodule ExWebRTC.RTPTransceiver do
       transceiver.codecs == [] ->
         # there has to be at least one format so take it from the offer
         codecs = SDPUtils.get_rtp_codec_parameters(mline)
-        transceiver = %__MODULE__{transceiver | codecs: codecs}
+        transceiver = %{transceiver | codecs: codecs}
         opts = Keyword.put(opts, :direction, :inactive)
         mline = to_mline(transceiver, opts)
         %ExSDP.Media{mline | port: 0}
@@ -340,39 +407,38 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec to_offer_mline(t(), Keyword.t()) :: ExSDP.Media.t()
+  @spec to_offer_mline(transceiver(), Keyword.t()) :: ExSDP.Media.t()
   def to_offer_mline(transceiver, opts) do
     mline = to_mline(transceiver, opts)
     if transceiver.stopping, do: %ExSDP.Media{mline | port: 0}, else: mline
   end
 
   @doc false
-  # asssings mid to the transceiver and its sender
-  @spec assign_mid(t(), String.t()) :: t()
+  @spec assign_mid(transceiver(), String.t()) :: transceiver()
   def assign_mid(transceiver, mid) do
-    sender = %RTPSender{transceiver.sender | mid: mid}
-    %__MODULE__{transceiver | mid: mid, sender: sender}
+    sender = %{transceiver.sender | mid: mid}
+    %{transceiver | mid: mid, sender: sender}
   end
 
   @doc false
-  @spec stop(t(), (-> term())) :: t()
+  @spec stop(transceiver(), (-> term())) :: transceiver()
   def stop(transceiver, on_track_ended) do
-    tr =
+    transceiver =
       if transceiver.stopping,
         do: transceiver,
         else: stop_sending_and_receiving(transceiver, on_track_ended)
 
     # should we reset stopping or leave it as true?
-    %__MODULE__{tr | stopped: true, stopping: false, current_direction: nil}
+    %{transceiver | stopped: true, stopping: false, current_direction: nil}
   end
 
   @doc false
-  @spec stop_sending_and_receiving(t(), (-> term())) :: t()
+  @spec stop_sending_and_receiving(transceiver(), (-> term())) :: transceiver()
   def stop_sending_and_receiving(transceiver, on_track_ended) do
     # TODO send RTCP BYE for each RTP stream
     # TODO stop receiving media
     on_track_ended.()
-    %__MODULE__{transceiver | direction: :inactive, stopping: true}
+    %{transceiver | direction: :inactive, stopping: true}
   end
 
   defp to_mline(transceiver, opts) do
