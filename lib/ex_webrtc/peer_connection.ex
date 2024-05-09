@@ -25,55 +25,65 @@ defmodule ExWebRTC.PeerConnection do
   }
 
   @twcc_interval 100
+  @twcc_uri "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
 
   @type peer_connection() :: GenServer.server()
 
-  @type offer_options() :: [ice_restart: boolean()]
-  @type answer_options() :: []
-
-  @type transceiver_options() :: [direction: RTPTransceiver.direction()]
-
   @typedoc """
-  Messages sent by the ExWebRTC.
+  Possible connection states.
+
+  For the exact meaning, refer to the [RTCPeerConnection: connectionState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/connectionState).
   """
-  @type signal() ::
-          {:ex_webrtc, pid(),
-           :negotiation_needed
-           | {:ice_candidate, ICECandidate.t()}
-           | {:ice_gathering_state_change, gathering_state()}
-           | {:signaling_state_change, signaling_state()}
-           | {:connection_state_change, connection_state()}
-           | {:track, MediaStreamTrack.t()}
-           | {:track_muted, MediaStreamTrack.id()}
-           | {:track_ended, MediaStreamTrack.id()}
-           | {:rtp, MediaStreamTrack.id(), ExRTP.Packet.t()}}
+  @type connection_state() :: :new | :connecting | :connected | :disconnected | :failed | :closed
 
   @typedoc """
   Possible ICE gathering states.
 
-  For the exact meaning, refer to the [WebRTC W3C, section 4.3.2](https://www.w3.org/TR/webrtc/#rtcicegatheringstate-enum)
+  For the exact meaning, refer to the [RTCPeerConnection: iceGatheringState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/iceGatheringState).
   """
-  @type gathering_state() :: :new | :gathering | :complete
+  @type ice_gathering_state() :: :new | :gathering | :complete
 
   @typedoc """
-  Possible PeerConnection signaling states.
+  Possible ICE connection states.
 
-  For the exact meaning, refer to the [WebRTC W3C, section 4.3.1](https://www.w3.org/TR/webrtc/#dom-rtcsignalingstate)
+  For the exact meaning, refer to the [RTCPeerConnection: iceConnectionState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/iceConnectionState).
+  """
+  @type ice_connection_state() ::
+          :new | :checking | :connected | :completed | :failed | :disconnected | :closed
+
+  @typedoc """
+  Possible signaling states.
+
+  For the exact meaning, refer to the [RTCPeerConnection: signalingState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/signalingState).
   """
   @type signaling_state() :: :stable | :have_local_offer | :have_remote_offer
 
   @typedoc """
-  Possible PeerConnection states.
+  Messages sent by the `ExWebRTC.PeerConnection` process to its controlling process.
 
-  For the exact meaning, refer to the [WebRTC W3C, section 4.3.3](https://www.w3.org/TR/webrtc/#rtcpeerconnectionstate-enum)
+  Most of the messages match the [RTCPeerConnection events](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection#events),
+  except for:
+  * `:track_muted`, `:track_ended` - these match the [MediaStreamTrack events](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack#events).
+  * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection.
   """
-  @type connection_state() :: :closed | :failed | :disconnected | :new | :connecting | :connected
+  @type message() ::
+          {:ex_webrtc, pid(),
+           {:connection_state_change, connection_state()}
+           | {:ice_candidate, ICECandidate.t()}
+           | {:ice_connection_state_change, ice_connection_state()}
+           | {:ice_gathering_state_change, ice_gathering_state()}
+           | :negotiation_needed
+           | {:signaling_state_change, signaling_state()}
+           | {:track, MediaStreamTrack.t()}
+           | {:track_muted, MediaStreamTrack.id()}
+           | {:track_ended, MediaStreamTrack.id()}
+           | {:rtp, MediaStreamTrack.id(), ExRTP.Packet.t()}}
+          | {:rtcp, [ExRTCP.Packet.packet()]}
 
-  @twcc_uri "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+  #### NON-MDN-API ####
 
-  #### API ####
   @doc """
-  Returns a list of all running peer connections.
+  Returns a list of all running `ExWebRTC.PeerConnection` processes.
   """
   @spec get_all_running() :: [pid()]
   def get_all_running() do
@@ -81,6 +91,25 @@ defmodule ExWebRTC.PeerConnection do
     |> Enum.filter(fn pid -> Process.alive?(pid) end)
   end
 
+  @doc """
+  Starts a new `ExWebRTC.PeerConnection` process.
+
+  `ExWebRTC.PeerConnection` is a `GenServer` under the hood, thus this function allows for
+  passing the generic `t:GenServer.options/0` as an argument.
+  """
+  @spec start(Configuration.options(), GenServer.options()) :: GenServer.on_start()
+  def start(pc_opts \\ [], gen_server_opts \\ []) do
+    {controlling_process, pc_opts} = Keyword.pop(pc_opts, :controlling_process)
+    controlling_process = controlling_process || self()
+    configuration = Configuration.from_options!(pc_opts)
+    GenServer.start(__MODULE__, {controlling_process, configuration}, gen_server_opts)
+  end
+
+  @doc """
+  Starts a new `ExWebRTC.PeerConnection` process.
+
+  Works identically to `start/2`, but links to the calling process.
+  """
   @spec start_link(Configuration.options(), GenServer.options()) :: GenServer.on_start()
   def start_link(pc_opts \\ [], gen_server_opts \\ []) do
     {controlling_process, pc_opts} = Keyword.pop(pc_opts, :controlling_process)
@@ -89,115 +118,19 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.start_link(__MODULE__, {controlling_process, configuration}, gen_server_opts)
   end
 
-  @spec start(Configuration.options()) :: GenServer.on_start()
-  def start(options \\ []) do
-    configuration = Configuration.from_options!(options)
-    GenServer.start(__MODULE__, {self(), configuration})
-  end
+  @doc """
+  Changes the controlling process of this `peer_connection` process.
 
+  Controlling process is a process that receives all of the messages (descirbed
+  by `t:message/0`) from this PeerConnection.
+  """
   @spec controlling_process(peer_connection(), Process.dest()) :: :ok
   def controlling_process(peer_connection, controlling_process) do
     GenServer.call(peer_connection, {:controlling_process, controlling_process})
   end
 
-  @spec create_offer(peer_connection(), offer_options()) ::
-          {:ok, SessionDescription.t()} | {:error, :invalid_state}
-  def create_offer(peer_connection, options \\ []) do
-    GenServer.call(peer_connection, {:create_offer, options})
-  end
-
-  @spec create_answer(peer_connection(), answer_options()) ::
-          {:ok, SessionDescription.t()} | {:error, :invalid_state}
-  def create_answer(peer_connection, options \\ []) do
-    GenServer.call(peer_connection, {:create_answer, options})
-  end
-
-  @spec set_local_description(peer_connection(), SessionDescription.t()) ::
-          :ok | {:error, atom()}
-  def set_local_description(peer_connection, description) do
-    GenServer.call(peer_connection, {:set_local_description, description})
-  end
-
-  @spec get_local_description(peer_connection()) :: SessionDescription.t() | nil
-  def get_local_description(peer_connection) do
-    GenServer.call(peer_connection, :get_local_description)
-  end
-
-  @spec get_current_local_description(peer_connection()) :: SessionDescription.t() | nil
-  def get_current_local_description(peer_connection) do
-    GenServer.call(peer_connection, :get_current_local_description)
-  end
-
-  @spec set_remote_description(peer_connection(), SessionDescription.t()) ::
-          :ok | {:error, atom()}
-  def set_remote_description(peer_connection, description) do
-    GenServer.call(peer_connection, {:set_remote_description, description})
-  end
-
-  @spec get_remote_description(peer_connection()) :: SessionDescription.t() | nil
-  def get_remote_description(peer_connection) do
-    GenServer.call(peer_connection, :get_remote_description)
-  end
-
-  @spec get_current_remote_description(peer_connection()) :: SessionDescription.t() | nil
-  def get_current_remote_description(peer_connection) do
-    GenServer.call(peer_connection, :get_current_remote_description)
-  end
-
-  @spec add_ice_candidate(peer_connection(), ICECandidate.t()) ::
-          :ok | {:error, :no_remote_description}
-  def add_ice_candidate(peer_connection, candidate) do
-    GenServer.call(peer_connection, {:add_ice_candidate, candidate})
-  end
-
-  @spec get_transceivers(peer_connection()) :: [RTPTransceiver.t()]
-  def get_transceivers(peer_connection) do
-    GenServer.call(peer_connection, :get_transceivers)
-  end
-
-  @spec add_transceiver(
-          peer_connection(),
-          RTPTransceiver.kind() | MediaStreamTrack.t(),
-          transceiver_options()
-        ) :: {:ok, RTPTransceiver.t()}
-  def add_transceiver(peer_connection, kind_or_track, options \\ []) do
-    GenServer.call(peer_connection, {:add_transceiver, kind_or_track, options})
-  end
-
-  @spec set_transceiver_direction(
-          peer_connection(),
-          RTPTransceiver.id(),
-          RTPTransceiver.direction()
-        ) :: :ok | {:error, :invalid_transceiver_id}
-  def set_transceiver_direction(peer_connection, transceiver_id, direction)
-      when direction in [:sendrecv, :sendonly, :recvonly, :inactive] do
-    GenServer.call(peer_connection, {:set_transceiver_direction, transceiver_id, direction})
-  end
-
-  @spec stop_transceiver(peer_connection(), RTPTransceiver.id()) ::
-          :ok | {:error, :invalid_transceiver_id}
-  def stop_transceiver(peer_connection, transceiver_id) do
-    GenServer.call(peer_connection, {:stop_transceiver, transceiver_id})
-  end
-
-  @spec add_track(peer_connection(), MediaStreamTrack.t()) :: {:ok, RTPSender.t()}
-  def add_track(peer_connection, track) do
-    GenServer.call(peer_connection, {:add_track, track})
-  end
-
-  @spec replace_track(peer_connection(), RTPSender.id(), MediaStreamTrack.t()) ::
-          :ok | {:error, :invalid_sender_id | :invalid_track_type}
-  def replace_track(peer_connection, sender_id, track) do
-    GenServer.call(peer_connection, {:replace_track, sender_id, track})
-  end
-
-  @spec remove_track(peer_connection(), RTPSender.id()) :: :ok | {:error, :invalid_sender_id}
-  def remove_track(peer_connection, sender_id) do
-    GenServer.call(peer_connection, {:remove_track, sender_id})
-  end
-
   @doc """
-  Send an RTP packet to the remote peer using specified track or its id.
+  Sends an RTP packet to the remote peer using the track specified by the `track_id`.
 
   Options:
     * `rtx?` - send the packet as if it was retransmited (use SSRC and payload type specific to RTX)
@@ -213,16 +146,129 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
-  Send an RTCP PLI feedback to the remote peer using specified track.
+  Sends an RTCP PLI feedback to the remote peer using the track specified by the `track_id`.
   """
   @spec send_pli(peer_connection(), MediaStreamTrack.id()) :: :ok
   def send_pli(peer_connection, track_id) do
     GenServer.cast(peer_connection, {:send_pli, track_id})
   end
 
-  @doc """
-  Returns peer connection's statistics.
+  #### MDN-API ####
 
+  @doc """
+  Returns the connection state.
+
+  For more information, refer to the [RTCPeerConnection: connectionState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/connectionState).
+  """
+  @spec get_connection_state(peer_connection()) :: connection_state()
+  def get_connection_state(peer_connection) do
+    GenServer.call(peer_connection, :get_connection_state)
+  end
+
+  @doc """
+  Returns the ICE connection state.
+
+  For more information, refer to the [RTCPeerConnection: iceConnectionState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/iceConnectionState).
+  """
+  @spec get_ice_connection_state(peer_connection()) :: ice_connection_state()
+  def get_ice_connection_state(peer_connection) do
+    GenServer.call(peer_connection, :get_ice_connection_state)
+  end
+
+  @doc """
+  Returns the ICE gathering state.
+
+  For more information, refer to the [RTCPeerConnection: iceGatheringState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/iceGatheringState).
+  """
+  @spec get_ice_gathering_state(peer_connection()) :: ice_gathering_state()
+  def get_ice_gathering_state(peer_connection) do
+    GenServer.call(peer_connection, :get_ice_gathering_state)
+  end
+
+  @doc """
+  Returns the signaling state.
+
+  For more information, refer to the [RTCPeerConnection: signalingState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/signalingState).
+  """
+  @spec get_signaling_state(peer_connection()) :: signaling_state()
+  def get_signaling_state(peer_connection) do
+    GenServer.call(peer_connection, :get_signaling_state)
+  end
+
+  @doc """
+  Returns the local description.
+
+  For more information, refer to the [RTCPeerConnection: localDescription property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/localDescription).
+  """
+  @spec get_local_description(peer_connection()) :: SessionDescription.t() | nil
+  def get_local_description(peer_connection) do
+    GenServer.call(peer_connection, :get_local_description)
+  end
+
+  @doc """
+  Returns the remote description.
+
+  For more information, refer to the [RTCPeerConnection: remoteDescription property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/remoteDescription).
+  """
+  @spec get_remote_description(peer_connection()) :: SessionDescription.t() | nil
+  def get_remote_description(peer_connection) do
+    GenServer.call(peer_connection, :get_remote_description)
+  end
+
+  @doc """
+  Returns the pending local description.
+
+  For more information, refer to the [RTCPeerConnection: pendingLocalDescription property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/pendingLocalDescription).
+  """
+  @spec get_pending_local_description(peer_connection()) :: SessionDescription.t() | nil
+  def get_pending_local_description(peer_connection) do
+    GenServer.call(peer_connection, :get_pending_local_description)
+  end
+
+  @doc """
+  Returns the pending remote description.
+
+  For more information, refer to the [RTCPeerConnection: pendingRemoteDescription property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/pendingRemoteDescription).
+  """
+  @spec get_pending_remote_description(peer_connection()) :: SessionDescription.t() | nil
+  def get_pending_remote_description(peer_connection) do
+    GenServer.call(peer_connection, :get_pending_remote_description)
+  end
+
+  @doc """
+  Returns the current local description.
+
+  For more information, refer to the [RTCPeerConnection: currentLocalDescription property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/currentLocalDescription).
+  """
+  @spec get_current_local_description(peer_connection()) :: SessionDescription.t() | nil
+  def get_current_local_description(peer_connection) do
+    GenServer.call(peer_connection, :get_current_local_description)
+  end
+
+  @doc """
+  Returns the current remote description.
+
+  For more information, refer to the [RTCPeerConnection: currentRemoteDescription property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/currentRemoteDescription).
+  """
+  @spec get_current_remote_description(peer_connection()) :: SessionDescription.t() | nil
+  def get_current_remote_description(peer_connection) do
+    GenServer.call(peer_connection, :get_current_remote_description)
+  end
+
+  @doc """
+  Returns the list of transceivers.
+
+  For more information, refer to the [RTCPeerConnection: getTransceivers() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/getTransceivers).
+  """
+  @spec get_transceivers(peer_connection()) :: [RTPTransceiver.t()]
+  def get_transceivers(peer_connection) do
+    GenServer.call(peer_connection, :get_transceivers)
+  end
+
+  @doc """
+  Returns PeerConnection's statistics.
+
+  For more information, refer to the [RTCPeerConnection: getStats() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/getStats).
   See [RTCStatsReport](https://www.w3.org/TR/webrtc/#rtcstatsreport-object) for the output structure.
   """
   @spec get_stats(peer_connection()) :: %{(atom() | integer()) => map()}
@@ -230,6 +276,134 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.call(peer_connection, :get_stats)
   end
 
+  @doc """
+  Sets the local description.
+
+  For more information, refer to the [RTCPeerConnection: setLocalDescription() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/setLocalDescription).
+  """
+  @spec set_local_description(peer_connection(), SessionDescription.t()) :: :ok | {:error, term()}
+  def set_local_description(peer_connection, description) do
+    GenServer.call(peer_connection, {:set_local_description, description})
+  end
+
+  @doc """
+  Sets the remote description.
+
+  For more information, refer to the [RTCPeerConnection: setRemoteDescription() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/setRemoteDescription).
+  """
+  @spec set_remote_description(peer_connection(), SessionDescription.t()) ::
+          :ok | {:error, term()}
+  def set_remote_description(peer_connection, description) do
+    GenServer.call(peer_connection, {:set_remote_description, description})
+  end
+
+  @doc """
+  Creates an SDP offer.
+
+  For more information, refer to the [RTCPeerConnection: createOffer() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createOffer).
+  """
+  @spec create_offer(peer_connection(), restart_ice?: boolean()) ::
+          {:ok, SessionDescription.t()} | {:error, term()}
+  def create_offer(peer_connection, options \\ []) do
+    GenServer.call(peer_connection, {:create_offer, options})
+  end
+
+  @doc """
+  Creates an SDP answer.
+
+  For more information, refer to the [RTCPeerConnection: createAnswer() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createAnswer).
+  """
+  @spec create_answer(peer_connection()) :: {:ok, SessionDescription.t()} | {:error, term()}
+  def create_answer(peer_connection) do
+    GenServer.call(peer_connection, :create_answer)
+  end
+
+  @doc """
+  Adds a new remote ICE candidate.
+
+  For more information, refer to the [RTCPeerConnection: addIceCandidate() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addIceCandidate).
+  """
+  @spec add_ice_candidate(peer_connection(), ICECandidate.t()) :: :ok | {:error, term()}
+  def add_ice_candidate(peer_connection, candidate) do
+    GenServer.call(peer_connection, {:add_ice_candidate, candidate})
+  end
+
+  @doc """
+  Adds a new transceiver.
+
+  For more information, refer to the [RTCPeerConnection: addTransceiver() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addTransceiver).
+  """
+  @spec add_transceiver(
+          peer_connection(),
+          RTPTransceiver.kind() | MediaStreamTrack.t(),
+          direction: RTPTransceiver.direction()
+        ) :: {:ok, RTPTransceiver.t()}
+  def add_transceiver(peer_connection, kind_or_track, options \\ []) do
+    GenServer.call(peer_connection, {:add_transceiver, kind_or_track, options})
+  end
+
+  @doc """
+  Sets the direction of transceiver specified by the `transceiver_id`.
+
+  For more information, refer to the [RTCRtpTransceiver: direction property](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpTransceiver/direction).
+  """
+  @spec set_transceiver_direction(
+          peer_connection(),
+          RTPTransceiver.id(),
+          RTPTransceiver.direction()
+        ) :: :ok | {:error, term()}
+  def set_transceiver_direction(peer_connection, transceiver_id, direction)
+      when direction in [:sendrecv, :sendonly, :recvonly, :inactive] do
+    GenServer.call(peer_connection, {:set_transceiver_direction, transceiver_id, direction})
+  end
+
+  @doc """
+  Stops the transceiver specified by the `transceiver_id`.
+
+  For more information, refer to the [RTCRtpTransceiver: stop() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpTransceiver/stop).
+  """
+  @spec stop_transceiver(peer_connection(), RTPTransceiver.id()) :: :ok | {:error, term()}
+  def stop_transceiver(peer_connection, transceiver_id) do
+    GenServer.call(peer_connection, {:stop_transceiver, transceiver_id})
+  end
+
+  @doc """
+  Adds a new track.
+
+  For more information, refer to the [RTCPeerConnection: addTrack() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addTrack).
+  """
+  @spec add_track(peer_connection(), MediaStreamTrack.t()) :: {:ok, RTPSender.t()}
+  def add_track(peer_connection, track) do
+    GenServer.call(peer_connection, {:add_track, track})
+  end
+
+  @doc """
+  Replaces the track assigned to the sender specified by the `sender_id`.
+
+  For more information, refer to the [RTCRtpSender: replaceTrack() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpSender/replaceTrack).
+  """
+  @spec replace_track(peer_connection(), RTPSender.id(), MediaStreamTrack.t()) ::
+          :ok | {:error, term()}
+  def replace_track(peer_connection, sender_id, track) do
+    GenServer.call(peer_connection, {:replace_track, sender_id, track})
+  end
+
+  @doc """
+  Removes the track assigned to the sender specified by the `sender_id`.
+
+  For more information, refer to the [RTCPeerConnection: removeTrack() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/removeTrack).
+  """
+  @spec remove_track(peer_connection(), RTPSender.id()) :: :ok | {:error, term()}
+  def remove_track(peer_connection, sender_id) do
+    GenServer.call(peer_connection, {:remove_track, sender_id})
+  end
+
+  @doc """
+  Closes the PeerConnection.
+
+  This function kills the `peer_connection` process.
+  For more information, refer to the [RTCPeerConnection: close() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/close).
+  """
   @spec close(peer_connection()) :: :ok
   def close(peer_connection) do
     GenServer.stop(peer_connection)
@@ -292,6 +466,26 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_call(:get_connection_state, _from, state) do
+    {:reply, state.conn_state, state}
+  end
+
+  @impl true
+  def handle_call(:get_ice_connection_state, _from, state) do
+    {:reply, state.ice_state, state}
+  end
+
+  @impl true
+  def handle_call(:get_ice_gathering_state, _from, state) do
+    {:reply, state.ice_gathering_state, state}
+  end
+
+  @impl true
+  def handle_call(:get_signaling_state, _from, state) do
+    {:reply, state.signaling_state, state}
+  end
+
+  @impl true
   def handle_call({:create_offer, _options}, _from, %{signaling_state: ss} = state)
       when ss not in [:stable, :have_local_offer] do
     {:reply, {:error, :invalid_state}, state}
@@ -345,13 +539,13 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_call({:create_answer, _options}, _from, %{signaling_state: ss} = state)
+  def handle_call(:create_answer, _from, %{signaling_state: ss} = state)
       when ss not in [:have_remote_offer, :have_local_pranswer] do
     {:reply, {:error, :invalid_state}, state}
   end
 
   @impl true
-  def handle_call({:create_answer, _options}, _from, state) do
+  def handle_call(:create_answer, _from, state) do
     {:offer, remote_offer} = state.pending_remote_desc
 
     {:ok, ice_ufrag, ice_pwd} =
@@ -416,6 +610,13 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_call(:get_pending_local_description, _from, state) do
+    candidates = state.ice_transport.get_local_candidates(state.ice_pid)
+    desc = do_get_description(state.current_pending_desc, candidates)
+    {:reply, desc, state}
+  end
+
+  @impl true
   def handle_call(:get_current_local_description, _from, state) do
     candidates = state.ice_transport.get_local_candidates(state.ice_pid)
     desc = do_get_description(state.current_local_desc, candidates)
@@ -435,6 +636,13 @@ defmodule ExWebRTC.PeerConnection do
     desc = state.pending_remote_desc || state.current_remote_desc
     candidates = state.ice_transport.get_remote_candidates(state.ice_pid)
     desc = do_get_description(desc, candidates)
+    {:reply, desc, state}
+  end
+
+  @impl true
+  def handle_call(:get_pending_remote_description, _from, state) do
+    candidates = state.ice_transport.get_local_candidates(state.ice_pid)
+    desc = do_get_description(state.current_remote_desc, candidates)
     {:reply, desc, state}
   end
 
@@ -470,7 +678,8 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call(:get_transceivers, _from, state) do
-    {:reply, state.transceivers, state}
+    transceivers = Enum.map(state.transceivers, &RTPTransceiver.to_struct/1)
+    {:reply, transceivers, state}
   end
 
   @impl true
@@ -479,12 +688,12 @@ defmodule ExWebRTC.PeerConnection do
     {ssrc, rtx_ssrc} = generate_ssrcs(state)
     options = [{:ssrc, ssrc}, {:rtx_ssrc, rtx_ssrc} | options]
 
-    transceiver = RTPTransceiver.new(kind, nil, state.config, options)
-    state = %{state | transceivers: state.transceivers ++ [transceiver]}
+    tr = RTPTransceiver.new(kind, nil, state.config, options)
+    state = %{state | transceivers: state.transceivers ++ [tr]}
 
     state = update_negotiation_needed(state)
 
-    {:reply, {:ok, transceiver}, state}
+    {:reply, {:ok, RTPTransceiver.to_struct(tr)}, state}
   end
 
   @impl true
@@ -492,12 +701,12 @@ defmodule ExWebRTC.PeerConnection do
     {ssrc, rtx_ssrc} = generate_ssrcs(state)
     options = [{:ssrc, ssrc}, {:rtx_ssrc, rtx_ssrc} | options]
 
-    transceiver = RTPTransceiver.new(track.kind, track, state.config, options)
-    state = %{state | transceivers: state.transceivers ++ [transceiver]}
+    tr = RTPTransceiver.new(track.kind, track, state.config, options)
+    state = %{state | transceivers: state.transceivers ++ [tr]}
 
     state = update_negotiation_needed(state)
 
-    {:reply, {:ok, transceiver}, state}
+    {:reply, {:ok, RTPTransceiver.to_struct(tr)}, state}
   end
 
   @impl true
@@ -510,7 +719,7 @@ defmodule ExWebRTC.PeerConnection do
 
       idx ->
         tr = Enum.at(state.transceivers, idx)
-        tr = %RTPTransceiver{tr | direction: direction}
+        tr = %{tr | direction: direction}
         transceivers = List.replace_at(state.transceivers, idx, tr)
         state = %{state | transceivers: transceivers}
         state = update_negotiation_needed(state)
@@ -547,9 +756,9 @@ defmodule ExWebRTC.PeerConnection do
     # we ignore the condition that sender has never been used to send
     free_transceiver_idx =
       Enum.find_index(state.transceivers, fn
-        %RTPTransceiver{
+        %{
           kind: ^kind,
-          sender: %RTPSender{track: nil},
+          sender: %{track: nil},
           current_direction: direction
         }
         when direction not in [:sendrecv, :sendonly] ->
@@ -584,7 +793,7 @@ defmodule ExWebRTC.PeerConnection do
 
     state = update_negotiation_needed(state)
 
-    {:reply, {:ok, sender}, state}
+    {:reply, {:ok, RTPSender.to_struct(sender)}, state}
   end
 
   @impl true
@@ -784,7 +993,12 @@ defmodule ExWebRTC.PeerConnection do
       end)
 
     case transceiver do
-      %RTPTransceiver{} ->
+      nil ->
+        Logger.warning(
+          "Attempted to send packet to track with unrecognized id: #{inspect(track_id)}"
+        )
+
+      _other ->
         {packet, state} =
           case Map.fetch(state.config.video_rtp_hdr_exts, @twcc_uri) do
             {:ok, %{id: id}} ->
@@ -811,11 +1025,6 @@ defmodule ExWebRTC.PeerConnection do
         state = %{state | transceivers: transceivers}
 
         {:noreply, state}
-
-      nil ->
-        Logger.warning(
-          "Attempted to send packet to track with unrecognized id: #{inspect(track_id)}"
-        )
 
         {:noreply, state}
     end
@@ -852,6 +1061,8 @@ defmodule ExWebRTC.PeerConnection do
     if new_ice_state == :connected do
       :ok = DTLSTransport.set_ice_connected(state.dtls_transport)
     end
+
+    notify(state.owner, {:ice_connection_state_change, new_ice_state})
 
     if next_conn_state == :failed do
       Logger.debug("Stopping PeerConnection")
@@ -893,7 +1104,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info({:dtls_transport, _pid, {:rtp, data}}, state) do
     with {:ok, demuxer, mid, packet} <- Demuxer.demux(state.demuxer, data),
-         {idx, %RTPTransceiver{} = t} <- find_transceiver(state.transceivers, mid) do
+         {idx, t} <- find_transceiver(state.transceivers, mid) do
       # we always update the ssrc's for the one's from the latest packet
       # although this is not a necessity, the feedbacks are transport-wide
       twcc_recorder = %TWCCRecorder{
@@ -1058,13 +1269,13 @@ defmodule ExWebRTC.PeerConnection do
       Enum.map_reduce(state.transceivers, next_mid, fn
         # In the initial offer, we can't have stopped transceivers, only stopping ones.
         # Also, stopped transceivers are immediately removed.
-        %RTPTransceiver{stopping: true, mid: nil} = tr, nm ->
+        %{stopping: true, mid: nil} = tr, nm ->
           {tr, nm}
 
-        %RTPTransceiver{stopping: false, mid: nil} = tr, nm ->
+        %{stopping: false, mid: nil} = tr, nm ->
           tr = RTPTransceiver.assign_mid(tr, to_string(nm))
           # in the initial offer, mline_idx is the same as mid
-          tr = %RTPTransceiver{tr | mline_idx: nm}
+          tr = %{tr | mline_idx: nm}
           {tr, nm + 1}
       end)
 
@@ -1136,7 +1347,7 @@ defmodule ExWebRTC.PeerConnection do
   defp assign_mlines([], _, _, _, _, result), do: Enum.reverse(result)
 
   defp assign_mlines(
-         [%RTPTransceiver{mid: nil, mline_idx: nil, stopped: false} = tr | trs],
+         [%{mid: nil, mline_idx: nil, stopped: false} = tr | trs],
          last_answer,
          next_mid,
          next_mline_idx,
@@ -1147,12 +1358,12 @@ defmodule ExWebRTC.PeerConnection do
 
     case SDPUtils.find_free_mline_idx(last_answer, recycled_mlines) do
       nil ->
-        tr = %RTPTransceiver{tr | mline_idx: next_mline_idx}
+        tr = %{tr | mline_idx: next_mline_idx}
         result = [tr | result]
         assign_mlines(trs, last_answer, next_mid + 1, next_mline_idx + 1, recycled_mlines, result)
 
       idx ->
-        tr = %RTPTransceiver{tr | mline_idx: idx}
+        tr = %{tr | mline_idx: idx}
         result = [tr | result]
         recycled_mlines = [idx | recycled_mlines]
         assign_mlines(trs, last_answer, next_mid + 1, next_mline_idx, recycled_mlines, result)
@@ -1258,7 +1469,7 @@ defmodule ExWebRTC.PeerConnection do
         # This might result in unremovable transceiver when
         # we add and stop it before the first offer.
         # See https://github.com/w3c/webrtc-pc/issues/2923
-        %RTPTransceiver{mid: nil} ->
+        %{mid: nil} ->
           false
 
         tr ->
@@ -1376,7 +1587,7 @@ defmodule ExWebRTC.PeerConnection do
       notify(owner, {:track_muted, tr.receiver.track.id})
     end
 
-    tr = %RTPTransceiver{tr | current_direction: direction, fired_direction: direction}
+    tr = %{tr | current_direction: direction, fired_direction: direction}
 
     # This is not defined in the W3C but see https://github.com/w3c/webrtc-pc/issues/2927
     tr =
@@ -1406,12 +1617,12 @@ defmodule ExWebRTC.PeerConnection do
     # after processing remote track but this shouldn't have any impact
     {idx, tr} =
       case find_transceiver_from_remote(transceivers, mline) do
-        {idx, %RTPTransceiver{} = tr} -> {idx, RTPTransceiver.update(tr, mline, config)}
+        {idx, tr} -> {idx, RTPTransceiver.update(tr, mline, config)}
         nil -> {nil, RTPTransceiver.from_mline(mline, idx, config)}
       end
 
     tr = process_remote_track(tr, direction, owner)
-    tr = if sdp_type == :answer, do: %RTPTransceiver{tr | current_direction: direction}, else: tr
+    tr = if sdp_type == :answer, do: %{tr | current_direction: direction}, else: tr
 
     tr =
       if SDPUtils.rejected?(mline),
@@ -1433,7 +1644,7 @@ defmodule ExWebRTC.PeerConnection do
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
     case find_transceiver(transceivers, mid) do
-      {idx, %RTPTransceiver{} = tr} -> {idx, tr}
+      {idx, tr} -> {idx, tr}
       nil -> find_associable_transceiver(transceivers, mline)
     end
   end
@@ -1459,7 +1670,7 @@ defmodule ExWebRTC.PeerConnection do
         :ok
     end
 
-    %RTPTransceiver{transceiver | fired_direction: direction}
+    %{transceiver | fired_direction: direction}
   end
 
   defp reverse_direction(:recvonly), do: :sendonly
@@ -1629,7 +1840,7 @@ defmodule ExWebRTC.PeerConnection do
 
       # in case NACK was received, but RTX was not negotiated
       # as NACK and RTX are negotited independently
-      {%RTPTransceiver{sender: %RTPSender{rtx_pt: nil}}, _idx} ->
+      {%{sender: %{rtx_pt: nil}}, _idx} ->
         state
 
       {tr, idx} ->

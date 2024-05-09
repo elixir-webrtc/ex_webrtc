@@ -1,5 +1,5 @@
 defmodule ExWebRTC.RTPReceiver.ReportRecorder do
-  @moduledoc nil
+  @moduledoc false
   # based on https://datatracker.ietf.org/doc/html/rfc3550#section-6.4.1
 
   import Bitwise
@@ -40,7 +40,8 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
             total_lost: 0
 
   @doc """
-  Records incoming RTP Packet.
+  Records incoming RTP packet.
+
   `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
   @spec record_packet(t(), ExRTP.Packet.t(), integer()) :: t()
@@ -68,6 +69,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
 
   @doc """
   Records incoming RTCP Sender Report.
+
   `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
   @spec record_report(t(), ExRTCP.Packet.SenderReport.t(), integer()) :: t()
@@ -79,7 +81,8 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   end
 
   @doc """
-  Creates an RTCP Receiver Report.
+  Generates RTCP Receiver Report.
+
   `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
   @spec get_report(t(), integer()) :: {:ok, ReceiverReport.t(), t()} | {:error, term()}

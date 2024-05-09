@@ -1,5 +1,5 @@
 defmodule ExWebRTC.RTPReceiver.NACKGenerator do
-  @moduledoc nil
+  @moduledoc false
   # for now, it mimics the Pion implementation, but there's some issues and remarks
   # 1) NACKs are send at constant interval
   # 2) no timing rules (like rtt) are taken into account
@@ -25,9 +25,6 @@ defmodule ExWebRTC.RTPReceiver.NACKGenerator do
             last_sn: nil,
             max_nack: @max_nack
 
-  @doc """
-  Records incoming RTP Packet.
-  """
   @spec record_packet(t(), ExRTP.Packet.t()) :: t()
   def record_packet(generator, packet)
 
