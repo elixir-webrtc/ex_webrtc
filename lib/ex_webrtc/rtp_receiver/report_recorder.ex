@@ -39,7 +39,11 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
             jitter: 0.0,
             total_lost: 0
 
-  # `time` parameter accepts output of `System.monotonic_time()` as a value.
+  @doc """
+  Record incoming RTP packet.
+
+  `time` parameter accepts output of `System.monotonic_time()` as a value.
+  """
   @spec record_packet(t(), ExRTP.Packet.t(), integer()) :: t()
   def record_packet(recorder, packet, time \\ System.monotonic_time())
 
@@ -63,7 +67,11 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
     |> record_jitter(packet.timestamp, time)
   end
 
-  # `time` parameter accepts output of `System.monotonic_time()` as a value.
+  @doc """
+  Record incoming RTCP Sender Report.
+
+  `time` parameter accepts output of `System.monotonic_time()` as a value.
+  """
   @spec record_report(t(), ExRTCP.Packet.SenderReport.t(), integer()) :: t()
   def record_report(recorder, sender_report, time \\ System.monotonic_time()) do
     # we take the middle 32 bits of the NTP timestamp
@@ -72,7 +80,11 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
     %__MODULE__{recorder | last_sr_ntp_timestamp: ntp_ts, last_sr_timestamp: time}
   end
 
-  # `time` parameter accepts output of `System.monotonic_time()` as a value.
+  @doc """
+  Generate RTCP Receiver Report.
+
+  `time` parameter accepts output of `System.monotonic_time()` as a value.
+  """
   @spec get_report(t(), integer()) :: {:ok, ReceiverReport.t(), t()} | {:error, term()}
   def get_report(recorder, time \\ System.monotonic_time())
 

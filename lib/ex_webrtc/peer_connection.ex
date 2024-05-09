@@ -59,7 +59,7 @@ defmodule ExWebRTC.PeerConnection do
   @type signaling_state() :: :stable | :have_local_offer | :have_remote_offer
 
   @typedoc """
-  Messages sent by the the `ExWebRTC.PeerConnection` process to its controlling process.
+  Messages sent by the `ExWebRTC.PeerConnection` process to its controlling process.
 
   Most of the messages match the [RTCPeerConnection events](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection#events),
   except for:
@@ -343,7 +343,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
-  Sets the direction of transceiver specified by the `id`.
+  Sets the direction of transceiver specified by the `transceiver_id`.
 
   For more information, refer to the [RTCRtpTransceiver: direction property](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpTransceiver/direction).
   """
@@ -358,7 +358,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
-  Stops the transceiver specified by the `id`.
+  Stops the transceiver specified by the `transceiver_id`.
 
   For more information, refer to the [RTCRtpTransceiver: stop() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpTransceiver/stop).
   """
@@ -401,7 +401,7 @@ defmodule ExWebRTC.PeerConnection do
   @doc """
   Closes the PeerConnection.
 
-  This function kills the PeerConnection process.
+  This function kills the `peer_connection` process.
   For more information, refer to the [RTCPeerConnection: close() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/close).
   """
   @spec close(peer_connection()) :: :ok
