@@ -40,7 +40,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
             total_lost: 0
 
   @doc """
-  Record incoming RTP packet.
+  Records incoming RTP packet.
 
   `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
@@ -68,7 +68,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   end
 
   @doc """
-  Record incoming RTCP Sender Report.
+  Records incoming RTCP Sender Report.
 
   `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
@@ -81,7 +81,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   end
 
   @doc """
-  Generate RTCP Receiver Report.
+  Generates RTCP Receiver Report.
 
   `time` parameter accepts output of `System.monotonic_time()` as a value.
   """
