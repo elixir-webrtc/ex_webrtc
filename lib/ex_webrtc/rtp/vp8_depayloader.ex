@@ -21,6 +21,10 @@ defmodule ExWebRTC.RTP.VP8Depayloader do
   end
 
   @spec write(t(), ExRTP.Packet.t()) :: {:ok, t()} | {:ok, binary(), t()}
+  def write(depayloader, packet)
+
+  def write(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {:ok, depayloader}
+
   def write(depayloader, packet) do
     with {:ok, vp8_payload} <- VP8Payload.parse(packet.payload) do
       depayloader =
