@@ -19,4 +19,6 @@ You may use your own files, if they meet the requirements:
 3. Run `mix run --no-halt`
 4. Visit `http://127.0.0.1:8829/index.html` in your browser and press the `play` button.
 
+The IP and port of the app can be configured in `config/config.exs`.
+
 The video and audio will loop infinitely.

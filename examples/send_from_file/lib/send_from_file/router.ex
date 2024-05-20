@@ -1,7 +1,7 @@
 defmodule SendFromFile.Router do
   use Plug.Router
 
-  plug(Plug.Static, at: "/", from: "assets")
+  plug(Plug.Static, at: "/", from: :send_from_file)
   plug(:match)
   plug(:dispatch)
 

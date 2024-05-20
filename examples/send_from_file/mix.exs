@@ -14,7 +14,7 @@ defmodule SendFromFile.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {SendFromFile.Application, []}
+      mod: {SendFromFile, []}
     ]
   end
 
