@@ -14,7 +14,7 @@ defmodule SaveToFile.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {SaveToFile.Application, []}
+      mod: {SaveToFile, []}
     ]
   end
 
