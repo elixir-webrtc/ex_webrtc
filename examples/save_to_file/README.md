@@ -10,8 +10,10 @@ While in `examples/save_to_file` directory
 4. Press the `Start` button to start recording.
 5. Press the `Stop` button to stop recording.
 
+The IP and port of the app can be configured in `config/config.exs`.
+
 Audio and video have been saved to `audio.ogg` and `video.ivf` files.
-You can play them using `ffplay`:
+You can play them using `ffplay` (assuming you have `ffmpeg` installed):
 
 ```shell
 ffplay audio.ogg

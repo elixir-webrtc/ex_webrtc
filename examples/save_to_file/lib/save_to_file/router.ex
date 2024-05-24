@@ -1,7 +1,7 @@
 defmodule SaveToFile.Router do
   use Plug.Router
 
-  plug(Plug.Static, at: "/", from: "assets")
+  plug(Plug.Static, at: "/", from: :save_to_file)
   plug(:match)
   plug(:dispatch)
 

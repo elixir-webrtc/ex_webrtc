@@ -1,9 +1,9 @@
-defmodule SaveToFile.MixProject do
+defmodule WhipWhep.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :save_to_file,
+      app: :whip_whep,
       version: "0.1.0",
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
@@ -14,15 +14,15 @@ defmodule SaveToFile.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {SaveToFile, []}
+      mod: {WhipWhep, []}
     ]
   end
 
   defp deps do
     [
       {:plug, "~> 1.15.0"},
-      {:bandit, "~> 1.2.0"},
-      {:websock_adapter, "~> 0.5.0"},
+      {:bandit, "~> 1.4.0"},
+      {:corsica, "~> 2.0.0"},
       {:jason, "~> 1.4.0"},
       {:ex_webrtc, path: "../../."}
     ]
