@@ -56,12 +56,13 @@ defmodule ExWebRTC.MixProject do
 
   defp deps do
     [
-      {:ex_sdp, "~> 0.15.0"},
+      # {:ex_sdp, github: "membraneframework/ex_sdp", branch: "simulcast"},
+      {:ex_sdp, path: "~/repos/ex_sdp"},
       {:ex_ice, "~> 0.7.0"},
       {:ex_dtls, "~> 0.15.0"},
       {:ex_libsrtp, "~> 0.7.1"},
       {:ex_rtp, "~> 0.4.0"},
-      {:ex_rtcp, "~> 0.3.0"},
+      {:ex_rtcp, github: "elixir-webrtc/ex_rtcp"},
       {:crc, "~> 0.10"},
 
       # dev/test

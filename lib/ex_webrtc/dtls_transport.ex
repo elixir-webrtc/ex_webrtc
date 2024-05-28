@@ -368,13 +368,15 @@ defmodule ExWebRTC.DTLSTransport do
         _ -> {:rtp, &ExLibSRTP.unprotect/2}
       end
 
-    case unprotect.(state.in_srtp, data) do
-      {:ok, payload} ->
-        notify(state.owner, {type, payload})
+    if Enum.random(1..100) > 2 do
+      case unprotect.(state.in_srtp, data) do
+        {:ok, payload} ->
+          notify(state.owner, {type, payload})
 
-      {:error, reason} ->
-        type = type |> Atom.to_string() |> String.upcase()
-        Logger.warning("Failed to decrypt #{type}, reason: #{inspect(reason)}")
+        {:error, reason} ->
+          type = type |> Atom.to_string() |> String.upcase()
+          Logger.warning("Failed to decrypt #{type}, reason: #{inspect(reason)}")
+      end
     end
 
     {:ok, state}

@@ -133,11 +133,10 @@ defmodule ExWebRTC.RTPTransceiver do
     track = MediaStreamTrack.new(kind)
 
     id = Utils.generate_id()
-    send(self(), {:send_report, :sender, id})
-    send(self(), {:send_report, :receiver, id})
-    send(self(), {:send_nack, id})
+    send(self(), {:send_reports, id})
+    if kind == :video, do: send(self(), {:send_nacks, id})
 
-    receiver = RTPReceiver.new(track, codec)
+    receiver = RTPReceiver.new(track, codec, rtp_hdr_exts)
 
     sender =
       RTPSender.new(
@@ -188,11 +187,10 @@ defmodule ExWebRTC.RTPTransceiver do
     rtx_codec = get_rtx(codecs, codec)
 
     id = Utils.generate_id()
-    send(self(), {:send_report, :sender, id})
-    send(self(), {:send_report, :receiver, id})
-    send(self(), {:send_nack, id})
+    send(self(), {:send_reports, id})
+    if mline.type == :video, do: send(self(), {:send_nacks, id})
 
-    receiver = RTPReceiver.new(track, codec)
+    receiver = RTPReceiver.new(track, codec, rtp_hdr_exts)
     sender = RTPSender.new(nil, codec, rtx_codec, rtp_hdr_exts, mid, nil, nil)
 
     %{
@@ -241,7 +239,7 @@ defmodule ExWebRTC.RTPTransceiver do
     codec = get_codec(codecs)
     rtx_codec = get_rtx(codecs, codec)
 
-    receiver = RTPReceiver.update(transceiver.receiver, codec)
+    receiver = RTPReceiver.update(transceiver.receiver, codec, rtp_hdr_exts)
     sender = RTPSender.update(transceiver.sender, mid, codec, rtx_codec, rtp_hdr_exts)
 
     %{
@@ -296,18 +294,18 @@ defmodule ExWebRTC.RTPTransceiver do
 
   @doc false
   @spec receive_packet(transceiver(), ExRTP.Packet.t(), non_neg_integer()) ::
-          {:ok, transceiver(), ExRTP.Packet.t()} | :error
+          {:ok, {String.t() | nil, ExRTP.Packet.t()}, transceiver()} | :error
   def receive_packet(transceiver, packet, size) do
     # TODO: direction of returned values is agains the convention in this function
     case check_if_rtx(transceiver.codecs, packet) do
       {:ok, apt} -> RTPReceiver.receive_rtx(transceiver.receiver, packet, apt)
-      :error -> {:ok, packet}
+      :error -> {:ok, packet, transceiver.receiver}
     end
     |> case do
-      {:ok, packet} ->
-        receiver = RTPReceiver.receive_packet(transceiver.receiver, packet, size)
+      {:ok, packet, receiver} ->
+        {rid, receiver} = RTPReceiver.receive_packet(receiver, packet, size)
         transceiver = %{transceiver | receiver: receiver}
-        {:ok, transceiver, packet}
+        {:ok, {rid, packet}, transceiver}
 
       _other ->
         :error
@@ -337,9 +335,9 @@ defmodule ExWebRTC.RTPTransceiver do
 
     receiver =
       if rtx? do
-        RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
-      else
         transceiver.receiver
+      else
+        RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
       end
 
     transceiver = %{transceiver | sender: sender, receiver: receiver}
@@ -348,45 +346,26 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec get_report(transceiver(), :sender | :receiver) ::
-          {SenderReport.t() | ReceiverReport.t() | nil, transceiver()}
-  def get_report(transceiver, type) do
-    Process.send_after(self(), {:send_report, type, transceiver.id}, report_interval())
+  @spec get_reports(transceiver()) :: {[SenderReport.t() | ReceiverReport.t()], transceiver()}
+  def get_reports(transceiver) do
+    Process.send_after(self(), {:send_reports, transceiver.id}, report_interval())
 
-    module =
-      case type do
-        :sender -> RTPSender.ReportRecorder
-        :receiver -> RTPReceiver.ReportRecorder
-      end
+    {sender_reports, sender} = RTPSender.get_reports(transceiver.sender)
+    {receiver_reports, receiver} = RTPReceiver.get_reports(transceiver.receiver)
 
-    send_or_recv = Map.fetch!(transceiver, type)
-    recorder = send_or_recv.report_recorder
-
-    case module.get_report(recorder) do
-      {:ok, report, recorder} ->
-        send_or_recv = %{send_or_recv | report_recorder: recorder}
-        transceiver = Map.replace!(transceiver, type, send_or_recv)
-        {report, transceiver}
-
-      {:error, _reason} ->
-        {nil, transceiver}
-    end
+    transceiver = %{transceiver | sender: sender, receiver: receiver}
+    {sender_reports ++ receiver_reports, transceiver}
   end
 
   @doc false
-  @spec get_nack(transceiver()) :: {NACK.t() | nil, transceiver()}
-  def get_nack(transceiver) do
-    Process.send_after(self(), {:send_nack, transceiver.id}, @nack_interval)
+  @spec get_nacks(transceiver()) :: {[NACK.t()], transceiver()}
+  def get_nacks(transceiver) do
+    Process.send_after(self(), {:send_nacks, transceiver.id}, @nack_interval)
 
-    nack_generator = transceiver.receiver.nack_generator
-
-    {feedback, nack_generator} =
-      RTPReceiver.NACKGenerator.get_feedback(nack_generator)
-
-    receiver = %{transceiver.receiver | nack_generator: nack_generator}
+    {nacks, receiver} = RTPReceiver.get_nacks(transceiver.receiver)
     transceiver = %{transceiver | receiver: receiver}
 
-    {feedback, transceiver}
+    {nacks, transceiver}
   end
 
   @doc false
@@ -415,7 +394,13 @@ defmodule ExWebRTC.RTPTransceiver do
       true ->
         offered_direction = SDPUtils.get_media_direction(mline)
         direction = get_direction(offered_direction, transceiver.direction)
-        opts = Keyword.put(opts, :direction, direction)
+        simulcast_attrs = SDPUtils.reverse_simulcast(mline)
+
+        opts =
+          opts
+          |> Keyword.put(:direction, direction)
+          |> Keyword.put(:simulcast, simulcast_attrs)
+
         to_mline(transceiver, opts)
     end
   end
@@ -474,6 +459,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
     attributes =
       if(Keyword.get(opts, :rtcp, false), do: [{"rtcp", "9 IN IP4 0.0.0.0"}], else: []) ++
+        Keyword.get(opts, :simulcast, []) ++
         [
           Keyword.get(opts, :direction, transceiver.direction),
           {:mid, transceiver.mid},

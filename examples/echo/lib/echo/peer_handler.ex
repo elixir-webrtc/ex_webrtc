@@ -83,7 +83,7 @@ defmodule Echo.PeerHandler do
   end
 
   defp handle_ws_msg(%{"type" => "offer", "data" => data}, state) do
-    Logger.info("Received SDP offer: #{inspect(data)}")
+    Logger.info("Received SDP offer:\n#{data["sdp"]}")
 
     offer = SessionDescription.from_json(data)
     :ok = PeerConnection.set_remote_description(state.peer_connection, offer)
@@ -97,13 +97,13 @@ defmodule Echo.PeerHandler do
       %{"type" => "answer", "data" => answer_json}
       |> Jason.encode!()
 
-    Logger.info("Sent SDP answer: #{inspect(answer_json)}")
+    Logger.info("Sent SDP answer:\n#{answer_json["sdp"]}")
 
     {:push, {:text, msg}, state}
   end
 
   defp handle_ws_msg(%{"type" => "ice", "data" => data}, state) do
-    Logger.info("Received ICE candidate: #{inspect(data)}")
+    Logger.info("Received ICE candidate: #{data["candidate"]}")
 
     candidate = ICECandidate.from_json(data)
     :ok = PeerConnection.add_ice_candidate(state.peer_connection, candidate)
@@ -117,7 +117,7 @@ defmodule Echo.PeerHandler do
       %{"type" => "ice", "data" => candidate_json}
       |> Jason.encode!()
 
-    Logger.info("Sent ICE candidate: #{inspect(candidate_json)}")
+    Logger.info("Sent ICE candidate: #{candidate_json["candidate"]}")
 
     {:push, {:text, msg}, state}
   end
@@ -139,13 +139,16 @@ defmodule Echo.PeerHandler do
     {:ok, state}
   end
 
-  defp handle_webrtc_msg({:rtp, id, packet}, %{in_audio_track_id: id} = state) do
+  defp handle_webrtc_msg({:rtp, id, nil, packet}, %{in_audio_track_id: id} = state) do
     PeerConnection.send_rtp(state.peer_connection, state.out_audio_track_id, packet)
     {:ok, state}
   end
 
-  defp handle_webrtc_msg({:rtp, id, packet}, %{in_video_track_id: id} = state) do
-    PeerConnection.send_rtp(state.peer_connection, state.out_video_track_id, packet)
+  defp handle_webrtc_msg({:rtp, id, rid, packet}, %{in_video_track_id: id} = state) do
+    if rid == "h" do
+      PeerConnection.send_rtp(state.peer_connection, state.out_video_track_id, packet)
+    end
+
     {:ok, state}
   end
 

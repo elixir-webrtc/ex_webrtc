@@ -2,7 +2,7 @@ defmodule ExWebRTC.SDPUtils do
   @moduledoc false
 
   alias ExRTP.Packet.Extension
-  alias ExSDP.Attribute.Extmap
+  alias ExSDP.Attribute.{Extmap, RID, Simulcast}
 
   alias ExWebRTC.RTPCodecParameters
 
@@ -71,6 +71,15 @@ defmodule ExWebRTC.SDPUtils do
   def get_media_direction(media) do
     Enum.find(media.attributes, fn attr ->
       attr in [:sendrecv, :sendonly, :recvonly, :inactive]
+    end)
+  end
+
+  @spec reverse_simulcast(ExSDP.Media.t()) :: [ExSDP.Attribute.t()]
+  def reverse_simulcast(media) do
+    Enum.flat_map(media.attributes, fn
+      %RID{direction: :send} = rid -> [%RID{rid | direction: :recv}]
+      %Simulcast{send: send, recv: recv} -> [%Simulcast{send: recv, recv: send}]
+      _other -> []
     end)
   end
 

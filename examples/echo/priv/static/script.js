@@ -1,5 +1,5 @@
 const pcConfig = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' },] };
-const mediaConstraints = {video: true, audio: true}
+const mediaConstraints = {video: {width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 24}}, audio: true}
 
 const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
 const ws = new WebSocket(`${proto}//${window.location.host}/ws`);
@@ -20,9 +20,17 @@ const start_connection = async (ws) => {
   };
 
   const localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-  for (const track of localStream.getTracks()) {
-    pc.addTrack(track, localStream);
-  }
+  pc.addTransceiver(localStream.getVideoTracks()[0], {
+    direction: "sendrecv",
+    streams: [localStream],
+    sendEncodings: [
+      { rid: "h", maxBitrate: 1200 * 1024},
+      { rid: "m", scaleResolutionDownBy: 2, maxBitrate: 600 * 1024},
+      { rid: "l", scaleResolutionDownBy: 4, maxBitrate: 300 * 1024 },
+    ],
+  });
+  // pc.addTrack(localStream.getVideoTracks()[0]);
+  pc.addTrack(localStream.getAudioTracks()[0]);
 
   ws.onmessage = async event => {
     const {type, data} = JSON.parse(event.data);

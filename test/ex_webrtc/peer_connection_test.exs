@@ -1034,13 +1034,13 @@ defmodule ExWebRTC.PeerConnectionTest do
     packet = ExRTP.Packet.new(payload)
     :ok = PeerConnection.send_rtp(pc1, track1.id, packet)
 
-    assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, %ExRTP.Packet{payload: ^payload}}}
+    assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, nil, %ExRTP.Packet{payload: ^payload}}}
 
     payload = <<7, 8, 9>>
     packet = ExRTP.Packet.new(payload)
     :ok = PeerConnection.send_rtp(pc2, track2.id, packet)
 
-    assert_receive {:ex_webrtc, ^pc1, {:rtp, ^id1, %ExRTP.Packet{payload: ^payload}}}
+    assert_receive {:ex_webrtc, ^pc1, {:rtp, ^id1, nil, %ExRTP.Packet{payload: ^payload}}}
   end
 
   test "updates rtp header extension ids and payload types" do
