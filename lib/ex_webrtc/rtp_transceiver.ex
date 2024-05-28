@@ -509,6 +509,7 @@ defmodule ExWebRTC.RTPTransceiver do
     mline
     |> ExSDP.get_attributes(ExSDP.Attribute.Extmap)
     |> Enum.filter(&Configuration.supported_rtp_hdr_extension?(config, &1, mline.type))
+    |> Enum.map(&%ExSDP.Attribute.Extmap{&1 | direction: nil})
   end
 
   defp check_if_rtx(codecs, packet) do

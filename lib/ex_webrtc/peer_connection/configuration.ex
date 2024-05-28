@@ -250,7 +250,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   end
 
   defp update_exts(exts, extmap) when is_map_key(exts, extmap.uri),
-    do: Map.put(exts, extmap.uri, extmap)
+    do: Map.put(exts, extmap.uri, %Extmap{extmap | direction: nil})
 
   defp update_exts(exts, _extmap), do: exts
 

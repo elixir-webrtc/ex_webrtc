@@ -1144,6 +1144,7 @@ defmodule ExWebRTC.PeerConnection do
 
       {:error, reason} ->
         Logger.error("Unable to handle RTP packet, reason: #{inspect(reason)}")
+        {:noreply, state}
     end
   end
 
