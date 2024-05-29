@@ -148,10 +148,13 @@ defmodule ExWebRTC.PeerConnection do
 
   @doc """
   Sends an RTCP PLI feedback to the remote peer using the track specified by the `track_id`.
+
+  Set `rid` to the simulcast `rid` for which the PLI should be sent. Is simulcast is not used, `rid` should
+  be equal to `nil`.
   """
-  @spec send_pli(peer_connection(), MediaStreamTrack.id()) :: :ok
-  def send_pli(peer_connection, track_id) do
-    GenServer.cast(peer_connection, {:send_pli, track_id})
+  @spec send_pli(peer_connection(), MediaStreamTrack.id(), String.t() | nil) :: :ok
+  def send_pli(peer_connection, track_id, rid \\ nil) do
+    GenServer.cast(peer_connection, {:send_pli, track_id, rid})
   end
 
   #### MDN-API ####
@@ -1028,7 +1031,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_cast({:send_pli, track_id}, state) do
+  def handle_cast({:send_pli, track_id, rid}, state) do
     receiver =
       state.transceivers
       |> Enum.find_value(fn
@@ -1036,7 +1039,7 @@ defmodule ExWebRTC.PeerConnection do
         _ -> nil
       end)
 
-    if receiver.ssrc != nil do
+    if receiver[rid] != nil and receiver[rid].ssrc != nil do
       encoded =
         %ExRTCP.Packet.PayloadFeedback.PLI{sender_ssrc: 1, media_ssrc: receiver.ssrc}
         |> ExRTCP.Packet.encode()

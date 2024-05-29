@@ -93,7 +93,7 @@ defmodule WhipWhep.Forwarder do
 
   @impl true
   def handle_info(
-        {:ex_webrtc, input_pc, {:rtp, id, packet}},
+        {:ex_webrtc, input_pc, {:rtp, id, nil, packet}},
         %{input_pc: input_pc, audio_input: id} = state
       ) do
     for {pc, %{audio: track_id}} <- state.outputs do
@@ -105,7 +105,7 @@ defmodule WhipWhep.Forwarder do
 
   @impl true
   def handle_info(
-        {:ex_webrtc, input_pc, {:rtp, id, packet}},
+        {:ex_webrtc, input_pc, {:rtp, id, nil, packet}},
         %{input_pc: input_pc, video_input: id} = state
       ) do
     for {pc, %{video: track_id}} <- state.outputs do

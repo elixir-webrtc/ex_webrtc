@@ -29,6 +29,7 @@ const start_connection = async (ws) => {
       { rid: "l", scaleResolutionDownBy: 4, maxBitrate: 300 * 1024 },
     ],
   });
+  // replace the call above with this to disable simulcast
   // pc.addTrack(localStream.getVideoTracks()[0]);
   pc.addTrack(localStream.getAudioTracks()[0]);
 
