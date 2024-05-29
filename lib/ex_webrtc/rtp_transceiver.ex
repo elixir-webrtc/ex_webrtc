@@ -515,7 +515,7 @@ defmodule ExWebRTC.RTPTransceiver do
   defp check_if_rtx(codecs, packet) do
     codec = Enum.find(codecs, &(&1.payload_type == packet.payload_type))
 
-    if String.ends_with?(codec.mime_type, "rtx") do
+    if codec != nil and String.ends_with?(codec.mime_type, "rtx") do
       {:ok, codec.sdp_fmtp_line.apt}
     else
       :error

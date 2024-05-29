@@ -64,7 +64,8 @@ defmodule ExWebRTC.PeerConnection do
   Most of the messages match the [RTCPeerConnection events](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection#events),
   except for:
   * `:track_muted`, `:track_ended` - these match the [MediaStreamTrack events](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack#events).
-  * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection.
+  * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection. The third element of `:rtp` tuple is a simulcast RID and is set to `nil` if simulcast
+  is not used.
   """
   @type message() ::
           {:ex_webrtc, pid(),

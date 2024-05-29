@@ -56,8 +56,8 @@ defmodule ExWebRTC.MixProject do
 
   defp deps do
     [
-      # {:ex_sdp, github: "membraneframework/ex_sdp", branch: "simulcast"},
-      {:ex_sdp, path: "~/repos/ex_sdp"},
+      {:ex_sdp, github: "membraneframework/ex_sdp", branch: "simulcast"},
+      # {:ex_sdp, path: "~/repos/ex_sdp"},
       {:ex_ice, "~> 0.7.0"},
       {:ex_dtls, "~> 0.15.0"},
       {:ex_libsrtp, "~> 0.7.1"},
