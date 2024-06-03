@@ -997,6 +997,8 @@ defmodule ExWebRTC.PeerConnection do
           "Attempted to send packet to track with unrecognized id: #{inspect(track_id)}"
         )
 
+        {:stop, :invalid_track_id, state}
+
       {transceiver, idx} ->
         {packet, state} =
           case Map.fetch(state.config.video_rtp_hdr_exts, @twcc_uri) do
@@ -1022,8 +1024,6 @@ defmodule ExWebRTC.PeerConnection do
 
         transceivers = List.replace_at(state.transceivers, idx, transceiver)
         state = %{state | transceivers: transceivers}
-
-        {:noreply, state}
 
         {:noreply, state}
     end
@@ -1256,6 +1256,7 @@ defmodule ExWebRTC.PeerConnection do
     Logger.debug("Closing peer connection with reason: #{inspect(reason)}")
     :ok = DTLSTransport.stop(state.dtls_transport)
     :ok = state.ice_transport.stop(state.ice_pid)
+    reason
   end
 
   defp generate_offer_mlines(%{current_local_desc: nil} = state, opts) do
