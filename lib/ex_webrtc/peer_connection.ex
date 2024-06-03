@@ -984,21 +984,20 @@ defmodule ExWebRTC.PeerConnection do
 
     # TODO: iterating over transceivers is not optimal
     # but this is, most likely, going to be refactored anyways
-    {transceiver, idx} =
-      state.transceivers
-      |> Stream.with_index()
-      |> Enum.find(fn
-        {%{sender: %{track: %{id: id}}}, _idx} -> id == track_id
-        _ -> false
-      end)
 
-    case transceiver do
+    state.transceivers
+    |> Stream.with_index()
+    |> Enum.find(fn
+      {%{sender: %{track: %{id: id}}}, _idx} -> id == track_id
+      _ -> false
+    end)
+    |> case do
       nil ->
         Logger.warning(
           "Attempted to send packet to track with unrecognized id: #{inspect(track_id)}"
         )
 
-      _other ->
+      {transceiver, idx} ->
         {packet, state} =
           case Map.fetch(state.config.video_rtp_hdr_exts, @twcc_uri) do
             {:ok, %{id: id}} ->
