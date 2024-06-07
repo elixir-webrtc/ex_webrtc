@@ -124,7 +124,7 @@ defmodule ExWebRTC.Media.Ogg.Page do
   end
 
   defp create_segment_table(packets, rest) when rem(byte_size(rest), 255) == 0 do
-    # normally packet of length that is a multiple of 255 would end with 0-lenght segment
+    # normally packet of length that is a multiple of 255 would end with 0-length segment
     # for the rest (split packet) we don't want that
     rest_segments =
       case segment_packet(rest) do

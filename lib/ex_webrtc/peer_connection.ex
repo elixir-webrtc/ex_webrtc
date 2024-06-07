@@ -121,7 +121,7 @@ defmodule ExWebRTC.PeerConnection do
   @doc """
   Changes the controlling process of this `peer_connection` process.
 
-  Controlling process is a process that receives all of the messages (descirbed
+  Controlling process is a process that receives all of the messages (described
   by `t:message/0`) from this PeerConnection.
   """
   @spec controlling_process(peer_connection(), Process.dest()) :: :ok
@@ -133,7 +133,7 @@ defmodule ExWebRTC.PeerConnection do
   Sends an RTP packet to the remote peer using the track specified by the `track_id`.
 
   Options:
-    * `rtx?` - send the packet as if it was retransmited (use SSRC and payload type specific to RTX)
+    * `rtx?` - send the packet as if it was retransmitted (use SSRC and payload type specific to RTX)
   """
   @spec send_rtp(
           peer_connection(),
@@ -1295,14 +1295,14 @@ defmodule ExWebRTC.PeerConnection do
     transceivers = assign_mlines(state.transceivers, last_answer, next_mid, next_mline_idx)
 
     # The idea is as follows:
-    # * Iterate ower current local mlines
+    # * Iterate over current local mlines
     # * If there is transceiver's mline that should replace
     # mline from the last offer/answer, do it (i.e. recycle free mline)
     # * If there is no transceiver's mline, just rewrite
     # mline from the offer/answer respecting its port number i.e. whether
     # it is rejected or not.
     # This is to preserve the same number of mlines
-    # between subsequent offer/anser exchanges.
+    # between subsequent offer/answer exchanges.
     # * At the end, add remaining transceiver mlines
     {_, current_local_desc} = state.current_local_desc
 
@@ -1527,7 +1527,7 @@ defmodule ExWebRTC.PeerConnection do
   defp check_altered(_type, _sdp, _state), do: {:error, :description_altered}
 
   defp set_description(state, :local, :answer, sdp) do
-    # NOTICE: internaly, we don't create SessionDescription
+    # NOTICE: internally, we don't create SessionDescription
     # as it would require serialization of sdp
     %{
       state
@@ -1684,7 +1684,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp find_next_mid(state) do
-    # next mid must be unique, it's acomplished by looking for values
+    # next mid must be unique, it's accomplished by looking for values
     # greater than any mid in remote description or our own transceivers
     crd_mids = get_desc_mids(state.current_remote_desc)
     tsc_mids = get_transceiver_mids(state.transceivers)
@@ -1839,7 +1839,7 @@ defmodule ExWebRTC.PeerConnection do
         state
 
       # in case NACK was received, but RTX was not negotiated
-      # as NACK and RTX are negotited independently
+      # as NACK and RTX are negotiated independently
       {%{sender: %{rtx_pt: nil}}, _idx} ->
         state
 

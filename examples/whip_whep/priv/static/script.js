@@ -57,7 +57,7 @@ async function connect() {
 
   if (response.status === 201) {
     patchEndpoint = response.headers.get("location");
-    console.log("Sucessfully initialized WHEP connection")
+    console.log("Successfully initialized WHEP connection")
 
   } else {
     console.error(`Failed to initialize WHEP connection, status: ${response.status}`);

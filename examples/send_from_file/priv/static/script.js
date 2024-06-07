@@ -34,7 +34,7 @@ const start_connection = async (ws) => {
         ws.send(JSON.stringify({type: "answer", data: answer}))
         break;
       case "ice":
-        console.log("Recieved ICE candidate:", data);
+        console.log("Received ICE candidate:", data);
         await pc.addIceCandidate(data);
     }
   };

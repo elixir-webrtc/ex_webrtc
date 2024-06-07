@@ -262,7 +262,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       codecs
       |> Enum.with_index()
       |> Enum.find(fn {codec, _idx} ->
-        # For the time of comparision, assume the same payload type and rtcp_fbs and fmtp.
+        # For the time of comparison, assume the same payload type and rtcp_fbs and fmtp.
         # We don't want to take into account rtcp_fbs as they can be negotiated
         # i.e. we can reject those that are not supported by us.
         codec = %RTPCodecParameters{

@@ -12,7 +12,7 @@ defmodule WhipWhep.Router do
   plug(:match)
   plug(:dispatch)
 
-  # TODO: the HTTP responsed are not completely compliant with the RFCs
+  # TODO: the HTTP responses are not completely compliant with the RFCs
 
   post "/whip" do
     with :ok <- authenticate(conn),
