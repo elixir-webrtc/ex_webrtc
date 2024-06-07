@@ -58,7 +58,7 @@ defmodule ExWebRTC.RTPTransceiver do
   The fields mostly match these of [RTCRtpTransceiver](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpTransceiver),
   except for:
   * `id` - to uniquely identify the transceiver.
-  * `kind` - kind of the handled media, added for convinience.
+  * `kind` - kind of the handled media, added for convenience.
   * `codecs` and `rtp_hdr_exts` - codecs and RTP header extensions that the transceiver can handle.
   """
   @type t() :: %__MODULE__{
@@ -298,7 +298,7 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec receive_packet(transceiver(), ExRTP.Packet.t(), non_neg_integer()) ::
           {:ok, transceiver(), ExRTP.Packet.t()} | :error
   def receive_packet(transceiver, packet, size) do
-    # TODO: direction of returned values is agains the convention in this function
+    # TODO: direction of returned values is against the convention in this function
     case check_if_rtx(transceiver.codecs, packet) do
       {:ok, apt} -> RTPReceiver.receive_rtx(transceiver.receiver, packet, apt)
       :error -> {:ok, packet}

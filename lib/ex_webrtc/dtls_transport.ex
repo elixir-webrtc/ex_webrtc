@@ -51,7 +51,7 @@ defmodule ExWebRTC.DTLSTransport do
     behaviour = ice_transport.__info__(:attributes)[:behaviour] || []
 
     unless ICETransport in behaviour do
-      raise "DTLSTransport requires ice_transport to implement ExWebRTC.ICETransport beahviour."
+      raise "DTLSTransport requires ice_transport to implement ExWebRTC.ICETransport behaviour."
     end
 
     GenServer.start_link(__MODULE__, [ice_transport, ice_pid, self()])
@@ -242,7 +242,7 @@ defmodule ExWebRTC.DTLSTransport do
 
   @impl true
   def handle_cast({:send_rtp, _data}, state) do
-    Logger.warning("Attemped to send RTP before DTLS handshake has been finished. Ignoring.")
+    Logger.warning("Attempted to send RTP before DTLS handshake has been finished. Ignoring.")
     {:noreply, state}
   end
 

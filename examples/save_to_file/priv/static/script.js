@@ -41,7 +41,7 @@ const start_connection = async (ws) => {
         await pc.setRemoteDescription(data)
         break;
       case "ice":
-        console.log("Recieved ICE candidate:", data);
+        console.log("Received ICE candidate:", data);
         await pc.addIceCandidate(data);
     }
   };

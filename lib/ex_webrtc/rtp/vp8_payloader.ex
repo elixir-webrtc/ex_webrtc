@@ -5,7 +5,7 @@ defmodule ExWebRTC.RTP.VP8Payloader do
   Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741).
 
   It does not support `X` bit right now, in particular it
-  does not pay attention to VP8 partion boundaries (see RFC 7741 sec. 4.4).
+  does not pay attention to VP8 partition boundaries (see RFC 7741 sec. 4.4).
   """
 
   @first_chunk_descriptor <<0::1, 0::1, 0::1, 1::1, 0::1, 0::3>>

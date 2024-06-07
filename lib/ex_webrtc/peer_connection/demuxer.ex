@@ -78,7 +78,7 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
 
     case Map.fetch(demuxer.ssrc_to_mid, ssrc) do
       {:ok, last_mid} when mid != nil and mid != last_mid ->
-        # temporary, as we belive this case shouldn't occur
+        # temporary, as we believe this case shouldn't occur
         raise "Received new MID for already mapped SSRC. SSRC table: #{inspect(demuxer.ssrc_to_mid)}, packet ssrc: #{ssrc}, packet  mid: #{mid}"
 
       :error when mid != nil ->

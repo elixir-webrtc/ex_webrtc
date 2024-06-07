@@ -43,7 +43,7 @@ defmodule ExWebRTC.RTP.VP8Depayloader do
           {_current_frame, %VP8Payload{s: 1, pid: 0}} ->
             Logger.debug("""
             Received packet that starts a new frame without finishing the previous frame. \
-            Droping previous frame.\
+            Dropping previous frame.\
             """)
 
             %{
@@ -55,7 +55,7 @@ defmodule ExWebRTC.RTP.VP8Depayloader do
           _ when packet.timestamp != depayloader.current_timestamp ->
             Logger.debug("""
             Received packet with timestamp from a new frame that is not a beginning of this frame \
-            and without finishing the previous frame. Droping both.\
+            and without finishing the previous frame. Dropping both.\
             """)
 
             %{depayloader | current_frame: nil, current_timestamp: nil}

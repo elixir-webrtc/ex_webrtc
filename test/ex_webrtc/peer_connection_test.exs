@@ -1044,7 +1044,7 @@ defmodule ExWebRTC.PeerConnectionTest do
   end
 
   test "updates rtp header extension ids and payload types" do
-    # check wheter we update our RTP header extension ids
+    # check whether we update our RTP header extension ids
     # and payload types when we receive a remote offer with different ones
     {:ok, pc1} = PeerConnection.start_link()
     {:ok, _} = PeerConnection.add_transceiver(pc1, :audio)

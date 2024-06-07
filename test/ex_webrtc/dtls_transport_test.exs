@@ -140,7 +140,7 @@ defmodule ExWebRTC.DTLSTransportTest do
 
     assert_receive {:mock_ice, _packets}
 
-    assert_receive {:mock_ice, _retransmited},
+    assert_receive {:mock_ice, _retransmitted},
                    1000 + ExUnit.configuration()[:assert_receive_timeout]
   end
 

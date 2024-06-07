@@ -25,7 +25,7 @@ In the previous version of the API, the user had to call `addTrack` to offer to 
 counter-intuitve.
 
 There're also a couple of other notes worth mentioning before moving forward.
-* `direction` is our (local) preffered direction of the transceiver and can never be changed by applying a remote offer/answer.
+* `direction` is our (local) preferred direction of the transceiver and can never be changed by applying a remote offer/answer.
 When adding a transceiver, it is created with `sendrecv` direction by default.
 When applying a remote offer that contains new m-lines, a new transceiver is created with the `recvonly` direction,
 even when the offerer only wants to receive media.
@@ -94,7 +94,7 @@ await tr.sender.replaceTrack(localStream.getTracks()[0]);
 :ok = PeerConnection.set_local_description(pc2, answer)
 :ok = PeerConnection.set_remote_description(pc1, answer)
 
-# altough in Elixir WebRTC user has to send media on their own,
+# although in Elixir WebRTC user has to send media on their own,
 # using send_rtp function, we also added replace_track function
 # for parity with JavaScript API
 track = MediaStreamTrack.new(:audio)
@@ -383,7 +383,7 @@ await pc1.setRemoteDescription(answer);
 tr3 = pc1.addTransceiver("video");
 
 // Notice that createOffer will reuse (recycle)
-// free m-line, even though its initiall type was audio.
+// free m-line, even though its initial type was audio.
 // However, pc1.getTransceivers() will return [tr1, tr3].
 // That's important as the order of transceivers doesn't
 // have to match the order of m-lines i.e. tr3 maps to m-line
