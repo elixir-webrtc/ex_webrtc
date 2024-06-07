@@ -988,8 +988,11 @@ defmodule ExWebRTC.PeerConnection do
     state.transceivers
     |> Stream.with_index()
     |> Enum.find(fn
-      {%{sender: %{track: %{id: id}}}, _idx} -> id == track_id
-      _ -> false
+      {%{sender: %{track: %{id: id}}}, _idx} ->
+        id == track_id
+
+      _ ->
+        false
     end)
     |> case do
       nil ->
