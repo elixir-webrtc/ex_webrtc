@@ -1005,7 +1005,7 @@ defmodule ExWebRTC.PeerConnectionTest do
       test_send_data(pc1, pc2, track1, track2)
     end
 
-    test "bad" do
+    test "bad packet id" do
       # setup track pc1 -> pc2
       {:ok, pc1} = PeerConnection.start_link()
       {:ok, pc2} = PeerConnection.start_link()
@@ -1041,7 +1041,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     Process.flag(:trap_exit, true)
     :ok = PeerConnection.send_rtp(pc2, track1.id, packet)
 
-    assert_receive {:EXIT, ^pc2, :bad_track_id}
+    assert_receive {:EXIT, ^pc2, :invalid_track_id}
     Process.flag(:trap_exit, false)
   end
 
