@@ -984,23 +984,25 @@ defmodule ExWebRTC.PeerConnection do
 
     # TODO: iterating over transceivers is not optimal
     # but this is, most likely, going to be refactored anyways
+    tr_idx =
+      state.transceivers
+      |> Stream.with_index()
+      |> Enum.find(fn
+        {%{sender: %{track: %{id: id}}}, _idx} ->
+          id == track_id
 
-    state.transceivers
-    |> Stream.with_index()
-    |> Enum.find(fn
-      {%{sender: %{track: %{id: id}}}, _idx} ->
-        id == track_id
+        _ ->
+          false
+      end)
 
-      _ ->
-        false
-    end)
-    |> case do
+    case tr_idx do
       nil ->
-        Logger.warning(
-          "Attempted to send packet to track with unrecognized id: #{inspect(track_id)}"
-        )
+        Logger.warning("""
+        Attempted to send packet to track with unrecognized id: #{inspect(track_id)}. \
+        Ignoring.\
+        """)
 
-        {:stop, :invalid_track_id, state}
+        {:noreply, state}
 
       {transceiver, idx} ->
         {packet, state} =
@@ -1259,7 +1261,6 @@ defmodule ExWebRTC.PeerConnection do
     Logger.debug("Closing peer connection with reason: #{inspect(reason)}")
     :ok = DTLSTransport.stop(state.dtls_transport)
     :ok = state.ice_transport.stop(state.ice_pid)
-    reason
   end
 
   defp generate_offer_mlines(%{current_local_desc: nil} = state, opts) do
