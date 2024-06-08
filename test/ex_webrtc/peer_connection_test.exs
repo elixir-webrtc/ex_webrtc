@@ -215,6 +215,32 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert_receive {:ex_webrtc, _pid, {:connection_state_change, :new}}
   end
 
+  test "send_rtp/4" do
+    {:ok, pc1} = PeerConnection.start_link()
+    {:ok, pc2} = PeerConnection.start_link()
+    track = MediaStreamTrack.new(:audio)
+    {:ok, _sender} = PeerConnection.add_track(pc1, track)
+    :ok = negotiate(pc1, pc2)
+    :ok = connect(pc1, pc2)
+
+    payload = <<3, 2, 5>>
+    packet = ExRTP.Packet.new(payload)
+
+    # Try to send data using correct track id.
+    # Assert that pc2 received this data and send_rtp didn't modify some of the fields.
+    :ok = PeerConnection.send_rtp(pc1, track.id, packet)
+    assert_receive {:ex_webrtc, ^pc2, {:rtp, _track_id, recv_packet}}
+    assert recv_packet.payload == packet.payload
+    assert recv_packet.sequence_number == packet.sequence_number
+    assert recv_packet.timestamp == packet.timestamp
+
+    # Try to send data using invalid track id.
+    # Assert that pc1 is still alive and pc2 didn't receive this data.
+    :ok = PeerConnection.send_rtp(pc1, track.id + 1, packet)
+    assert Process.alive?(pc1) == true
+    refute_receive {:ex_webrtc, ^pc2, {:rtp, _track_id, _packet}}
+  end
+
   test "get_all_running/0" do
     {:ok, pc1} = PeerConnection.start()
     {:ok, pc2} = PeerConnection.start()
@@ -1007,15 +1033,7 @@ defmodule ExWebRTC.PeerConnectionTest do
   end
 
   defp test_send_data(pc1, pc2, track1, track2) do
-    # exchange ICE candidates
-    assert_receive {:ex_webrtc, ^pc1, {:ice_candidate, candidate}}
-    :ok = PeerConnection.add_ice_candidate(pc2, candidate)
-    assert_receive {:ex_webrtc, ^pc2, {:ice_candidate, candidate}}
-    :ok = PeerConnection.add_ice_candidate(pc1, candidate)
-
-    # wait to establish connection
-    assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}, 1000
-    assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :connected}}, 1000
+    assert :ok = connect(pc1, pc2)
 
     # receive track info
     assert_receive {:ex_webrtc, ^pc1, {:track, %MediaStreamTrack{kind: :audio, id: id1}}}
@@ -1170,5 +1188,19 @@ defmodule ExWebRTC.PeerConnectionTest do
     # make sure there was only one negotiation_needed fired
     refute_receive {:ex_webrtc, ^pc1, :negotiation_needed}
     refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
+  end
+
+  defp connect(pc1, pc2) do
+    # exchange ICE candidates
+    assert_receive {:ex_webrtc, ^pc1, {:ice_candidate, candidate}}
+    :ok = PeerConnection.add_ice_candidate(pc2, candidate)
+    assert_receive {:ex_webrtc, ^pc2, {:ice_candidate, candidate}}
+    :ok = PeerConnection.add_ice_candidate(pc1, candidate)
+
+    # wait to establish connection
+    assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}, 1000
+    assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :connected}}, 1000
+
+    :ok
   end
 end
