@@ -1,4 +1,5 @@
 const pcConfig = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' },] };
+// we set the resolution manually in order to give simulcast enough bitrate to create 3 encodings
 const mediaConstraints = {video: {width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 24}}, audio: true}
 
 const proto = window.location.protocol === "https:" ? "wss:" : "ws:"

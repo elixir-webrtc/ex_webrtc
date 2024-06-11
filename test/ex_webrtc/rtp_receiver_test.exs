@@ -16,6 +16,7 @@ defmodule ExWebRTC.RTPReceiverTest do
     assert [
              %{
                id: receiver.track.id,
+               rid: nil,
                type: :inbound_rtp,
                timestamp: timestamp,
                ssrc: nil,
@@ -32,6 +33,7 @@ defmodule ExWebRTC.RTPReceiverTest do
     assert [
              %{
                id: receiver.track.id,
+               rid: nil,
                type: :inbound_rtp,
                timestamp: timestamp,
                ssrc: 1234,
@@ -48,6 +50,7 @@ defmodule ExWebRTC.RTPReceiverTest do
     assert [
              %{
                id: receiver.track.id,
+               rid: nil,
                type: :inbound_rtp,
                timestamp: timestamp,
                ssrc: 1234,

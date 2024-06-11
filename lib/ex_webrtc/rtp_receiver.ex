@@ -76,7 +76,7 @@ defmodule ExWebRTC.RTPReceiver do
     simulcast_demuxer = SimulcastDemuxer.update(receiver.simulcast_demuxer, rtp_hdr_exts)
 
     layers =
-      Enum.map(receiver.layers, fn {rid, layer} ->
+      Map.new(receiver.layers, fn {rid, layer} ->
         report_recorder = %ReportRecorder{clock_rate: codec && codec.clock_rate}
         {rid, %{layer | report_recorder: report_recorder}}
       end)
@@ -85,7 +85,7 @@ defmodule ExWebRTC.RTPReceiver do
       receiver
       | codec: codec,
         simulcast_demuxer: simulcast_demuxer,
-        layers: Map.new(layers)
+        layers: layers
     }
   end
 
@@ -161,14 +161,14 @@ defmodule ExWebRTC.RTPReceiver do
   @spec update_sender_ssrc(receiver(), non_neg_integer()) :: receiver()
   def update_sender_ssrc(receiver, ssrc) do
     layers =
-      Enum.map(receiver.layers, fn {rid, layer} ->
+      Map.new(receiver.layers, fn {rid, layer} ->
         report_recorder = %ReportRecorder{layer.report_recorder | sender_ssrc: ssrc}
         nack_generator = %NACKGenerator{layer.nack_generator | sender_ssrc: ssrc}
         %{layer | report_recorder: report_recorder, nack_generator: nack_generator}
         {rid, layer}
       end)
 
-    %{receiver | layers: Map.new(layers)}
+    %{receiver | layers: layers}
   end
 
   @doc false
@@ -208,9 +208,10 @@ defmodule ExWebRTC.RTPReceiver do
   @doc false
   @spec get_stats(receiver(), non_neg_integer()) :: [map()]
   def get_stats(receiver, timestamp) do
-    Enum.map(receiver.layers, fn {_rid, layer} ->
+    Enum.map(receiver.layers, fn {rid, layer} ->
       %{
         id: receiver.track.id,
+        rid: rid,
         type: :inbound_rtp,
         timestamp: timestamp,
         ssrc: layer.ssrc,

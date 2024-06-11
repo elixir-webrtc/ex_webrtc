@@ -31,7 +31,6 @@ defmodule ExWebRTC.RTPReceiver.SimulcastDemuxerTest do
     %{demuxer: demuxer}
   end
 
-  @tag :wip
   test "demux_packet/3", %{demuxer: demuxer} do
     assert {nil, demuxer} = SimulcastDemuxer.demux_packet(demuxer, @packet)
     assert {@rid, demuxer} = SimulcastDemuxer.demux_packet(demuxer, @packet_rid)

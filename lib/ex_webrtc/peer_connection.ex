@@ -149,7 +149,7 @@ defmodule ExWebRTC.PeerConnection do
   @doc """
   Sends an RTCP PLI feedback to the remote peer using the track specified by the `track_id`.
 
-  Set `rid` to the simulcast `rid` for which the PLI should be sent. Is simulcast is not used, `rid` should
+  Set `rid` to the simulcast `rid` for which the PLI should be sent. If simulcast is not used, `rid` should
   be equal to `nil`.
   """
   @spec send_pli(peer_connection(), MediaStreamTrack.id(), String.t() | nil) :: :ok
