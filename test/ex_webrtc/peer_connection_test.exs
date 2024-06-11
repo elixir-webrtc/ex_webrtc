@@ -1190,6 +1190,24 @@ defmodule ExWebRTC.PeerConnectionTest do
     refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
   end
 
+  test "handle MediaStreams" do
+    {:ok, pc1} = PeerConnection.start_link()
+    {:ok, pc2} = PeerConnection.start_link()
+
+    # only track2 is assigned a stream
+    stream_id = MediaStreamTrack.generate_stream_id()
+    track1 = MediaStreamTrack.new(:audio)
+    track2 = MediaStreamTrack.new(:audio, [stream_id])
+
+    {:ok, _sender} = PeerConnection.add_track(pc1, track1)
+    {:ok, _sender} = PeerConnection.add_track(pc1, track2)
+
+    negotiate(pc1, pc2)
+
+    assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{streams: []}}}
+    assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{streams: [^stream_id]}}}
+  end
+
   defp connect(pc1, pc2) do
     # exchange ICE candidates
     assert_receive {:ex_webrtc, ^pc1, {:ice_candidate, candidate}}
