@@ -183,7 +183,8 @@ defmodule ExWebRTC.RTPTransceiver do
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
-    track = MediaStreamTrack.new(mline.type)
+    stream_ids = SDPUtils.get_stream_ids(mline)
+    track = MediaStreamTrack.new(mline.type, stream_ids)
     codec = get_codec(codecs)
     rtx_codec = get_rtx(codecs, codec)
 
@@ -240,8 +241,9 @@ defmodule ExWebRTC.RTPTransceiver do
     rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
     codec = get_codec(codecs)
     rtx_codec = get_rtx(codecs, codec)
+    stream_ids = SDPUtils.get_stream_ids(mline)
 
-    receiver = RTPReceiver.update(transceiver.receiver, codec)
+    receiver = RTPReceiver.update(transceiver.receiver, codec, stream_ids)
     sender = RTPSender.update(transceiver.sender, mid, codec, rtx_codec, rtp_hdr_exts)
 
     %{
@@ -472,6 +474,18 @@ defmodule ExWebRTC.RTPTransceiver do
         [rtp_mapping, codec.sdp_fmtp_line, codec.rtcp_fbs]
       end)
 
+    msids =
+      case transceiver.sender.track do
+        nil ->
+          []
+
+        %MediaStreamTrack{id: id, streams: streams} ->
+          case Enum.map(streams, &ExSDP.Attribute.MSID.new(&1, id)) do
+            [] -> [ExSDP.Attribute.MSID.new("-", id)]
+            other -> other
+          end
+      end
+
     attributes =
       if(Keyword.get(opts, :rtcp, false), do: [{"rtcp", "9 IN IP4 0.0.0.0"}], else: []) ++
         [
@@ -483,7 +497,7 @@ defmodule ExWebRTC.RTPTransceiver do
           {:fingerprint, Keyword.fetch!(opts, :fingerprint)},
           {:setup, Keyword.fetch!(opts, :setup)},
           :rtcp_mux
-        ] ++ transceiver.rtp_hdr_exts
+        ] ++ transceiver.rtp_hdr_exts ++ msids
 
     %ExSDP.Media{
       ExSDP.Media.new(transceiver.kind, 9, "UDP/TLS/RTP/SAVPF", pt)

@@ -69,14 +69,16 @@ defmodule ExWebRTC.RTPReceiver do
   end
 
   @doc false
-  @spec update(receiver(), RTPCodecParameters.t() | nil) :: receiver()
-  def update(receiver, codec) do
+  @spec update(receiver(), RTPCodecParameters.t() | nil, [String.t()]) :: receiver()
+  def update(receiver, codec, stream_ids) do
     report_recorder = %ReportRecorder{
       receiver.report_recorder
       | clock_rate: codec && codec.clock_rate
     }
 
-    %{receiver | codec: codec, report_recorder: report_recorder}
+    track = %MediaStreamTrack{receiver.track | streams: stream_ids}
+
+    %{receiver | codec: codec, track: track, report_recorder: report_recorder}
   end
 
   @doc false

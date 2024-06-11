@@ -87,6 +87,13 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.reject(&(&1 == nil))
   end
 
+  @spec get_stream_ids(ExSDP.Media.t()) :: [String.t()]
+  def get_stream_ids(media) do
+    ExSDP.get_attributes(media, :msid)
+    |> Enum.reject(fn msid -> msid.id == "-" end)
+    |> Enum.map(fn msid -> msid.id end)
+  end
+
   @spec get_ice_credentials(ExSDP.t()) ::
           {:ok, {binary(), binary()}}
           | {:error,
