@@ -171,7 +171,7 @@ defmodule SaveToFile.PeerHandler do
     {:ok, state}
   end
 
-  defp handle_webrtc_msg({:rtp, id, packet}, %{video_track_id: id} = state) do
+  defp handle_webrtc_msg({:rtp, id, nil, packet}, %{video_track_id: id} = state) do
     state =
       case VP8Depayloader.write(state.video_depayloader, packet) do
         {:ok, video_depayloader} ->
@@ -192,7 +192,7 @@ defmodule SaveToFile.PeerHandler do
     {:ok, state}
   end
 
-  defp handle_webrtc_msg({:rtp, id, packet}, %{audio_track_id: id} = state) do
+  defp handle_webrtc_msg({:rtp, id, nil, packet}, %{audio_track_id: id} = state) do
     opus_packet = OpusDepayloader.depayload(packet)
     {:ok, audio_writer} = Ogg.Writer.write_packet(state.audio_writer, opus_packet)
 

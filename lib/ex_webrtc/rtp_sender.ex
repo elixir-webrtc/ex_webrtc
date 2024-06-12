@@ -166,6 +166,19 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
+  @spec get_reports(sender()) :: {[ExRTCP.Packet.SenderReport.t()], sender()}
+  def get_reports(sender) do
+    case ReportRecorder.get_report(sender.report_recorder) do
+      {:ok, report, recorder} ->
+        sender = %{sender | report_recorder: recorder}
+        {[report], sender}
+
+      {:error, _res} ->
+        {[], sender}
+    end
+  end
+
+  @doc false
   @spec get_stats(sender(), non_neg_integer()) :: map()
   def get_stats(sender, timestamp) do
     %{
