@@ -59,8 +59,9 @@ defmodule SendFromFile.PeerHandler do
         audio_codecs: @audio_codecs
       )
 
-    video_track = MediaStreamTrack.new(:video)
-    audio_track = MediaStreamTrack.new(:audio)
+    stream_id = MediaStreamTrack.generate_stream_id()
+    video_track = MediaStreamTrack.new(:video, [stream_id])
+    audio_track = MediaStreamTrack.new(:audio, [stream_id])
 
     {:ok, _sender} = PeerConnection.add_track(pc, video_track)
     {:ok, _sender} = PeerConnection.add_track(pc, audio_track)
