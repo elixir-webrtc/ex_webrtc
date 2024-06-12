@@ -39,6 +39,10 @@ defmodule ExWebRTC.PeerConnectionTest do
                  fingerprint: {:sha256, @fingerprint}
                )
 
+  @rid_uri "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"
+  @mid_uri "urn:ietf:params:rtp-hdrext:sdes:mid"
+  @twcc_uri "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+
   # NOTIFICATION TESTS
 
   # Most notifications are tested in API TESTS.
@@ -229,7 +233,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     # Try to send data using correct track id.
     # Assert that pc2 received this data and send_rtp didn't modify some of the fields.
     :ok = PeerConnection.send_rtp(pc1, track.id, packet)
-    assert_receive {:ex_webrtc, ^pc2, {:rtp, _track_id, recv_packet}}
+    assert_receive {:ex_webrtc, ^pc2, {:rtp, _track_id, nil, recv_packet}}
     assert recv_packet.payload == packet.payload
     assert recv_packet.sequence_number == packet.sequence_number
     assert recv_packet.timestamp == packet.timestamp
@@ -1030,6 +1034,69 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       test_send_data(pc1, pc2, track1, track2)
     end
+
+    test "using simulcast" do
+      {:ok, pc} = PeerConnection.start_link()
+      track = MediaStreamTrack.new(:video)
+      {:ok, _sender} = PeerConnection.add_track(pc, track)
+      {:ok, offer} = PeerConnection.create_offer(pc)
+
+      # ExWebRTC does not support outbound Simulcast
+      # so this needs to be a little hacky
+      rids = ["h", "l", "m"]
+      sdp = ExSDP.parse!(offer.sdp)
+      [video] = sdp.media
+
+      video =
+        Enum.reduce(rids, video, fn rid, video ->
+          attr = %ExSDP.Attribute.RID{id: rid, direction: :send}
+          ExSDP.add_attribute(video, attr)
+        end)
+
+      video = ExSDP.add_attribute(video, %ExSDP.Attribute.Simulcast{send: rids})
+      sdp = %ExSDP{sdp | media: [video]}
+      offer = %ExWebRTC.SessionDescription{sdp: to_string(sdp), type: :offer}
+
+      {:ok, pc2} = PeerConnection.start_link()
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+      [transceiver] = PeerConnection.get_transceivers(pc2)
+
+      assert %ExSDP.Attribute.Extmap{id: rid_id} =
+               Enum.find(transceiver.rtp_hdr_exts, &(&1.uri == @rid_uri))
+
+      assert %ExSDP.Attribute.Extmap{id: mid_id} =
+               Enum.find(transceiver.rtp_hdr_exts, &(&1.uri == @mid_uri))
+
+      assert %ExSDP.Attribute.Extmap{id: twcc_id} =
+               Enum.find(transceiver.rtp_hdr_exts, &(&1.uri == @twcc_uri))
+
+      assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :video, id: id2}}}
+
+      rids
+      |> Enum.with_index()
+      |> Enum.each(fn {rid, idx} ->
+        rid_ext = %ExRTP.Packet.Extension{data: rid, id: rid_id}
+        mid_ext = %ExRTP.Packet.Extension{data: transceiver.mid, id: mid_id}
+        twcc_ext = %ExRTP.Packet.Extension{data: <<idx::16>>, id: twcc_id}
+        payload = <<idx, idx, idx>>
+
+        ExRTP.Packet.new(payload,
+          payload_type: transceiver.receiver.codec.payload_type,
+          sequence_number: 100_000 * idx,
+          timestamp: 100_000 * idx,
+          ssrc: 100 * idx
+        )
+        |> ExRTP.Packet.add_extension(rid_ext)
+        |> ExRTP.Packet.add_extension(mid_ext)
+        |> ExRTP.Packet.add_extension(twcc_ext)
+        |> ExRTP.Packet.encode()
+        |> then(&send(pc2, {:dtls_transport, :fake_pid, {:rtp, &1}}))
+
+        assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, ^rid, %ExRTP.Packet{payload: ^payload}}}
+      end)
+    end
   end
 
   defp test_send_data(pc1, pc2, track1, track2) do
@@ -1052,13 +1119,13 @@ defmodule ExWebRTC.PeerConnectionTest do
     packet = ExRTP.Packet.new(payload)
     :ok = PeerConnection.send_rtp(pc1, track1.id, packet)
 
-    assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, %ExRTP.Packet{payload: ^payload}}}
+    assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, nil, %ExRTP.Packet{payload: ^payload}}}
 
     payload = <<7, 8, 9>>
     packet = ExRTP.Packet.new(payload)
     :ok = PeerConnection.send_rtp(pc2, track2.id, packet)
 
-    assert_receive {:ex_webrtc, ^pc1, {:rtp, ^id1, %ExRTP.Packet{payload: ^payload}}}
+    assert_receive {:ex_webrtc, ^pc1, {:rtp, ^id1, nil, %ExRTP.Packet{payload: ^payload}}}
   end
 
   test "updates rtp header extension ids and payload types" do

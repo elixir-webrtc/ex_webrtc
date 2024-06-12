@@ -1,13 +1,5 @@
 defmodule ExWebRTC.PeerConnection.Demuxer do
   @moduledoc false
-  # RTP demuxing flow:
-  # 1. if packet has sdes mid extension, add it to mapping ssrc => mid
-  #   - if mapping already exists but is different (e.g. ssrc is mapped
-  #  to different mid) raise (temporary)
-  # 2. if ssrc => mid mapping exists, route the packet accordingly
-  # 3. if not, check payload_type => mid mapping
-  #   - if exists, route accordingly
-  #   - otherwise, drop the packet
 
   alias ExRTP.Packet
   alias ExRTP.Packet.Extension
@@ -47,23 +39,28 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
     }
   end
 
-  @spec demux(t(), binary()) :: {:ok, t(), binary(), ExRTP.Packet.t()} | {:error, atom()}
-  def demux(demuxer, data) do
-    with {:ok, %Packet{} = packet} <- decode(data),
-         {:ok, demuxer, mid} <- match_to_mid(demuxer, packet) do
-      {:ok, demuxer, mid, packet}
-    end
-  end
-
-  # RFC 8843, 9.2
-  defp match_to_mid(demuxer, %Packet{ssrc: ssrc} = packet) do
+  @doc """
+  RTP demuxing flow:
+    1. if packet has SDES MID extension, add it to mapping ssrc => mid (RFC 8843, 9.2)
+      - if mapping already exists but is different (e.g. ssrc is mapped
+      to different mid) raise (temporary)
+    2. if ssrc => mid mapping exists, route the packet accordingly
+    3. if not, check payload_type => mid mapping
+      - if exists, route accordingly
+      - otherwise, drop the packet
+  """
+  @spec demux_packet(t(), ExRTP.Packet.t()) :: {:ok, binary(), t()} | :error
+  def demux_packet(demuxer, %Packet{} = packet) do
     demuxer = update_ssrc_mapping(demuxer, packet)
 
-    case Map.fetch(demuxer.ssrc_to_mid, ssrc) do
-      {:ok, last_mid} -> {:ok, demuxer, last_mid}
+    case Map.fetch(demuxer.ssrc_to_mid, packet.ssrc) do
+      {:ok, last_mid} -> {:ok, last_mid, demuxer}
       :error -> match_by_payload_type(demuxer, packet)
     end
   end
+
+  @spec demux_ssrc(t(), binary()) :: {:ok, binary()} | :error
+  def demux_ssrc(demuxer, ssrc), do: Map.fetch(demuxer.ssrc_to_mid, ssrc)
 
   defp update_ssrc_mapping(%__MODULE__{mid_ext_id: id} = demuxer, %Packet{ssrc: ssrc} = packet) do
     mid =
@@ -90,14 +87,9 @@ defmodule ExWebRTC.PeerConnection.Demuxer do
   end
 
   defp match_by_payload_type(demuxer, %Packet{ssrc: ssrc, payload_type: pt}) do
-    case Map.get(demuxer.pt_to_mid, pt) do
-      nil -> {:error, :no_matching_mid}
-      mid -> {:ok, put_in(demuxer.ssrc_to_mid[ssrc], mid), mid}
+    case Map.fetch(demuxer.pt_to_mid, pt) do
+      {:ok, mid} -> {:ok, mid, put_in(demuxer.ssrc_to_mid[ssrc], mid)}
+      :error -> :error
     end
   end
-
-  # RTP & RTCP demuxing, see RFC 6761
-  # TODO: handle RTCP
-  defp decode(<<_, s, _::binary>>) when s in 192..223, do: {:error, :rtcp}
-  defp decode(data), do: Packet.decode(data)
 end

@@ -20,6 +20,9 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
     uri: "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
   }
 
+  @rid_rtp_hdr_ext %Extmap{id: 10, uri: "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"}
+  @rrid_rtp_hdr_ext %Extmap{id: 11, uri: "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id"}
+
   # some random payload type for the sake of comparison
   @payload_type 100
 
@@ -76,7 +79,12 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
                mid: "1",
                direction: :recvonly,
                kind: :video,
-               rtp_hdr_exts: [@twcc_rtp_hdr_ext, @mid_rtp_hdr_ext],
+               rtp_hdr_exts: [
+                 @twcc_rtp_hdr_ext,
+                 @mid_rtp_hdr_ext,
+                 @rid_rtp_hdr_ext,
+                 @rrid_rtp_hdr_ext
+               ],
                codecs: video_codecs
              }
            ] = transceivers
@@ -120,7 +128,12 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
                mid: "1",
                direction: :recvonly,
                kind: :video,
-               rtp_hdr_exts: [@twcc_rtp_hdr_ext, @mid_rtp_hdr_ext],
+               rtp_hdr_exts: [
+                 @twcc_rtp_hdr_ext,
+                 @mid_rtp_hdr_ext,
+                 @rid_rtp_hdr_ext,
+                 @rrid_rtp_hdr_ext
+               ],
                codecs: video_codecs
              }
            ] = PeerConnection.get_transceivers(pc)
@@ -155,7 +168,9 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
     assert MapSet.new([
              "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
-             "urn:ietf:params:rtp-hdrext:sdes:mid"
+             "urn:ietf:params:rtp-hdrext:sdes:mid",
+             "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id",
+             "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id"
            ]) == tr_rtp_hdr_exts
 
     :ok = PeerConnection.close(pc)

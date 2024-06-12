@@ -42,14 +42,22 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   @rtp_hdr_extensions %{
     :mid => %{media_type: :all, ext: %Extmap{id: 1, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}},
+    :rtp_stream_id => %{
+      media_type: :all,
+      ext: %Extmap{id: 2, uri: "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"}
+    },
+    :repaired_rtp_stream_id => %{
+      media_type: :all,
+      ext: %Extmap{id: 3, uri: "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id"}
+    },
     :audio_level => %{
       media_type: :audio,
-      ext: %Extmap{id: 2, uri: "urn:ietf:params:rtp-hdrext:ssrc-audio-level"}
+      ext: %Extmap{id: 4, uri: "urn:ietf:params:rtp-hdrext:ssrc-audio-level"}
     },
     :twcc => %{
       media_type: :all,
       ext: %Extmap{
-        id: 3,
+        id: 5,
         uri: "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
       }
     }
@@ -60,10 +68,13 @@ defmodule ExWebRTC.PeerConnection.Configuration do
                                   {extmap.uri, extmap}
                                 end)
 
-  @mandatory_video_rtp_hdr_exts Map.new([:mid, :twcc], fn ext_shortcut ->
-                                  extmap = Map.fetch!(@rtp_hdr_extensions, ext_shortcut).ext
-                                  {extmap.uri, extmap}
-                                end)
+  @mandatory_video_rtp_hdr_exts Map.new(
+                                  [:mid, :twcc, :rtp_stream_id, :repaired_rtp_stream_id],
+                                  fn ext_shortcut ->
+                                    extmap = Map.fetch!(@rtp_hdr_extensions, ext_shortcut).ext
+                                    {extmap.uri, extmap}
+                                  end
+                                )
 
   @typedoc """
   Supported RTP header extensions.
@@ -239,7 +250,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   end
 
   defp update_exts(exts, extmap) when is_map_key(exts, extmap.uri),
-    do: Map.put(exts, extmap.uri, extmap)
+    do: Map.put(exts, extmap.uri, %Extmap{extmap | direction: nil})
 
   defp update_exts(exts, _extmap), do: exts
 
