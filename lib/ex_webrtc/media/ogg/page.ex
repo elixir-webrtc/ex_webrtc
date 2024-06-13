@@ -37,7 +37,7 @@ defmodule ExWebRTC.Media.Ogg.Page do
                 rest: <<>>
               ]
 
-  @spec read(File.io_device()) :: {:ok, t()} | {:error, term()}
+  @spec read(File.io_device()) :: {:ok, t()} | {:error, term()} | :eof
   def read(file) do
     with <<@signature, @version, type, granule_pos::little-64, serial_no::little-32,
            sequence_no::little-32, _checksum::little-32,
