@@ -233,7 +233,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     # Try to send data using correct track id.
     # Assert that pc2 received this data and send_rtp didn't modify some of the fields.
     :ok = PeerConnection.send_rtp(pc1, track.id, packet)
-    assert_receive {:ex_webrtc, ^pc2, {:rtp, _track_id, recv_packet}}
+    assert_receive {:ex_webrtc, ^pc2, {:rtp, _track_id, nil, recv_packet}}
     assert recv_packet.payload == packet.payload
     assert recv_packet.sequence_number == packet.sequence_number
     assert recv_packet.timestamp == packet.timestamp

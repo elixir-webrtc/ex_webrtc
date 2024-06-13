@@ -144,6 +144,6 @@ defmodule ExWebRTC.Media.Ogg.WriterTest do
     payload_2 = IO.binread(file, packets_2 * @packet_size)
     assert is_binary(payload_2)
 
-    assert <<>> == IO.binread(file, :all)
+    assert :eof == IO.binread(file, :eof)
   end
 end
