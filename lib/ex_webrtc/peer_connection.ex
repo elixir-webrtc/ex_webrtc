@@ -529,7 +529,8 @@ defmodule ExWebRTC.PeerConnection do
       offer
       |> ExSDP.add_attributes([
         %ExSDP.Attribute.Group{semantics: "BUNDLE", mids: mids},
-        "extmap-allow-mixed"
+        "extmap-allow-mixed",
+        {"msid-semantic", "WMS *"}
       ])
       |> ExSDP.add_media(mlines)
 
@@ -586,7 +587,8 @@ defmodule ExWebRTC.PeerConnection do
         %ExSDP.Attribute.Group{semantics: "BUNDLE", mids: mids},
         # always allow for mixing one- and two-byte RTP header extensions
         # TODO ensure this was also offered
-        "extmap-allow-mixed"
+        "extmap-allow-mixed",
+        {"msid-semantic", "WMS *"}
       ])
       |> ExSDP.add_media(mlines)
 

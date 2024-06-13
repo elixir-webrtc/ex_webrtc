@@ -70,10 +70,13 @@ defmodule ExWebRTC.RTPReceiver do
   end
 
   @doc false
-  @spec update(receiver(), RTPCodecParameters.t() | nil, [ExSDP.Attribute.Extmap.t()]) ::
+  @spec update(receiver(), RTPCodecParameters.t() | nil, [ExSDP.Attribute.Extmap.t()], [
+          String.t()
+        ]) ::
           receiver()
-  def update(receiver, codec, rtp_hdr_exts) do
+  def update(receiver, codec, rtp_hdr_exts, stream_ids) do
     simulcast_demuxer = SimulcastDemuxer.update(receiver.simulcast_demuxer, rtp_hdr_exts)
+    track = %MediaStreamTrack{receiver.track | streams: stream_ids}
 
     layers =
       Map.new(receiver.layers, fn {rid, layer} ->
@@ -85,7 +88,8 @@ defmodule ExWebRTC.RTPReceiver do
       receiver
       | codec: codec,
         simulcast_demuxer: simulcast_demuxer,
-        layers: layers
+        layers: layers,
+        track: track
     }
   end
 

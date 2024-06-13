@@ -85,8 +85,9 @@ defmodule WhipWhep.PeerSupervisor do
 
   defp setup_transceivers(pc, direction) do
     if direction == :sendonly do
-      {:ok, _sender} = PeerConnection.add_track(pc, MediaStreamTrack.new(:audio))
-      {:ok, _sender} = PeerConnection.add_track(pc, MediaStreamTrack.new(:video))
+      stream_id = MediaStreamTrack.generate_stream_id()
+      {:ok, _sender} = PeerConnection.add_track(pc, MediaStreamTrack.new(:audio, [stream_id]))
+      {:ok, _sender} = PeerConnection.add_track(pc, MediaStreamTrack.new(:video, [stream_id]))
     end
 
     transceivers = PeerConnection.get_transceivers(pc)
