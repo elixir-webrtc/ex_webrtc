@@ -4,7 +4,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
   alias ExWebRTC.PeerConnection.Configuration
   alias ExWebRTC.RTPCodecParameters
 
-  alias ExSDP.Attribute.{Extmap, FMTP}
+  alias ExSDP.Attribute.{Extmap, FMTP, RTCPFeedback}
 
   @mid_uri "urn:ietf:params:rtp-hdrext:sdes:mid"
   @twcc_uri "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
@@ -51,10 +51,8 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
   describe "from_options!/1" do
     test "with everything turned off" do
-      self = self()
-
       options = [
-        controlling_process: self,
+        controlling_process: self(),
         ice_servers: [],
         ice_transport_policy: :all,
         ice_ip_filter: fn _ -> true end,
@@ -68,7 +66,6 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       config = Configuration.from_options!(options)
 
       assert %Configuration{
-               controlling_process: ^self,
                ice_servers: [],
                ice_transport_policy: :all,
                audio_codecs: [],
@@ -149,7 +146,6 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       end)
     end
 
-    @tag :wip
     test "with defaults" do
       config = Configuration.from_options!([])
 
@@ -344,5 +340,96 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       assert %{mime_type: "video/rtx", payload_type: pt, sdp_fmtp_line: %{apt: 96}} = vp8_rtx
       assert pt not in [100, 101, 96, 110]
     end
+  end
+
+  test "intersect_codecs/2" do
+    og_config =
+      Configuration.from_options!(
+        audio_codecs: [%{@opus_codec | payload_type: 111}],
+        video_codecs: [%{@h264_codec | payload_type: 112}, %{@vp8_codec | payload_type: 113}],
+        feedbacks: [%{type: :all, feedback: :pli}],
+        features: [:inbound_rtx]
+      )
+
+    sdp =
+      """
+      m=audio 9 UDP/TLS/RTP/SAVPF 0
+      a=rtpmap:111 opus/48000/2
+      a=rtcp-fb:111 transport-cc
+      m=video 9 UDP/TLS/RTP/SAVPF 1
+      a=rtpmap:112 H264/90000
+      a=rtcp-fb:112 transport-cc
+      a=rtcp-fb:112 nack pli
+      a=rtpmap:115 rtx/90000
+      a=fmtp:115 apt=112
+      a=rtpmap:113 VP8/90000
+      a=rtcp-fb:113 transport-cc
+      a=rtpmap:117 VP9/90000
+      a=rtpmap:119 rtx/90000
+      a=fmtp:119 apt=117
+      """
+      |> ExSDP.parse!()
+
+    config = Configuration.update(og_config, sdp)
+
+    audio_mline = Enum.find(sdp.media, &(&1.type == :audio))
+
+    # opus should not contain any RTCP feedbacks (SDP contains TWCC, but the config does not)
+    assert [opus] = Configuration.intersect_codecs(config, audio_mline)
+    assert %RTPCodecParameters{mime_type: "audio/opus", payload_type: 111, rtcp_fbs: []} = opus
+
+    video_mline = Enum.find(sdp.media, &(&1.type == :video))
+
+    assert {[h264_rtx], [h264, vp8]} =
+             config
+             |> Configuration.intersect_codecs(video_mline)
+             |> Enum.split_with(&String.ends_with?(&1.mime_type, "/rtx"))
+
+    # h264 has PLI, but VP8 does not, none of the codecs has TWCC, there's no VP9 in the SDP at all
+    assert %RTPCodecParameters{mime_type: "video/VP8", payload_type: 113, rtcp_fbs: []} = vp8
+
+    assert %RTPCodecParameters{
+             mime_type: "video/H264",
+             payload_type: 112,
+             rtcp_fbs: [%RTCPFeedback{pt: 112, feedback_type: :pli}]
+           } = h264
+
+    assert %RTPCodecParameters{
+             mime_type: "video/rtx",
+             payload_type: 115,
+             rtcp_fbs: [],
+             sdp_fmtp_line: %FMTP{pt: 115, apt: 112}
+           } = h264_rtx
+  end
+
+  test "intersect_extensions/2" do
+    og_config =
+      Configuration.from_options!(
+        header_extensions: [%{type: :all, uri: @mid_uri}, %{type: :video, uri: @twcc_uri}],
+        features: []
+      )
+
+    sdp =
+      """
+      m=audio 9 UDP/TLS/RTP/SAVPF 0
+      a=extmap:14 urn:ietf:params:rtp-hdrext:sdes:mid
+      a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
+      a=rtpmap:111 opus/48000/2
+      m=video 9 UDP/TLS/RTP/SAVPF 1
+      a=extmap:5 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+      a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
+      a=rtpmap:112 H264/90000
+      """
+      |> ExSDP.parse!()
+
+    config = Configuration.update(og_config, sdp)
+
+    audio_mline = Enum.find(sdp.media, &(&1.type == :audio))
+    assert [mid] = Configuration.intersect_extensions(config, audio_mline)
+    assert %Extmap{id: 14, uri: @mid_uri} = mid
+
+    video_mline = Enum.find(sdp.media, &(&1.type == :video))
+    assert [twcc] = Configuration.intersect_extensions(config, video_mline)
+    assert %Extmap{id: 5, uri: @twcc_uri} = twcc
   end
 end

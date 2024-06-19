@@ -163,7 +163,6 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         }
 
   @enforce_keys [
-    :controlling_process,
     :ice_ip_filter,
     :audio_extensions,
     :video_extensions
@@ -486,41 +485,61 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     %RTPCodecParameters{codec | payload_type: new_pt, rtcp_fbs: new_fbs, sdp_fmtp_line: new_fmtp}
   end
 
-  # @doc false
-  @spec supported_codec?(t(), RTPCodecParameters.t()) :: boolean()
-  def supported_codec?(config, codec) do
-    # This function doesn't check if rtcp-fb is supported.
-    # Instead, `supported_rtcp_fb?` has to be used to filter out
-    # rtcp-fb that are not supported.
-    # TODO: this function doesn't compare fmtp at all
-    Enum.any?(config.audio_codecs ++ config.video_codecs, fn supported_codec ->
-      # For the purposes of comparison, lowercase mime check
-      %{
-        supported_codec
-        | mime_type: String.downcase(supported_codec.mime_type),
-          rtcp_fbs: codec.rtcp_fbs,
-          sdp_fmtp_line: codec.sdp_fmtp_line
-      } == %{
-        codec
-        | mime_type: String.downcase(codec.mime_type)
-      }
+  @doc false
+  @spec intersect_codecs(t(), ExSDP.Media.t()) :: [RTPCodecParameters.t()]
+  def intersect_codecs(config, mline) do
+    # we assume that this function is called after
+    # the config was updated based on the remote SDP
+    # so the payload types should match
+    codecs =
+      case mline.type do
+        :audio -> config.audio_codecs
+        :video -> config.video_codecs
+      end
+
+    mline
+    |> SDPUtils.get_rtp_codec_parameters()
+    |> Enum.flat_map(fn sdp_codec ->
+      codecs
+      |> Enum.find(
+        # as of now, we ignore sdp_fmtp_line
+        &(&1.mime_type == sdp_codec.mime_type and
+            &1.payload_type == sdp_codec.payload_type and
+            &1.clock_rate == sdp_codec.clock_rate and
+            &1.channels == sdp_codec.channels)
+      )
+      |> case do
+        nil ->
+          []
+
+        other ->
+          fbs = Enum.filter(sdp_codec.rtcp_fbs, fn fb -> fb in other.rtcp_fbs end)
+          [%RTPCodecParameters{sdp_codec | rtcp_fbs: fbs}]
+      end
     end)
   end
 
-  # @doc false
-  # @spec supported_rtp_hdr_extension?(t(), Extmap.t(), :audio | :video) ::
-  #         boolean()
-  def supported_rtp_hdr_extension?(config, rtp_hdr_extension, media_type) do
-    supported_uris =
-      case media_type do
-        :audio -> Map.keys(config.audio_rtp_hdr_exts)
-        :video -> Map.keys(config.video_rtp_hdr_exts)
+  @doc false
+  @spec intersect_extensions(t(), ExSDP.Media.t()) :: [Extmap.t()]
+  def intersect_extensions(config, mline) do
+    extensions =
+      case mline.type do
+        :audio -> config.audio_extensions
+        :video -> config.video_extensions
       end
 
-    rtp_hdr_extension.uri in supported_uris
+    mline
+    |> ExSDP.get_attributes(Extmap)
+    |> Enum.flat_map(fn sdp_extension ->
+      extensions
+      |> Enum.find(
+        &(&1.id == sdp_extension.id and
+            &1.uri == sdp_extension.uri)
+      )
+      |> case do
+        nil -> []
+        _other -> [%Extmap{sdp_extension | direction: nil}]
+      end
+    end)
   end
-
-  # @doc false
-  # @spec supported_rtcp_fb?(t(), RTCPFeedback.t()) :: boolean()
-  def supported_rtcp_fb?(_config, _rtcp_fb), do: false
 end
