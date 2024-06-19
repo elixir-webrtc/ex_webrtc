@@ -3,6 +3,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   `ExWebRTC.PeerConnection` configuration.
   """
 
+  require Logger
+
   alias ExWebRTC.{RTPCodecParameters, SDPUtils}
   alias ExSDP.Attribute.{Extmap, FMTP, RTCPFeedback}
 
@@ -52,13 +54,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @typedoc """
   RTP header extension that are going to be included in the SDP offer/answer.
 
-  Keep in mind that you are free to pass any RTP header extension, but the underlying
+  Keep in mind that you are free to pass any RTP header extension URI, but the underlying
   RTP parsing library (`ex_rtp`) might not support it. In such case, you have to parse the
   header extension yourself.
-
-  The `id` passed to `extmap` will be used to create an SDP offer, but it might be overridden by the
-  remote SDP offer (assuming that Elixir WebRTC's PeerConnection is the answerer). Fetch the config
-  from the PeerConnection after a negotiation to obtain actual ids.
 
   This header extension will be included in all of the m-lines of provided `type` (or for both audio and video
   if `:all` is used).
@@ -70,18 +68,13 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   """
   @type header_extension() :: %{
           type: :audio | :video | :all,
-          extmap: ExSDP.Attribute.Extmap.t()
+          uri: String.t()
         }
 
-  @default_header_extensions [
-    %{
-      type: :all,
-      extmap: %Extmap{id: 1, uri: @mid_uri}
-    }
-  ]
+  @default_header_extensions [%{type: :all, uri: @mid_uri}]
 
   @typedoc """
-  RTCP feedbacks that are going to be included in the SDP offer/answer.
+  RTCP feedbacks that are going to be added by default to all of the codecs.
 
   All of the supported types are included in the SDP offer/answer by default for video, only the `:twcc` for audio.
   Use `Configuration.default_feedbacks() - [some_feedback]` when passing it to `t:options/0` to
@@ -164,20 +157,23 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
-          header_extensions: [header_extension()],
-          feedbacks: [rtcp_feedback()],
+          audio_extensions: [Extmap.t()],
+          video_extensions: [Extmap.t()],
           features: [feature()]
         }
 
-  @enforce_keys [:controlling_process, :ice_ip_filter]
+  @enforce_keys [
+    :controlling_process,
+    :ice_ip_filter,
+    :audio_extensions,
+    :video_extensions
+  ]
   defstruct @enforce_keys ++
               [
                 ice_servers: [],
                 ice_transport_policy: :all,
                 audio_codecs: @default_audio_codecs,
                 video_codecs: @default_video_codecs,
-                header_extensions: @default_header_extensions,
-                feedbacks: @default_feedbacks,
                 features: @default_features
               ]
 
@@ -208,19 +204,43 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @doc false
   @spec from_options!(options()) :: t()
   def from_options!(options) do
-    config =
-      options
-      |> Keyword.put_new(:controlling_process, self())
-      |> Keyword.put_new(:ice_ip_filter, fn _ -> true end)
-      |> then(&struct(__MODULE__, &1))
-      |> add_features()
+    extensions = Keyword.get(options, :header_extensions, @default_header_extensions)
 
-    ensure_valid(config)
-    config
+    unless %{type: :all, uri: @mid_uri} in extensions do
+      raise "Mandatory MID RTP header extensions was not found in #{inspect(extensions)}"
+    end
+
+    {audio_extensions, video_extensions} =
+      extensions
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn
+        {%{type: :all, uri: uri}, id} -> [{:audio, uri, id}, {:video, uri, id}]
+        {%{type: type, uri: uri}, id} -> [{type, uri, id}]
+      end)
+      |> Enum.map(fn {type, uri, id} -> {type, %Extmap{id: id, uri: uri}} end)
+      |> Enum.split_with(fn {type, _extmap} -> type == :audio end)
+
+    feedbacks = Keyword.get(options, :feedbacks, @default_feedbacks)
+
+    options
+    |> Keyword.put_new(:controlling_process, self())
+    |> Keyword.put_new(:ice_ip_filter, fn _ -> true end)
+    |> Keyword.put(:audio_extensions, Enum.map(audio_extensions, fn {_, ext} -> ext end))
+    |> Keyword.put(:video_extensions, Enum.map(video_extensions, fn {_, ext} -> ext end))
+    |> then(&struct(__MODULE__, &1))
+    |> populate_feedbacks(feedbacks)
+    |> add_features()
   end
 
   defp add_features(config) do
     %__MODULE__{features: features} = config
+
+    features =
+      if :inbound_rtx in features or :outbound_rtx in features do
+        Enum.reject(features, &(&1 in [:inbound_rtx, :outbound_rtx])) ++ [:rtx]
+      else
+        features
+      end
 
     features
     |> Enum.uniq()
@@ -229,75 +249,52 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   defp add_feature(:twcc, config) do
     %__MODULE__{
-      header_extensions: header_extensions,
-      feedbacks: feedbacks
+      video_codecs: video_codecs,
+      audio_codecs: audio_codecs,
+      audio_extensions: audio_extensions,
+      video_extensions: video_extensions
     } = config
 
-    header_extensions =
-      header_extensions
-      |> Enum.find_index(fn %{extmap: %Extmap{uri: uri}} -> uri == @twcc_uri end)
-      |> case do
-        nil ->
-          [free_id | _] = get_free_extension_ids(header_extensions)
-          [%{type: :all, extmap: %Extmap{id: free_id, uri: @twcc_uri}} | header_extensions]
+    [free_id | _] = get_free_extension_ids(video_extensions ++ audio_extensions)
+    video_extensions = add_extension(video_extensions, %Extmap{id: free_id, uri: @twcc_uri})
+    audio_extensions = add_extension(audio_extensions, %Extmap{id: free_id, uri: @twcc_uri})
 
-        idx ->
-          List.update_at(header_extensions, idx, &%{&1 | type: :all})
-      end
+    audio_codecs = Enum.map(audio_codecs, &add_feedback(&1, :twcc))
+    video_codecs = Enum.map(video_codecs, &add_feedback(&1, :twcc))
 
-    feedbacks =
-      feedbacks
-      |> Enum.find_index(fn %{feedback: fb} -> fb == :twcc end)
-      |> case do
-        nil -> [%{type: :all, feedback: :twcc} | feedbacks]
-        idx -> List.update_at(feedbacks, idx, &%{&1 | type: :all})
-      end
-
-    %__MODULE__{config | header_extensions: header_extensions, feedbacks: feedbacks}
+    %__MODULE__{
+      config
+      | video_codecs: video_codecs,
+        audio_codecs: audio_codecs,
+        video_extensions: video_extensions,
+        audio_extensions: audio_extensions
+    }
   end
 
-  defp add_feature(feature, config) when feature in [:inbound_rtx, :outbound_rtx] do
+  defp add_feature(:rtx, config) do
     %__MODULE__{
       audio_codecs: audio_codecs,
-      video_codecs: video_codecs,
-      feedbacks: feedbacks
+      video_codecs: video_codecs
     } = config
 
-    feedbacks =
-      feedbacks
-      |> Enum.find_index(fn %{feedback: fb} -> fb == :nack end)
-      |> case do
-        nil ->
-          [%{type: :video, feedback: :nack} | feedbacks]
+    video_codecs = Enum.map(video_codecs, &add_feedback(&1, :nack))
 
-        idx ->
-          List.update_at(
-            feedbacks,
-            idx,
-            &%{&1 | type: if(&1.type == :audio, do: :all, else: &1.type)}
-          )
-      end
-
-    free_pts = get_free_payload_types(audio_codecs, video_codecs)
+    free_pts = get_free_payload_types(audio_codecs ++ video_codecs)
 
     {rtxs, _} =
       video_codecs
-      |> Enum.reject(fn %RTPCodecParameters{mime_type: mt} -> String.starts_with?(mt, "rtx/") end)
+      |> Enum.reject(&rtx?/1)
       |> Enum.flat_map_reduce(free_pts, fn codec, pts ->
         video_codecs
-        |> Enum.any?(fn
-          %RTPCodecParameters{mime_type: "rtx/" <> _, sdp_fmtp_line: %FMTP{apt: apt}} ->
-            apt == codec.payload_type
-
-          _other ->
-            false
+        |> Enum.any?(fn maybe_rtx ->
+          rtx?(maybe_rtx) and maybe_rtx.sdp_fmtp_line.apt == codec.payload_type
         end)
         |> case do
           false ->
             [pt | other_pts] = pts
 
             rtx = %RTPCodecParameters{
-              mime_type: "rtx/video",
+              mime_type: "video/rtx",
               payload_type: pt,
               clock_rate: codec.clock_rate,
               sdp_fmtp_line: %FMTP{pt: pt, apt: codec.payload_type}
@@ -310,116 +307,187 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         end
       end)
 
-    %__MODULE__{config | feedbacks: feedbacks, video_codecs: video_codecs ++ rtxs}
+    %__MODULE__{config | video_codecs: video_codecs ++ rtxs}
   end
 
   defp add_feature(:inbound_simulcast, config) do
-    %__MODULE__{header_extensions: header_extensions} = config
-    [id1, id2 | _] = get_free_extension_ids(header_extensions)
+    %__MODULE__{video_extensions: video_extensions, audio_extensions: audio_extensions} = config
+    [id1, id2 | _] = get_free_extension_ids(video_extensions ++ audio_extensions)
 
-    header_extensions =
-      header_extensions
-      |> Enum.find_index(fn %{extmap: %Extmap{uri: uri}} -> uri == @rid_uri end)
-      |> case do
-        nil ->
-          [%{type: :video, extmap: %Extmap{id: id1, uri: @rid_uri}} | header_extensions]
+    audio_extensions = add_extension(audio_extensions, %Extmap{id: id1, uri: @rid_uri})
+    video_extensions = add_extension(video_extensions, %Extmap{id: id1, uri: @rid_uri})
 
-        idx ->
-          List.update_at(
-            header_extensions,
-            idx,
-            &%{&1 | type: if(&1.type == :audio, do: :all, else: &1.type)}
-          )
-      end
+    audio_extensions = add_extension(audio_extensions, %Extmap{id: id2, uri: @rrid_uri})
+    video_extensions = add_extension(video_extensions, %Extmap{id: id2, uri: @rrid_uri})
 
-    header_extensions =
-      header_extensions
-      |> Enum.find_index(fn %{extmap: %Extmap{uri: uri}} -> uri == @rrid_uri end)
-      |> case do
-        nil ->
-          [%{type: :video, extmap: %Extmap{id: id2, uri: @rrid_uri}} | header_extensions]
-
-        idx ->
-          List.update_at(
-            header_extensions,
-            idx,
-            &%{&1 | type: if(&1.type == :audio, do: :all, else: &1.type)}
-          )
-      end
-
-    %__MODULE__{config | header_extensions: header_extensions}
+    %__MODULE__{config | audio_extensions: audio_extensions, video_extensions: video_extensions}
   end
 
   defp add_feature(:reports, config), do: config
 
-  defp get_free_extension_ids(header_extensions) do
-    used_ids = Enum.map(header_extensions, fn %{extmap: %Extmap{id: id}} -> id end)
-    Range.to_list(1..14) -- used_ids
-  end
-
-  defp get_free_payload_types(audio_codecs, video_codecs) do
-    used_pts =
-      Enum.map(audio_codecs ++ video_codecs, fn %RTPCodecParameters{payload_type: pt} -> pt end)
-
-    Range.to_list(96..127) -- used_pts
-  end
-
-  defp ensure_valid(config) do
+  defp populate_feedbacks(config, feedbacks) do
     %__MODULE__{
       audio_codecs: audio_codecs,
-      video_codecs: video_codecs,
-      header_extensions: header_extensions,
-      feedbacks: feedbacks
+      video_codecs: video_codecs
     } = config
 
-    # this function does not test very throughtly, but focuses
-    # on the most error-prone areas
-    # it may be extended if deemed necessary
+    audio_codecs =
+      audio_codecs
+      |> Enum.map(fn codec ->
+        feedbacks
+        |> Enum.reject(&(&1.type == :video))
+        |> Enum.reduce(codec, fn fb, codec -> add_feedback(codec, fb.feedback) end)
+      end)
 
-    (audio_codecs ++ video_codecs)
-    |> Enum.map(fn %RTPCodecParameters{payload_type: pt} -> pt end)
-    |> ensure_uniq!("Detected duplicate payload types in provided codecs")
+    video_codecs =
+      video_codecs
+      |> Enum.map(fn codec ->
+        feedbacks
+        |> Enum.reject(&(&1.type == :audio))
+        |> Enum.reduce(codec, fn fb, codec -> add_feedback(codec, fb.feedback) end)
+      end)
 
-    (audio_codecs ++ video_codecs)
-    |> Enum.map(fn %RTPCodecParameters{mime_type: mt, clock_rate: cr, sdp_fmtp_line: fmtp} ->
-      {mt, cr, fmtp}
-    end)
-    |> ensure_uniq!("Detected duplicate codecs")
-
-    header_extensions
-    |> Enum.map(fn %{extmap: extmap} -> extmap.id end)
-    |> ensure_uniq!("Detected duplicate RTP header extension ids")
-
-    feedbacks
-    |> Enum.map(fn %{feedback: feedback} -> feedback end)
-    |> ensure_uniq!("Detected duplicate RTCP feedbacks")
-
-    header_extensions
-    |> Enum.find(fn %{extmap: %Extmap{uri: uri}, type: type} ->
-      uri == @mid_uri and type == :all
-    end)
-    |> case do
-      nil -> raise("Mandatory MID RTP header extension not found")
-      _other -> :ok
-    end
-
-    feedbacks
-    |> Enum.map(fn %{feedback: feedback} -> feedback end)
-    |> ensure_uniq!("Detected duplicate RTCP feedbacks")
+    %__MODULE__{config | audio_codecs: audio_codecs, video_codecs: video_codecs}
   end
 
-  defp ensure_uniq!(elems, error_msg) do
-    elems
-    |> Enum.reduce(%{}, fn x, acc -> Map.update(acc, x, 1, &(&1 + 1)) end)
-    |> Enum.any?(fn {_k, v} -> v != 1 end)
+  defp get_free_extension_ids(extensions) do
+    used_ids = Enum.map(extensions, fn %Extmap{id: id} -> id end)
+    (Range.to_list(1..14) -- used_ids) |> Enum.uniq()
+  end
+
+  defp get_free_payload_types(codecs) do
+    used_pts = Enum.map(codecs, fn %RTPCodecParameters{payload_type: pt} -> pt end)
+    (Range.to_list(96..127) -- used_pts) |> Enum.uniq()
+  end
+
+  defp add_extension(extensions, new_ext) do
+    extensions
+    |> Enum.find(fn %Extmap{uri: uri} -> uri == new_ext.uri end)
     |> case do
-      true -> raise(error_msg)
-      false -> :ok
+      nil -> extensions ++ [new_ext]
+      _ext -> extensions
     end
+  end
+
+  defp add_feedback(codec, fb_type) do
+    %RTPCodecParameters{rtcp_fbs: fbs, payload_type: pt} = codec
+
+    if rtx?(codec) do
+      codec
+    else
+      fb = %RTCPFeedback{pt: pt, feedback_type: fb_type}
+      fbs = Enum.uniq([fb | fbs])
+      %RTPCodecParameters{codec | rtcp_fbs: fbs}
+    end
+  end
+
+  defp rtx?(codec), do: String.ends_with?(codec.mime_type, "/rtx")
+
+  @doc false
+  @spec update(t(), ExSDP.t()) :: t()
+  def update(config, sdp) do
+    config
+    |> update_header_extensions(sdp)
+    |> update_codecs(sdp)
+  end
+
+  defp update_header_extensions(config, sdp) do
+    # we assume that extension have the same id no matter the mline
+    %__MODULE__{audio_extensions: audio_extensions, video_extensions: video_extensions} = config
+    sdp_extensions = SDPUtils.get_extensions(sdp)
+    free_ids = get_free_extension_ids(sdp_extensions)
+
+    {audio_extensions, free_ids} =
+      do_update_header_extensions(audio_extensions, sdp_extensions, free_ids)
+
+    {video_extensions, _free_ids} =
+      do_update_header_extensions(video_extensions, sdp_extensions, free_ids)
+
+    %__MODULE__{config | audio_extensions: audio_extensions, video_extensions: video_extensions}
+  end
+
+  defp do_update_header_extensions(extensions, sdp_extensions, free_ids) do
+    Enum.map_reduce(extensions, free_ids, fn ext, free_ids ->
+      sdp_extensions
+      |> Enum.find(&(&1.uri == ext.uri))
+      |> case do
+        nil ->
+          [id | rest] = free_ids
+          {%Extmap{ext | id: id}, rest}
+
+        other ->
+          {%Extmap{ext | id: other.id}, free_ids}
+      end
+    end)
+  end
+
+  defp update_codecs(config, sdp) do
+    %__MODULE__{audio_codecs: audio_codecs, video_codecs: video_codecs} = config
+    sdp_codecs = SDPUtils.get_rtp_codec_parameters(sdp)
+    free_pts = get_free_payload_types(sdp_codecs)
+
+    {audio_codecs, free_pts} = do_update_codecs(audio_codecs, sdp_codecs, free_pts)
+    {video_codecs, _free_pts} = do_update_codecs(video_codecs, sdp_codecs, free_pts)
+
+    %__MODULE__{config | audio_codecs: audio_codecs, video_codecs: video_codecs}
+  end
+
+  defp do_update_codecs(codecs, sdp_codecs, free_pts) do
+    {sdp_rtxs, sdp_codecs} = Enum.split_with(sdp_codecs, &String.ends_with?(&1.mime_type, "/rtx"))
+    {rtxs, codecs} = Enum.split_with(codecs, &String.ends_with?(&1.mime_type, "/rtx"))
+
+    {codecs, {free_pts, mapping}} =
+      Enum.map_reduce(codecs, {free_pts, %{}}, fn codec, {free_pts, mapping} ->
+        sdp_codecs
+        |> Enum.find(
+          &(&1.mime_type == codec.mime_type and
+              &1.clock_rate == codec.clock_rate and
+              &1.channels == codec.channels)
+        )
+        |> case do
+          nil ->
+            [pt | rest] = free_pts
+            new_codec = do_update_codec(codec, pt)
+            {new_codec, {rest, Map.put(mapping, codec.payload_type, pt)}}
+
+          other ->
+            new_codec = do_update_codec(codec, other.payload_type)
+            {new_codec, {free_pts, Map.put(mapping, codec.payload_type, other.payload_type)}}
+        end
+      end)
+
+    {rtxs, free_pts} =
+      rtxs
+      |> Enum.map(fn %RTPCodecParameters{sdp_fmtp_line: %FMTP{apt: apt} = fmtp} = rtx ->
+        %RTPCodecParameters{rtx | sdp_fmtp_line: %FMTP{fmtp | apt: Map.fetch!(mapping, apt)}}
+      end)
+      |> Enum.map_reduce(free_pts, fn rtx, free_pts ->
+        sdp_rtxs
+        |> Enum.find(&(&1.sdp_fmtp_line.apt == rtx.sdp_fmtp_line.apt))
+        |> case do
+          nil ->
+            [pt | rest] = free_pts
+            rtx = do_update_codec(rtx, pt)
+            {rtx, rest}
+
+          other ->
+            rtx = do_update_codec(rtx, other.payload_type)
+            {rtx, free_pts}
+        end
+      end)
+
+    {codecs ++ rtxs, free_pts}
+  end
+
+  defp do_update_codec(codec, new_pt) do
+    %RTPCodecParameters{rtcp_fbs: fbs, sdp_fmtp_line: fmtp} = codec
+    new_fbs = Enum.map(fbs, &%RTCPFeedback{&1 | pt: new_pt})
+    new_fmtp = if(fmtp == nil, do: nil, else: %FMTP{fmtp | pt: new_pt})
+    %RTPCodecParameters{codec | payload_type: new_pt, rtcp_fbs: new_fbs, sdp_fmtp_line: new_fmtp}
   end
 
   # @doc false
-  # @spec supported_codec?(t(), RTPCodecParameters.t()) :: boolean()
+  @spec supported_codec?(t(), RTPCodecParameters.t()) :: boolean()
   def supported_codec?(config, codec) do
     # This function doesn't check if rtcp-fb is supported.
     # Instead, `supported_rtcp_fb?` has to be used to filter out
@@ -455,163 +523,4 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   # @doc false
   # @spec supported_rtcp_fb?(t(), RTCPFeedback.t()) :: boolean()
   def supported_rtcp_fb?(_config, _rtcp_fb), do: false
-
-  # @doc false
-  # @spec update(t(), ExSDP.t()) :: t()
-  def update(config, sdp) do
-    # sdp_extmaps = SDPUtils.get_extensions(sdp)
-    #
-    # {sdp_rtx, sdp_codecs} =
-    #   sdp
-    #   |> SDPUtils.get_rtp_codec_parameters()
-    #   |> Enum.split_with(&String.ends_with?(&1.mime_type, "rtx"))
-    #
-    # {audio_exts, video_exts} =
-    #   update_rtp_hdr_extensions(sdp_extmaps, config.audio_rtp_hdr_exts, config.video_rtp_hdr_exts)
-    #
-    # {audio_codecs, video_codecs} =
-    #   update_codecs(sdp_codecs, sdp_rtx, config.audio_codecs, config.video_codecs)
-
-    # %__MODULE__{
-    #   config
-    #   | audio_rtp_hdr_exts: audio_exts,
-    #     video_rtp_hdr_exts: video_exts,
-    #     audio_codecs: audio_codecs,
-    #     video_codecs: video_codecs
-    # }
-    config
-  end
-
-  defp update_rtp_hdr_extensions(sdp_extmaps, audio_exts, video_exts)
-  defp update_rtp_hdr_extensions([], audio_exts, video_exts), do: {audio_exts, video_exts}
-
-  defp update_rtp_hdr_extensions([extmap | sdp_extmaps], audio_exts, video_exts) do
-    audio_exts = update_exts(audio_exts, extmap)
-    video_exts = update_exts(video_exts, extmap)
-
-    update_rtp_hdr_extensions(sdp_extmaps, audio_exts, video_exts)
-  end
-
-  defp update_exts(exts, extmap) when is_map_key(exts, extmap.uri),
-    do: Map.put(exts, extmap.uri, %Extmap{extmap | direction: nil})
-
-  defp update_exts(exts, _extmap), do: exts
-
-  defp update_codecs(sdp_codecs, sdp_rtx, audio_codecs, video_codecs)
-
-  defp update_codecs([], _sdp_rtx, audio_codecs, video_codecs) do
-    {audio_codecs, video_codecs}
-  end
-
-  defp update_codecs([sdp_codec | sdp_codecs], sdp_rtx, audio_codecs, video_codecs) do
-    type =
-      case sdp_codec.mime_type do
-        "audio/" <> _ -> :audio
-        "video/" <> _ -> :video
-      end
-
-    codecs = if type == :audio, do: audio_codecs, else: video_codecs
-
-    codec =
-      codecs
-      |> Enum.with_index()
-      |> Enum.find(fn {codec, _idx} ->
-        # For the time of comparison, assume the same payload type and rtcp_fbs and fmtp.
-        # We don't want to take into account rtcp_fbs as they can be negotiated
-        # i.e. we can reject those that are not supported by us.
-        codec = %RTPCodecParameters{
-          codec
-          | payload_type: sdp_codec.payload_type,
-            sdp_fmtp_line: sdp_codec.sdp_fmtp_line,
-            rtcp_fbs: sdp_codec.rtcp_fbs
-        }
-
-        codec == sdp_codec
-      end)
-
-    case codec do
-      nil ->
-        update_codecs(sdp_codecs, sdp_rtx, audio_codecs, video_codecs)
-
-      {codec, idx} ->
-        codecs = update_rtx(codecs, sdp_rtx, codec.payload_type, sdp_codec.payload_type)
-
-        fmtp =
-          if codec.sdp_fmtp_line != nil do
-            %{codec.sdp_fmtp_line | pt: sdp_codec.payload_type}
-          else
-            nil
-          end
-
-        codec = %RTPCodecParameters{
-          codec
-          | payload_type: sdp_codec.payload_type,
-            sdp_fmtp_line: fmtp
-        }
-
-        codecs = List.replace_at(codecs, idx, codec)
-
-        case type do
-          :audio -> update_codecs(sdp_codecs, sdp_rtx, codecs, video_codecs)
-          :video -> update_codecs(sdp_codecs, sdp_rtx, audio_codecs, codecs)
-        end
-    end
-  end
-
-  defp update_rtx(codecs, sdp_rtx, old_pt, new_pt) do
-    new_rtx = Enum.find(sdp_rtx, fn codec -> codec.sdp_fmtp_line.apt == new_pt end)
-
-    rtx =
-      codecs
-      |> Enum.with_index()
-      |> Enum.find(fn {codec, _idx} ->
-        String.ends_with?(codec.mime_type, "rtx") and codec.sdp_fmtp_line.apt == old_pt
-      end)
-
-    case rtx do
-      {_rtx, idx} when new_rtx != nil ->
-        List.replace_at(codecs, idx, new_rtx)
-
-      {rtx, idx} ->
-        fmtp = %{rtx.sdp_fmtp_line | apt: new_pt}
-        List.replace_at(codecs, idx, %RTPCodecParameters{rtx | sdp_fmtp_line: fmtp})
-
-      nil ->
-        codecs
-    end
-  end
-
-  # defp add_mandatory_rtp_hdr_extensions(options) do
-  #   options
-  #   |> Keyword.update(:audio_rtp_hdr_exts, %{}, fn exts ->
-  #     Map.merge(exts, @mandatory_audio_rtp_hdr_exts)
-  #   end)
-  #   |> Keyword.update(:video_rtp_hdr_exts, %{}, fn exts ->
-  #     Map.merge(exts, @mandatory_video_rtp_hdr_exts)
-  #   end)
-  # end
-
-  # defp resolve_rtp_hdr_extensions(options) do
-  #   {audio_exts, video_exts} =
-  #     Keyword.get(options, :rtp_hdr_extensions, [])
-  #     |> Enum.reduce({%{}, %{}}, fn ext, {audio_exts, video_exts} ->
-  #       resolved_ext = Map.fetch!(@rtp_hdr_extensions, ext)
-  #
-  #       case resolved_ext.media_type do
-  #         :audio ->
-  #           audio_exts = Map.put(audio_exts, resolved_ext.ext.uri, resolved_ext.ext)
-  #           {audio_exts, video_exts}
-  #
-  #         :all ->
-  #           audio_exts = Map.put(audio_exts, resolved_ext.ext.uri, resolved_ext.ext)
-  #           video_exts = Map.put(video_exts, resolved_ext.ext.uri, resolved_ext.ext)
-  #           {audio_exts, video_exts}
-  #       end
-  #     end)
-  #
-  #   options
-  #   |> Keyword.put(:audio_rtp_hdr_exts, audio_exts)
-  #   |> Keyword.put(:video_rtp_hdr_exts, video_exts)
-  #   |> Keyword.delete(:rtp_hdr_extensions)
-  # end
 end
