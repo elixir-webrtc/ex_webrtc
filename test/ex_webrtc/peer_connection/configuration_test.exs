@@ -109,6 +109,8 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       config = Configuration.from_options!(options)
       assert %Configuration{video_codecs: video_codecs} = config
 
+      assert Enum.any?(config.video_extensions, &(&1.uri == @rrid_uri))
+
       assert length(video_codecs) == 4
 
       Enum.map(video_codecs, fn %{mime_type: mime, rtcp_fbs: rtcp_fbs} ->
@@ -128,24 +130,6 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       end)
     end
 
-    test "with Simulcast enabled" do
-      options = [
-        feedbacks: [],
-        features: [:inbound_simulcast]
-      ]
-
-      config = Configuration.from_options!(options)
-
-      assert %Configuration{
-               video_extensions: video_extensions
-             } = config
-
-      [@rid_uri, @rrid_uri]
-      |> Enum.each(fn uri ->
-        assert Enum.any?(video_extensions, &(&1.uri == uri))
-      end)
-    end
-
     test "with defaults" do
       config = Configuration.from_options!([])
 
@@ -159,13 +143,13 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       # other tests check if these features actually have an effect
       assert Enum.sort(features) == [
                :inbound_rtx,
-               :inbound_simulcast,
                :outbound_rtx,
                :reports,
                :twcc
              ]
 
       assert Enum.any?(video_extensions, &(&1.uri == @mid_uri))
+      assert Enum.any?(video_extensions, &(&1.uri == @rid_uri))
       assert Enum.any?(audio_extensions, &(&1.uri == @mid_uri))
 
       for codec <- video_codecs do

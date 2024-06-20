@@ -71,7 +71,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           uri: String.t()
         }
 
-  @default_header_extensions [%{type: :all, uri: @mid_uri}]
+  @default_header_extensions [%{type: :all, uri: @mid_uri}, %{type: :video, uri: @rid_uri}]
 
   @typedoc """
   RTCP feedbacks that are going to be added by default to all of the codecs.
@@ -102,9 +102,6 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   retransmissions (implicitly adds the `:nack` RTCP feedback and a maching `a=rtpmap:[id] rtx/[type]` attribute for every negotiated video codec).
   * `:outbound_rtx` - ExWebRTC's PeerConnection will respond to incoming NACK RTCP feedbacks and retransmit packets accordingly (implicitly adds the same
   attributes as `:inbound_rtx`).
-  * `:inbound_simulcast` - ExWebRTC's will positively respond to SDP offers with Simulcast and handle incoming simulcast packets (implicitly adds
-  `urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id` and `urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id` RTP header extensions to all of the negotiated video
-  m-lines).
   * `:reports` - ExWebRTC's PeerConnection will generate and send RTCP Sender and/or Receiver reports based on incoming/send RTP packets.
 
   By default, all of the features are enabled. Use `Configuration.default_features() -- [some_feature]` when
@@ -114,10 +111,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           :twcc
           | :inbound_rtx
           | :outbound_rtx
-          | :inbound_simulcast
           | :reports
 
-  @default_features [:twcc, :inbound_rtx, :outbound_rtx, :inbound_simulcast, :reports]
+  @default_features [:twcc, :inbound_rtx, :outbound_rtx, :reports]
 
   @typedoc """
   Options that can be passed to `ExWebRTC.PeerConnection.start_link/1`.
@@ -272,11 +268,16 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   defp add_feature(:rtx, config) do
     %__MODULE__{
+      video_extensions: video_extensions,
+      audio_extensions: audio_extensions,
       audio_codecs: audio_codecs,
       video_codecs: video_codecs
     } = config
 
     video_codecs = Enum.map(video_codecs, &add_feedback(&1, :nack))
+
+    [id | _] = get_free_extension_ids(video_extensions ++ audio_extensions)
+    video_extensions = add_extension(video_extensions, %Extmap{id: id, uri: @rrid_uri})
 
     free_pts = get_free_payload_types(audio_codecs ++ video_codecs)
 
@@ -306,20 +307,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         end
       end)
 
-    %__MODULE__{config | video_codecs: video_codecs ++ rtxs}
-  end
-
-  defp add_feature(:inbound_simulcast, config) do
-    %__MODULE__{video_extensions: video_extensions, audio_extensions: audio_extensions} = config
-    [id1, id2 | _] = get_free_extension_ids(video_extensions ++ audio_extensions)
-
-    audio_extensions = add_extension(audio_extensions, %Extmap{id: id1, uri: @rid_uri})
-    video_extensions = add_extension(video_extensions, %Extmap{id: id1, uri: @rid_uri})
-
-    audio_extensions = add_extension(audio_extensions, %Extmap{id: id2, uri: @rrid_uri})
-    video_extensions = add_extension(video_extensions, %Extmap{id: id2, uri: @rrid_uri})
-
-    %__MODULE__{config | audio_extensions: audio_extensions, video_extensions: video_extensions}
+    %__MODULE__{config | video_codecs: video_codecs ++ rtxs, video_extensions: video_extensions}
   end
 
   defp add_feature(:reports, config), do: config
