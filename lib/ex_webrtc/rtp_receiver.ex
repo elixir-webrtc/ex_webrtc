@@ -17,6 +17,8 @@ defmodule ExWebRTC.RTPReceiver do
           track: MediaStreamTrack.t(),
           codec: RTPCodecParameters.t() | nil,
           simulcast_demuxer: SimulcastDemuxer.t(),
+          reports?: boolean(),
+          inbound_rtx?: boolean(),
           layers: %{(String.t() | nil) => layer()}
         }
 
@@ -26,8 +28,8 @@ defmodule ExWebRTC.RTPReceiver do
           bytes_received: non_neg_integer(),
           packets_received: non_neg_integer(),
           markers_received: non_neg_integer(),
-          report_recorder: ReportRecorder.t(),
-          nack_generator: NACKGenerator.t()
+          report_recorder: ReportRecorder.t() | nil,
+          nack_generator: NACKGenerator.t() | nil
         }
 
   @typedoc """
@@ -56,15 +58,19 @@ defmodule ExWebRTC.RTPReceiver do
   end
 
   @doc false
-  @spec new(MediaStreamTrack.t(), RTPCodecParameters.t() | nil, [ExSDP.Attribute.Extmap.t()]) ::
+  @spec new(MediaStreamTrack.t(), RTPCodecParameters.t() | nil, [ExSDP.Attribute.Extmap.t()], [
+          atom()
+        ]) ::
           receiver()
-  def new(track, codec, rtp_hdr_exts) do
+  def new(track, codec, rtp_hdr_exts, features) do
     # layer `nil` is for the packets without RID/ no simulcast
     %{
       id: Utils.generate_id(),
       track: track,
       codec: codec,
       simulcast_demuxer: SimulcastDemuxer.new(rtp_hdr_exts),
+      reports?: :reports in features,
+      inbound_rtx?: :inbound_rtx in features,
       layers: %{nil => init_layer(codec)}
     }
   end
@@ -80,7 +86,11 @@ defmodule ExWebRTC.RTPReceiver do
 
     layers =
       Map.new(receiver.layers, fn {rid, layer} ->
-        report_recorder = %ReportRecorder{clock_rate: codec && codec.clock_rate}
+        report_recorder = %ReportRecorder{
+          layer.report_recorder
+          | clock_rate: codec && codec.clock_rate
+        }
+
         {rid, %{layer | report_recorder: report_recorder}}
       end)
 
@@ -105,8 +115,22 @@ defmodule ExWebRTC.RTPReceiver do
     {rid, simulcast_demuxer} = SimulcastDemuxer.demux_packet(receiver.simulcast_demuxer, packet)
     layer = receiver.layers[rid] || init_layer(receiver.codec)
 
-    report_recorder = ReportRecorder.record_packet(layer.report_recorder, packet)
-    nack_generator = NACKGenerator.record_packet(layer.nack_generator, packet)
+    # we only turn off the actual recording when features are not on
+    # other stuff (like updating some metadata in the recorders etc)
+    # does not meaningfully impact performance
+    report_recorder =
+      if receiver.reports? do
+        ReportRecorder.record_packet(layer.report_recorder, packet)
+      else
+        layer.report_recorder
+      end
+
+    nack_generator =
+      if receiver.inbound_rtx? do
+        NACKGenerator.record_packet(layer.nack_generator, packet)
+      else
+        layer.nack_generator
+      end
 
     layer = %{
       layer

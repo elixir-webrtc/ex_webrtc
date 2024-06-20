@@ -56,8 +56,8 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
         ice_servers: [],
         ice_transport_policy: :all,
         ice_ip_filter: fn _ -> true end,
-        audio_codecs: [],
-        video_codecs: [],
+        audio_codecs: [%{@opus_codec | payload_type: 111}],
+        video_codecs: [%{@vp8_codec | payload_type: 100}],
         header_extensions: [%{type: :all, uri: @mid_uri}],
         feedbacks: [],
         features: []
@@ -68,8 +68,8 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       assert %Configuration{
                ice_servers: [],
                ice_transport_policy: :all,
-               audio_codecs: [],
-               video_codecs: [],
+               audio_codecs: [%RTPCodecParameters{rtcp_fbs: []}],
+               video_codecs: [%RTPCodecParameters{rtcp_fbs: []}],
                audio_extensions: [@mid_ext],
                video_extensions: [@mid_ext],
                features: []

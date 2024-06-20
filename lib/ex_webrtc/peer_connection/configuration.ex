@@ -148,6 +148,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   @typedoc false
   @type t() :: %__MODULE__{
+          controlling_process: Process.dest(),
           ice_servers: [ice_server()],
           ice_transport_policy: :relay | :all,
           ice_ip_filter: (:inet.ip_address() -> boolean()),
@@ -159,6 +160,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         }
 
   @enforce_keys [
+    :controlling_process,
     :ice_ip_filter,
     :audio_extensions,
     :video_extensions
@@ -427,7 +429,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       Enum.map_reduce(codecs, {free_pts, %{}}, fn codec, {free_pts, mapping} ->
         sdp_codecs
         |> Enum.find(
-          &(&1.mime_type == codec.mime_type and
+          &(String.downcase(&1.mime_type) == String.downcase(codec.mime_type) and
               &1.clock_rate == codec.clock_rate and
               &1.channels == codec.channels)
         )
@@ -491,7 +493,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       codecs
       |> Enum.find(
         # as of now, we ignore sdp_fmtp_line
-        &(&1.mime_type == sdp_codec.mime_type and
+        &(String.downcase(&1.mime_type) == String.downcase(sdp_codec.mime_type) and
             &1.payload_type == sdp_codec.payload_type and
             &1.clock_rate == sdp_codec.clock_rate and
             &1.channels == sdp_codec.channels)
@@ -501,7 +503,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           []
 
         other ->
-          fbs = Enum.filter(sdp_codec.rtcp_fbs, fn fb -> fb in other.rtcp_fbs end)
+          fbs = Enum.filter(sdp_codec.rtcp_fbs, &(&1 in other.rtcp_fbs))
           [%RTPCodecParameters{sdp_codec | rtcp_fbs: fbs}]
       end
     end)

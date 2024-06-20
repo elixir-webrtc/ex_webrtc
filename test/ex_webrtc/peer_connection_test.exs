@@ -1082,13 +1082,13 @@ defmodule ExWebRTC.PeerConnectionTest do
       [transceiver] = PeerConnection.get_transceivers(pc2)
 
       assert %ExSDP.Attribute.Extmap{id: rid_id} =
-               Enum.find(transceiver.rtp_hdr_exts, &(&1.uri == @rid_uri))
+               Enum.find(transceiver.header_extensions, &(&1.uri == @rid_uri))
 
       assert %ExSDP.Attribute.Extmap{id: mid_id} =
-               Enum.find(transceiver.rtp_hdr_exts, &(&1.uri == @mid_uri))
+               Enum.find(transceiver.header_extensions, &(&1.uri == @mid_uri))
 
       assert %ExSDP.Attribute.Extmap{id: twcc_id} =
-               Enum.find(transceiver.rtp_hdr_exts, &(&1.uri == @twcc_uri))
+               Enum.find(transceiver.header_extensions, &(&1.uri == @twcc_uri))
 
       assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :video, id: id2}}}
 

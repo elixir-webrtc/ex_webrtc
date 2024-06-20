@@ -25,6 +25,8 @@ defmodule ExWebRTC.RTPSender do
           packets_sent: non_neg_integer(),
           bytes_sent: non_neg_integer(),
           markers_sent: non_neg_integer(),
+          reports?: boolean(),
+          outbound_rtx?: boolean(),
           report_recorder: ReportRecorder.t(),
           nack_responder: NACKResponder.t()
         }
@@ -62,9 +64,10 @@ defmodule ExWebRTC.RTPSender do
           [Extmap.t()],
           String.t() | nil,
           non_neg_integer() | nil,
-          non_neg_integer() | nil
+          non_neg_integer() | nil,
+          [atom()]
         ) :: sender()
-  def new(track, codec, rtx_codec, rtp_hdr_exts, mid \\ nil, ssrc, rtx_ssrc) do
+  def new(track, codec, rtx_codec, rtp_hdr_exts, mid, ssrc, rtx_ssrc, features) do
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
     # TODO: handle cases when codec == nil (no valid codecs after negotiation)
@@ -84,6 +87,8 @@ defmodule ExWebRTC.RTPSender do
       packets_sent: 0,
       bytes_sent: 0,
       markers_sent: 0,
+      reports?: :reports in features,
+      outbound_rtx?: :outbound_rtx in features,
       report_recorder: %ReportRecorder{clock_rate: codec && codec.clock_rate},
       nack_responder: %NACKResponder{}
     }
@@ -138,8 +143,19 @@ defmodule ExWebRTC.RTPSender do
       |> ExRTP.Packet.remove_extension(mid_extmap.id)
       |> ExRTP.Packet.add_extension(mid_ext)
 
-    report_recorder = ReportRecorder.record_packet(sender.report_recorder, packet)
-    nack_responder = NACKResponder.record_packet(sender.nack_responder, packet)
+    report_recorder =
+      if sender.reports? do
+        ReportRecorder.record_packet(sender.report_recorder, packet)
+      else
+        sender.report_recorder
+      end
+
+    nack_responder =
+      if sender.outbound_rtx? do
+        NACKResponder.record_packet(sender.nack_responder, packet)
+      else
+        sender.nack_responder
+      end
 
     data = ExRTP.Packet.encode(packet)
 

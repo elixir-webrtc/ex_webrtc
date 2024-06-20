@@ -31,7 +31,7 @@ defmodule ExWebRTC.RTPTransceiver do
           current_direction: direction() | nil,
           fired_direction: direction() | nil,
           kind: kind(),
-          rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
+          header_extensions: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()],
           receiver: RTPReceiver.receiver(),
           sender: RTPSender.sender(),
@@ -59,7 +59,7 @@ defmodule ExWebRTC.RTPTransceiver do
   except for:
   * `id` - to uniquely identify the transceiver.
   * `kind` - kind of the handled media, added for convenience.
-  * `codecs` and `rtp_hdr_exts` - codecs and RTP header extensions that the transceiver can handle.
+  * `codecs` and `header_extensions` - codecs and RTP header extensions that the transceiver can handle.
   """
   @type t() :: %__MODULE__{
           id: id(),
@@ -71,7 +71,7 @@ defmodule ExWebRTC.RTPTransceiver do
           stopped: boolean(),
           receiver: RTPReceiver.t(),
           sender: RTPSender.t(),
-          rtp_hdr_exts: [ExSDP.Attribute.Extmap.t()],
+          header_extensions: [ExSDP.Attribute.Extmap.t()],
           codecs: [RTPCodecParameters.t()]
         }
 
@@ -85,7 +85,7 @@ defmodule ExWebRTC.RTPTransceiver do
     :stopped,
     :receiver,
     :sender,
-    :rtp_hdr_exts,
+    :header_extensions,
     :codecs
   ]
   defstruct @enforce_keys
@@ -103,7 +103,7 @@ defmodule ExWebRTC.RTPTransceiver do
       :direction,
       :current_direction,
       :mid,
-      :rtp_hdr_exts,
+      :header_extensions,
       :codecs,
       :stopping,
       :stopped
@@ -117,10 +117,10 @@ defmodule ExWebRTC.RTPTransceiver do
   def new(kind, sender_track, config, options) do
     direction = Keyword.get(options, :direction, :sendrecv)
 
-    {rtp_hdr_exts, codecs} =
+    {header_extensions, codecs} =
       case kind do
-        :audio -> {Map.values(config.audio_rtp_hdr_exts), config.audio_codecs}
-        :video -> {Map.values(config.video_rtp_hdr_exts), config.video_codecs}
+        :audio -> {config.audio_extensions, config.audio_codecs}
+        :video -> {config.video_extensions, config.video_codecs}
       end
 
     # When we create sendonly or sendrecv transceiver, we always only take one codec
@@ -128,24 +128,31 @@ defmodule ExWebRTC.RTPTransceiver do
     # In other case, if PeerConnection negotiated multiple codecs,
     # user would have to pass RTP codec when sending RTP packets,
     # or assign payload type on their own.
-    codec = get_codec(codecs)
-    rtx_codec = get_rtx(codecs, codec)
+    {codec, codec_rtx} = get_default_codec(codecs)
     track = MediaStreamTrack.new(kind)
 
     id = Utils.generate_id()
-    send(self(), {:send_reports, id})
-    if kind == :video, do: send(self(), {:send_nacks, id})
 
-    receiver = RTPReceiver.new(track, codec, rtp_hdr_exts)
+    if :reports in config.features do
+      send(self(), {:send_reports, id})
+    end
+
+    if kind == :video and :inbound_rtx in config.features do
+      send(self(), {:send_nacks, id})
+    end
+
+    receiver = RTPReceiver.new(track, codec, header_extensions, config.features)
 
     sender =
       RTPSender.new(
         sender_track,
         codec,
-        rtx_codec,
-        rtp_hdr_exts,
+        codec_rtx,
+        header_extensions,
+        nil,
         options[:ssrc],
-        options[:rtx_ssrc]
+        options[:rtx_ssrc],
+        config.features
       )
 
     %{
@@ -159,7 +166,7 @@ defmodule ExWebRTC.RTPTransceiver do
       receiver: receiver,
       sender: sender,
       codecs: codecs,
-      rtp_hdr_exts: rtp_hdr_exts,
+      header_extensions: header_extensions,
       added_by_add_track: Keyword.get(options, :added_by_add_track, false),
       stopping: false,
       stopped: false
@@ -169,7 +176,8 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec from_mline(ExSDP.Media.t(), non_neg_integer(), Configuration.t()) :: transceiver()
   def from_mline(mline, mline_idx, config) do
-    codecs = get_codecs(mline, config)
+    header_extensions = Configuration.intersect_extensions(config, mline)
+    codecs = Configuration.intersect_codecs(config, mline)
 
     if codecs == [] do
       rtpmap = ExSDP.get_attribute(mline, :rtpmap)
@@ -179,20 +187,26 @@ defmodule ExWebRTC.RTPTransceiver do
       )
     end
 
-    rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
     stream_ids = SDPUtils.get_stream_ids(mline)
     track = MediaStreamTrack.new(mline.type, stream_ids)
-    codec = get_codec(codecs)
-    rtx_codec = get_rtx(codecs, codec)
+    {codec, codec_rtx} = get_default_codec(codecs)
 
     id = Utils.generate_id()
-    send(self(), {:send_reports, id})
-    if mline.type == :video, do: send(self(), {:send_nacks, id})
 
-    receiver = RTPReceiver.new(track, codec, rtp_hdr_exts)
-    sender = RTPSender.new(nil, codec, rtx_codec, rtp_hdr_exts, mid, nil, nil)
+    if :reports in config.features do
+      send(self(), {:send_reports, id})
+    end
+
+    if mline.type == :video and :inbound_rtx in config.features do
+      send(self(), {:send_nacks, id})
+    end
+
+    receiver = RTPReceiver.new(track, codec, header_extensions, config.features)
+
+    sender =
+      RTPSender.new(nil, codec, codec_rtx, header_extensions, mid, nil, nil, config.features)
 
     %{
       id: id,
@@ -205,7 +219,7 @@ defmodule ExWebRTC.RTPTransceiver do
       receiver: receiver,
       sender: sender,
       codecs: codecs,
-      rtp_hdr_exts: rtp_hdr_exts,
+      header_extensions: header_extensions,
       added_by_add_track: false,
       stopping: false,
       stopped: false
@@ -235,23 +249,36 @@ defmodule ExWebRTC.RTPTransceiver do
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
     if transceiver.mid != nil and mid != transceiver.mid, do: raise(ArgumentError)
 
-    codecs = get_codecs(mline, config)
-    rtp_hdr_exts = get_rtp_hdr_extensions(mline, config)
-    codec = get_codec(codecs)
-    rtx_codec = get_rtx(codecs, codec)
+    codecs = Configuration.intersect_codecs(config, mline)
+    header_extensions = Configuration.intersect_extensions(config, mline)
+    {codec, codec_rtx} = get_default_codec(codecs)
     stream_ids = SDPUtils.get_stream_ids(mline)
 
-    receiver = RTPReceiver.update(transceiver.receiver, codec, rtp_hdr_exts, stream_ids)
-    sender = RTPSender.update(transceiver.sender, mid, codec, rtx_codec, rtp_hdr_exts)
+    receiver = RTPReceiver.update(transceiver.receiver, codec, header_extensions, stream_ids)
+    sender = RTPSender.update(transceiver.sender, mid, codec, codec_rtx, header_extensions)
 
     %{
       transceiver
       | mid: mid,
         codecs: codecs,
-        rtp_hdr_exts: rtp_hdr_exts,
+        header_extensions: header_extensions,
         sender: sender,
         receiver: receiver
     }
+  end
+
+  @doc false
+  @spec set_direction(transceiver(), direction()) :: t()
+  def set_direction(transceiver, direction) do
+    %{transceiver | direction: direction}
+  end
+
+  @doc false
+  @spec can_add_track?(transceiver(), kind()) :: boolean()
+  def can_add_track?(transceiver, kind) do
+    transceiver.kind == kind and
+      transceiver.sender.track == nil and
+      transceiver.current_direction not in [:sendrecv, :sendonly]
   end
 
   @doc false
@@ -298,7 +325,6 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec receive_packet(transceiver(), ExRTP.Packet.t(), non_neg_integer()) ::
           {:ok, {String.t() | nil, ExRTP.Packet.t()}, transceiver()} | :error
   def receive_packet(transceiver, packet, size) do
-    # TODO: direction of returned values is against the convention in this function
     case check_if_rtx(transceiver.codecs, packet) do
       {:ok, apt} -> RTPReceiver.receive_rtx(transceiver.receiver, packet, apt)
       :error -> {:ok, packet, transceiver.receiver}
@@ -483,7 +509,7 @@ defmodule ExWebRTC.RTPTransceiver do
           {:fingerprint, Keyword.fetch!(opts, :fingerprint)},
           {:setup, Keyword.fetch!(opts, :setup)},
           :rtcp_mux
-        ] ++ transceiver.rtp_hdr_exts ++ msids
+        ] ++ transceiver.header_extensions ++ msids
 
     %ExSDP.Media{
       ExSDP.Media.new(transceiver.kind, 9, "UDP/TLS/RTP/SAVPF", pt)
@@ -505,27 +531,6 @@ defmodule ExWebRTC.RTPTransceiver do
   defp get_direction(o, other) when o in [:sendrecv, nil], do: other
   defp get_direction(:inactive, _), do: :inactive
 
-  defp get_codecs(mline, config) do
-    mline
-    |> SDPUtils.get_rtp_codec_parameters()
-    |> Stream.filter(&Configuration.supported_codec?(config, &1))
-    |> Enum.map(fn codec ->
-      rtcp_fbs =
-        Enum.filter(codec.rtcp_fbs, fn rtcp_fb ->
-          Configuration.supported_rtcp_fb?(config, rtcp_fb)
-        end)
-
-      %RTPCodecParameters{codec | rtcp_fbs: rtcp_fbs}
-    end)
-  end
-
-  defp get_rtp_hdr_extensions(mline, config) do
-    mline
-    |> ExSDP.get_attributes(ExSDP.Attribute.Extmap)
-    |> Enum.filter(&Configuration.supported_rtp_hdr_extension?(config, &1, mline.type))
-    |> Enum.map(&%ExSDP.Attribute.Extmap{&1 | direction: nil})
-  end
-
   defp check_if_rtx(codecs, packet) do
     codec = Enum.find(codecs, &(&1.payload_type == packet.payload_type))
 
@@ -545,17 +550,16 @@ defmodule ExWebRTC.RTPTransceiver do
     trunc(factor * @report_interval)
   end
 
-  defp get_codec(codecs) do
-    codecs
-    |> Enum.reject(&String.ends_with?(&1.mime_type, "rtx"))
-    |> List.first()
-  end
+  defp get_default_codec(codecs) do
+    {rtxs, codecs} = Enum.split_with(codecs, &String.ends_with?(&1.mime_type, "/rtx"))
 
-  defp get_rtx(_codecs, nil), do: nil
+    case List.first(codecs) do
+      nil ->
+        {nil, nil}
 
-  defp get_rtx(codecs, %{payload_type: pt}) do
-    codecs
-    |> Enum.filter(&(String.ends_with?(&1.mime_type, "rtx") and &1.sdp_fmtp_line.apt == pt))
-    |> List.first()
+      codec ->
+        rtx = Enum.find(rtxs, &(&1.sdp_fmtp_line.apt == codec.payload_type))
+        {codec, rtx}
+    end
   end
 end
