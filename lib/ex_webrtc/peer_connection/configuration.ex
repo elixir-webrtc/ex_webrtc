@@ -61,8 +61,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   This header extension will be included in all of the m-lines of provided `type` (or for both audio and video
   if `:all` is used).
 
-  By default, only the `urn:ietf:params:rtp-hdrext:sdes:mid` is included for both audio and video
-  (and is mandatory, thus must no be turned off).
+  Use `default_header_extensions/0` to check the RTP header extensions included by default.
+  When passing a list of RTP header extensions to `t:options/0`, it will override the default RTP header extensions.
 
   Be aware that some of the features (see `t:feature/0`) can implicitly add RTP header extensions).
   """
@@ -76,9 +76,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @typedoc """
   RTCP feedbacks that are going to be added by default to all of the codecs.
 
-  All of the supported types are included in the SDP offer/answer by default for video, only the `:twcc` for audio.
-  Use `Configuration.default_feedbacks() - [some_feedback]` when passing it to `t:options/0` to
-  disable `some_feedback`.
+  Use `default_feedbacks/0` to check the RTCP feedbacks included by default. When passing a
+  list of RTPC feedbacks to `t:options/0`, it will override the default feedbacks.
 
   Be aware that some of the features (see `t:feature/0`) can implicitly add RTCP feedbacks.
   """
@@ -99,13 +98,13 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   send them to the remote peer (implicitly adds the `http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01` to negotiated
   RTP header extensions and `:twcc` RTCP feedback to all of the negotiated codecs, both audio and video).
   * `:inbound_rtx` - ExWebRTC's PeerConnection will generate NACK RTCP feedbacks in response to missing incoming video packets and properly handle incoming
-  retransmissions (implicitly adds the `:nack` RTCP feedback and a maching `a=rtpmap:[id] rtx/[type]` attribute for every negotiated video codec).
+  retransmissions (implicitly adds the `:nack` RTCP feedback and a maching `a=rtpmap:[id] rtx/...` attribute for every negotiated video codec).
   * `:outbound_rtx` - ExWebRTC's PeerConnection will respond to incoming NACK RTCP feedbacks and retransmit packets accordingly (implicitly adds the same
   attributes as `:inbound_rtx`).
-  * `:reports` - ExWebRTC's PeerConnection will generate and send RTCP Sender and/or Receiver reports based on incoming/send RTP packets.
+  * `:reports` - ExWebRTC's PeerConnection will generate and send RTCP Sender/Receiver Reports based on incoming/send RTP packets.
 
-  By default, all of the features are enabled. Use `Configuration.default_features() -- [some_feature]` when
-  passing `t:options/0` to disable `some_feature`.
+  Use `default_features/0` to get the list of features enabled by default. When passing a list of features to
+  `t:options/0`, it will override the default features.
   """
   @type feature() ::
           :twcc
@@ -197,6 +196,12 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   """
   @spec default_header_extensions() :: [header_extension()]
   def default_header_extensions(), do: @default_header_extensions
+
+  @doc """
+  Returns a list of PeerConnection features enabled by default.
+  """
+  @spec default_features() :: [feature()]
+  def default_features(), do: @default_features
 
   @doc false
   @spec from_options!(options()) :: t()
