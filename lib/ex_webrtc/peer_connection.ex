@@ -1040,21 +1040,21 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_cast({:send_pli, track_id, rid}, state) do
-    receiver =
-      state.transceivers
-      |> Enum.find_value(fn
-        %{receiver: %{track: %{id: ^track_id}} = receiver} -> receiver
-        _ -> nil
-      end)
+    state.transceivers
+    |> Enum.find(fn tr -> tr.receiver.track.id == track_id end)
+    |> case do
+      %{receiver: %{layers: %{^rid => %{ssrc: ssrc}}}} when ssrc != nil ->
+        encoded =
+          %ExRTCP.Packet.PayloadFeedback.PLI{sender_ssrc: 1, media_ssrc: ssrc}
+          |> ExRTCP.Packet.encode()
 
-    if receiver[rid] != nil and receiver[rid].ssrc != nil do
-      encoded =
-        %ExRTCP.Packet.PayloadFeedback.PLI{sender_ssrc: 1, media_ssrc: receiver.ssrc}
-        |> ExRTCP.Packet.encode()
+        :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
 
-      :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
-    else
-      Logger.warning("Attempted to send PLI for non existent track")
+      nil ->
+        Logger.warning("Attempted to send PLI for non existent track #{inspect(track_id)}")
+
+      _other ->
+        Logger.warning("Unable to send PLI for track #{inspect(track_id)}, rid #{inspect(rid)}")
     end
 
     {:noreply, state}

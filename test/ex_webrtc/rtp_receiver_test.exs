@@ -13,18 +13,7 @@ defmodule ExWebRTC.RTPReceiverTest do
     track = MediaStreamTrack.new(:audio)
     receiver = RTPReceiver.new(track, @codec, [])
 
-    assert [
-             %{
-               id: receiver.track.id,
-               rid: nil,
-               type: :inbound_rtp,
-               timestamp: timestamp,
-               ssrc: nil,
-               bytes_received: 0,
-               packets_received: 0,
-               markers_received: 0
-             }
-           ] == RTPReceiver.get_stats(receiver, timestamp)
+    assert [] == RTPReceiver.get_stats(receiver, timestamp)
 
     packet1 = Packet.new(payload, ssrc: 1234)
     raw_packet1 = Packet.encode(packet1)
