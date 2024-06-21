@@ -6,6 +6,7 @@ defmodule ExWebRTC.RTPReceiver do
   require Logger
 
   alias ExRTCP.Packet.TransportFeedback.NACK
+  alias ExSDP.Attribute.Extmap
   alias ExWebRTC.{MediaStreamTrack, Utils, RTPCodecParameters}
   alias __MODULE__.{NACKGenerator, ReportRecorder, SimulcastDemuxer}
 
@@ -28,8 +29,8 @@ defmodule ExWebRTC.RTPReceiver do
           bytes_received: non_neg_integer(),
           packets_received: non_neg_integer(),
           markers_received: non_neg_integer(),
-          report_recorder: ReportRecorder.t() | nil,
-          nack_generator: NACKGenerator.t() | nil
+          report_recorder: ReportRecorder.t(),
+          nack_generator: NACKGenerator.t()
         }
 
   @typedoc """
@@ -58,9 +59,7 @@ defmodule ExWebRTC.RTPReceiver do
   end
 
   @doc false
-  @spec new(MediaStreamTrack.t(), RTPCodecParameters.t() | nil, [ExSDP.Attribute.Extmap.t()], [
-          atom()
-        ]) ::
+  @spec new(MediaStreamTrack.t(), RTPCodecParameters.t() | nil, [Extmap.t()], [atom()]) ::
           receiver()
   def new(track, codec, rtp_hdr_exts, features) do
     # layer `nil` is for the packets without RID/ no simulcast
@@ -76,10 +75,7 @@ defmodule ExWebRTC.RTPReceiver do
   end
 
   @doc false
-  @spec update(receiver(), RTPCodecParameters.t() | nil, [ExSDP.Attribute.Extmap.t()], [
-          String.t()
-        ]) ::
-          receiver()
+  @spec update(receiver(), RTPCodecParameters.t() | nil, [Extmap.t()], [String.t()]) :: receiver()
   def update(receiver, codec, rtp_hdr_exts, stream_ids) do
     simulcast_demuxer = SimulcastDemuxer.update(receiver.simulcast_demuxer, rtp_hdr_exts)
     track = %MediaStreamTrack{receiver.track | streams: stream_ids}
@@ -115,7 +111,7 @@ defmodule ExWebRTC.RTPReceiver do
     {rid, simulcast_demuxer} = SimulcastDemuxer.demux_packet(receiver.simulcast_demuxer, packet)
     layer = receiver.layers[rid] || init_layer(receiver.codec)
 
-    # we only turn off the actual recording when features are not on
+    # we only turn off the actual recording when features are not on,
     # other stuff (like updating some metadata in the recorders etc)
     # does not meaningfully impact performance
     report_recorder =
