@@ -1090,7 +1090,8 @@ defmodule ExWebRTC.PeerConnectionTest do
       assert %ExSDP.Attribute.Extmap{id: twcc_id} =
                Enum.find(transceiver.header_extensions, &(&1.uri == @twcc_uri))
 
-      assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :video, id: id2}}}
+      assert_receive {:ex_webrtc, ^pc2,
+                      {:track, %MediaStreamTrack{kind: :video, id: id2, rids: ^rids}}}
 
       rids
       |> Enum.with_index()

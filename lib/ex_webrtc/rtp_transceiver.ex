@@ -189,8 +189,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
-    stream_ids = SDPUtils.get_stream_ids(mline)
-    track = MediaStreamTrack.new(mline.type, stream_ids)
+    track = MediaStreamTrack.from_mline(mline)
     {codec, codec_rtx} = get_default_codec(codecs)
 
     id = Utils.generate_id()
