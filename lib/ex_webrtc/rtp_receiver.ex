@@ -65,7 +65,7 @@ defmodule ExWebRTC.RTPReceiver do
       track: track,
       codec: codec,
       simulcast_demuxer: SimulcastDemuxer.new(rtp_hdr_exts),
-      layers: %{nil => init_layer(codec)}
+      layers: %{}
     }
   end
 
@@ -213,8 +213,10 @@ defmodule ExWebRTC.RTPReceiver do
   @spec get_stats(receiver(), non_neg_integer()) :: [map()]
   def get_stats(receiver, timestamp) do
     Enum.map(receiver.layers, fn {rid, layer} ->
+      id = if(rid == nil, do: receiver.track.id, else: "#{receiver.track.id}:#{rid}")
+
       %{
-        id: receiver.track.id,
+        id: id,
         rid: rid,
         type: :inbound_rtp,
         timestamp: timestamp,
