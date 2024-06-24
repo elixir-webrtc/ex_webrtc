@@ -74,6 +74,18 @@ defmodule ExWebRTC.SDPUtils do
     end)
   end
 
+  @spec get_rids(ExSDP.Media.t()) :: [String.t()] | nil
+  def get_rids(media) do
+    Enum.flat_map(media.attributes, fn
+      %RID{direction: :send, id: id} -> [id]
+      _other -> []
+    end)
+    |> case do
+      [] -> nil
+      other -> other
+    end
+  end
+
   @spec reverse_simulcast(ExSDP.Media.t()) :: [ExSDP.Attribute.t()]
   def reverse_simulcast(media) do
     Enum.flat_map(media.attributes, fn
