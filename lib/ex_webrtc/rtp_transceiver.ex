@@ -133,7 +133,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
     id = Utils.generate_id()
 
-    if :reports in config.features do
+    if :rtcp_reports in config.features do
       send(self(), {:send_reports, id})
     end
 
@@ -194,7 +194,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
     id = Utils.generate_id()
 
-    if :reports in config.features do
+    if :rtcp_reports in config.features do
       send(self(), {:send_reports, id})
     end
 

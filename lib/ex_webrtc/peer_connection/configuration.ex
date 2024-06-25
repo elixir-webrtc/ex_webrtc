@@ -39,6 +39,11 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         packetization_mode: 1,
         profile_level_id: 0x42001F
       }
+    },
+    %RTPCodecParameters{
+      payload_type: 45,
+      mime_type: "video/AV1",
+      clock_rate: 90_000
     }
   ]
 
@@ -61,22 +66,22 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   This header extension will be included in all of the m-lines of provided `type` (or for both audio and video
   if `:all` is used).
 
-  Use `default_header_extensions/0` to check the RTP header extensions included by default.
+  Use `default_rtp_header_extensions/0` to check the RTP header extensions included by default.
   When passing a list of RTP header extensions to `t:options/0`, it will override the default RTP header extensions.
 
   Be aware that some of the features (see `t:feature/0`) can implicitly add RTP header extensions).
   """
-  @type header_extension() :: %{
+  @type rtp_header_extension() :: %{
           type: :audio | :video | :all,
           uri: String.t()
         }
 
-  @default_header_extensions [%{type: :all, uri: @mid_uri}, %{type: :video, uri: @rid_uri}]
+  @default_rtp_header_extensions [%{type: :all, uri: @mid_uri}, %{type: :video, uri: @rid_uri}]
 
   @typedoc """
   RTCP feedbacks that are going to be added by default to all of the codecs.
 
-  Use `default_feedbacks/0` to check the RTCP feedbacks included by default. When passing a
+  Use `default_rtcp_feedbacks/0` to check the RTCP feedbacks included by default. When passing a
   list of RTPC feedbacks to `t:options/0`, it will override the default feedbacks.
 
   Be aware that some of the features (see `t:feature/0`) can implicitly add RTCP feedbacks.
@@ -86,7 +91,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           feedback: :nack | :fir | :pli | :twcc
         }
 
-  @default_feedbacks [
+  @default_rtcp_feedbacks [
     %{type: :video, feedback: :fir},
     %{type: :video, feedback: :pli}
   ]
@@ -98,10 +103,10 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   send them to the remote peer (implicitly adds the `http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01` to negotiated
   RTP header extensions and `:twcc` RTCP feedback to all of the negotiated codecs, both audio and video).
   * `:inbound_rtx` - ExWebRTC's PeerConnection will generate NACK RTCP feedbacks in response to missing incoming video packets and properly handle incoming
-  retransmissions (implicitly adds the `:nack` RTCP feedback and a maching `a=rtpmap:[id] rtx/...` attribute for every negotiated video codec).
+  retransmissions (implicitly adds the `:nack` RTCP feedback and a matching `a=rtpmap:[id] rtx/...` attribute for every negotiated video codec).
   * `:outbound_rtx` - ExWebRTC's PeerConnection will respond to incoming NACK RTCP feedbacks and retransmit packets accordingly (implicitly adds the same
   attributes as `:inbound_rtx`).
-  * `:reports` - ExWebRTC's PeerConnection will generate and send RTCP Sender/Receiver Reports based on incoming/send RTP packets.
+  * `:rtcp_reports` - ExWebRTC's PeerConnection will generate and send RTCP Sender/Receiver Reports based on incoming/send RTP packets.
 
   Use `default_features/0` to get the list of features enabled by default. When passing a list of features to
   `t:options/0`, it will override the default features.
@@ -110,9 +115,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           :twcc
           | :inbound_rtx
           | :outbound_rtx
-          | :reports
+          | :rtcp_reports
 
-  @default_features [:twcc, :inbound_rtx, :outbound_rtx, :reports]
+  @default_features [:twcc, :inbound_rtx, :outbound_rtx, :rtcp_reports]
 
   @typedoc """
   Options that can be passed to `ExWebRTC.PeerConnection.start_link/1`.
@@ -124,9 +129,14 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   * `audio_codecs` and `video_codecs` - lists of audio and video codecs to negotiate. By default these are equal to
   `default_audio_codecs/0` and `default_video_codecs/0`. To extend the list with your own codecs, do
   `audio_codecs: Configuration.default_audio_codecs() ++ my_codecs`.
-  * `header_extensions` - list of RTP header extensions to negotiate. Refer to `t:header_extension/0` for more information.
-  * `feedbacks` - list of RTCP feedbacks to negotiate. Refer to `t:rtcp_feedback/0` for more information.
   * `features` - feature flags for some of the ExWebRTC functinalities. Refer to `t:feature/0` for more information.
+  * `rtp_header_extensions` - list of RTP header extensions to negotiate. Refer to `t:rtp_header_extension/0` for more information.
+  * `rtcp_feedbacks` - list of RTCP feedbacks to negotiate. Refer to `t:rtcp_feedback/0` for more information.
+
+  Instead of manually enabling an RTP header extension or an RTCP feedback, you may want to use a `t:feature/0` instead, which will enable
+  necessary header extensions under the hood. If you enable RTCP feedback/RTP header extension corresponding to some feature (but not the feature itself),
+  the functionality might not work (e.g. even if you enable TWCC RTP header extension and TWCC feedbacks, without enabling the `:twcc` features, TWCC feedbacks
+  won't be sent).
 
   ExWebRTC does not allow for configuration of some of the W3C options, but behaves as if these values were used:
   * bundle_policy - `max_bundle`
@@ -140,9 +150,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_ip_filter: (:inet.ip_address() -> boolean()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
-          header_extensions: [header_extension()],
-          feedbacks: [rtcp_feedback()],
-          features: [feature()]
+          features: [feature()],
+          rtp_header_extensions: [rtp_header_extension()],
+          rtcp_feedbacks: [rtcp_feedback()]
         ]
 
   @typedoc false
@@ -188,14 +198,14 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @doc """
   Returns a list of default RTCP feedbacks include in SDP offer/answer.
   """
-  @spec default_feedbacks() :: [rtcp_feedback()]
-  def default_feedbacks(), do: @default_feedbacks
+  @spec default_rtcp_feedbacks() :: [rtcp_feedback()]
+  def default_rtcp_feedbacks(), do: @default_rtcp_feedbacks
 
   @doc """
   Returns a list of default RTP header extensions to include in SDP offer/answer.
   """
-  @spec default_header_extensions() :: [header_extension()]
-  def default_header_extensions(), do: @default_header_extensions
+  @spec default_rtp_header_extensions() :: [rtp_header_extension()]
+  def default_rtp_header_extensions(), do: @default_rtp_header_extensions
 
   @doc """
   Returns a list of PeerConnection features enabled by default.
@@ -206,7 +216,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @doc false
   @spec from_options!(options()) :: t()
   def from_options!(options) do
-    extensions = Keyword.get(options, :header_extensions, @default_header_extensions)
+    extensions = Keyword.get(options, :rtp_header_extensions, @default_rtp_header_extensions)
 
     unless %{type: :all, uri: @mid_uri} in extensions do
       raise "Mandatory MID RTP header extensions was not found in #{inspect(extensions)}"
@@ -222,10 +232,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       |> Enum.map(fn {type, uri, id} -> {type, %Extmap{id: id, uri: uri}} end)
       |> Enum.split_with(fn {type, _extmap} -> type == :audio end)
 
-    feedbacks = Keyword.get(options, :feedbacks, @default_feedbacks)
+    feedbacks = Keyword.get(options, :rtcp_feedbacks, @default_rtcp_feedbacks)
 
     options
-    |> Keyword.put_new(:controlling_process, self())
     |> Keyword.put_new(:ice_ip_filter, fn _ -> true end)
     |> Keyword.put(:audio_extensions, Enum.map(audio_extensions, fn {_, ext} -> ext end))
     |> Keyword.put(:video_extensions, Enum.map(video_extensions, fn {_, ext} -> ext end))
@@ -292,32 +301,26 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       video_codecs
       |> Enum.reject(&rtx?/1)
       |> Enum.flat_map_reduce(free_pts, fn codec, pts ->
-        video_codecs
-        |> Enum.any?(fn maybe_rtx ->
-          rtx?(maybe_rtx) and maybe_rtx.sdp_fmtp_line.apt == codec.payload_type
-        end)
-        |> case do
-          false ->
-            [pt | other_pts] = pts
+        if has_rtx?(codec, video_codecs) do
+          {[], pts}
+        else
+          [pt | other_pts] = pts
 
-            rtx = %RTPCodecParameters{
-              mime_type: "video/rtx",
-              payload_type: pt,
-              clock_rate: codec.clock_rate,
-              sdp_fmtp_line: %FMTP{pt: pt, apt: codec.payload_type}
-            }
+          rtx = %RTPCodecParameters{
+            mime_type: "video/rtx",
+            payload_type: pt,
+            clock_rate: codec.clock_rate,
+            sdp_fmtp_line: %FMTP{pt: pt, apt: codec.payload_type}
+          }
 
-            {[rtx], other_pts}
-
-          true ->
-            {[], pts}
+          {[rtx], other_pts}
         end
       end)
 
     %__MODULE__{config | video_codecs: video_codecs ++ rtxs, video_extensions: video_extensions}
   end
 
-  defp add_feature(:reports, config), do: config
+  defp add_feature(:rtcp_reports, config), do: config
 
   defp populate_feedbacks(config, feedbacks) do
     %__MODULE__{
@@ -346,12 +349,12 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   defp get_free_extension_ids(extensions) do
     used_ids = Enum.map(extensions, fn %Extmap{id: id} -> id end)
-    (Range.to_list(1..14) -- used_ids) |> Enum.uniq()
+    Range.to_list(1..14) -- used_ids
   end
 
   defp get_free_payload_types(codecs) do
     used_pts = Enum.map(codecs, fn %RTPCodecParameters{payload_type: pt} -> pt end)
-    (Range.to_list(96..127) -- used_pts) |> Enum.uniq()
+    Range.to_list(96..127) -- used_pts
   end
 
   defp add_extension(extensions, new_ext) do
@@ -377,30 +380,39 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   defp rtx?(codec), do: String.ends_with?(codec.mime_type, "/rtx")
 
+  defp has_rtx?(codec, codecs) do
+    Enum.any?(codecs, fn maybe_rtx ->
+      rtx?(maybe_rtx) and maybe_rtx.sdp_fmtp_line.apt == codec.payload_type
+    end)
+  end
+
   @doc false
   @spec update(t(), ExSDP.t()) :: t()
   def update(config, sdp) do
     config
-    |> update_header_extensions(sdp)
+    |> update_extensions(sdp)
     |> update_codecs(sdp)
   end
 
-  defp update_header_extensions(config, sdp) do
+  defp update_extensions(config, sdp) do
     # we assume that extension have the same id no matter the mline
     %__MODULE__{audio_extensions: audio_extensions, video_extensions: video_extensions} = config
     sdp_extensions = SDPUtils.get_extensions(sdp)
     free_ids = get_free_extension_ids(sdp_extensions)
 
     {audio_extensions, free_ids} =
-      do_update_header_extensions(audio_extensions, sdp_extensions, free_ids)
+      do_update_extensions(audio_extensions, sdp_extensions, free_ids)
 
     {video_extensions, _free_ids} =
-      do_update_header_extensions(video_extensions, sdp_extensions, free_ids)
+      do_update_extensions(video_extensions, sdp_extensions, free_ids)
 
     %__MODULE__{config | audio_extensions: audio_extensions, video_extensions: video_extensions}
   end
 
-  defp do_update_header_extensions(extensions, sdp_extensions, free_ids) do
+  defp do_update_extensions(extensions, sdp_extensions, free_ids) do
+    # we replace extension ids in config to ids from the SDP
+    # in case we have an extension in config but not in SDP, we replace
+    # its id to some free (not present in SDP) id, so it doesn't conflict
     Enum.map_reduce(extensions, free_ids, fn ext, free_ids ->
       sdp_extensions
       |> Enum.find(&(&1.uri == ext.uri))
@@ -427,8 +439,13 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   end
 
   defp do_update_codecs(codecs, sdp_codecs, free_pts) do
-    {sdp_rtxs, sdp_codecs} = Enum.split_with(sdp_codecs, &String.ends_with?(&1.mime_type, "/rtx"))
-    {rtxs, codecs} = Enum.split_with(codecs, &String.ends_with?(&1.mime_type, "/rtx"))
+    # we replace codec payload_types in config to payload types from SDP
+    # both normal codecs and rtx (we also update apt FMTP attribute in rtxs)
+    # other codecs that are present in config but not in SDP
+    # are also updated with payloadtypes form a pool of free payload type (not present in SDP)
+    # to make sure they don't conflict
+    {sdp_rtxs, sdp_codecs} = Enum.split_with(sdp_codecs, &rtx?/1)
+    {rtxs, codecs} = Enum.split_with(codecs, &rtx?/1)
 
     {codecs, {free_pts, mapping}} =
       Enum.map_reduce(codecs, {free_pts, %{}}, fn codec, {free_pts, mapping} ->

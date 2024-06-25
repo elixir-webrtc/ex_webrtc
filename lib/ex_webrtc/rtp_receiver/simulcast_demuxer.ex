@@ -68,7 +68,7 @@ defmodule ExWebRTC.RTPReceiver.SimulcastDemuxer do
 
     case Map.fetch(demuxer.ssrc_to_rid, ssrc) do
       {:ok, last_rid} when rid != nil and rid != last_rid ->
-        # temporary, as we belive this case shouldn't occur
+        # temporary, as we believe this case shouldn't occur
         raise "Received new RID for already mapped SSRC. SSRC table: #{inspect(demuxer.ssrc_to_rid)}, packet ssrc: #{ssrc}, packet RID: #{rid}"
 
       :error when rid != nil ->

@@ -100,7 +100,11 @@ defmodule ExWebRTC.PeerConnection do
   """
   @spec start(Configuration.options(), GenServer.options()) :: GenServer.on_start()
   def start(pc_opts \\ [], gen_server_opts \\ []) do
-    config = Configuration.from_options!(pc_opts)
+    config =
+      pc_opts
+      |> Keyword.put_new(:controlling_process, self())
+      |> Configuration.from_options!()
+
     GenServer.start(__MODULE__, config, gen_server_opts)
   end
 
@@ -111,7 +115,11 @@ defmodule ExWebRTC.PeerConnection do
   """
   @spec start_link(Configuration.options(), GenServer.options()) :: GenServer.on_start()
   def start_link(pc_opts \\ [], gen_server_opts \\ []) do
-    config = Configuration.from_options!(pc_opts)
+    config =
+      pc_opts
+      |> Keyword.put_new(:controlling_process, self())
+      |> Configuration.from_options!()
+
     GenServer.start_link(__MODULE__, config, gen_server_opts)
   end
 
@@ -1091,7 +1099,7 @@ defmodule ExWebRTC.PeerConnection do
     with {:ok, packet} <- ExRTP.Packet.decode(data),
          {:ok, mid, demuxer} <- Demuxer.demux_packet(state.demuxer, packet),
          {idx, t} <- find_transceiver(state.transceivers, mid) do
-      # id == nil means we either did not negotaite TWCC, or it was turned off
+      # id == nil means we either did not negotiate TWCC, or it was turned off
 
       twcc_recorder =
         with id when id != nil <- state.twcc_extension_id,
@@ -1805,7 +1813,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp handle_rtcp_packet(state, %ExRTCP.Packet.SenderReport{} = report) do
-    with true <- :reports in state.config.features,
+    with true <- :rtcp_reports in state.config.features,
          {:ok, mid} <- Demuxer.demux_ssrc(state.demuxer, report.ssrc),
          {idx, transceiver} <- find_transceiver(state.transceivers, mid) do
       transceiver = RTPTransceiver.receive_report(transceiver, report)

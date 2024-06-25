@@ -87,7 +87,7 @@ defmodule ExWebRTC.RTPSender do
       packets_sent: 0,
       bytes_sent: 0,
       markers_sent: 0,
-      reports?: :reports in features,
+      reports?: :rtcp_reports in features,
       outbound_rtx?: :outbound_rtx in features,
       report_recorder: %ReportRecorder{clock_rate: codec && codec.clock_rate},
       nack_responder: %NACKResponder{}

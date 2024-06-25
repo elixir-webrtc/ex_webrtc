@@ -58,8 +58,8 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
         ice_ip_filter: fn _ -> true end,
         audio_codecs: [%{@opus_codec | payload_type: 111}],
         video_codecs: [%{@vp8_codec | payload_type: 100}],
-        header_extensions: [%{type: :all, uri: @mid_uri}],
-        feedbacks: [],
+        rtp_header_extensions: [%{type: :all, uri: @mid_uri}],
+        rtcp_feedbacks: [],
         features: []
       ]
 
@@ -78,9 +78,10 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
     test "with TWCC enabled" do
       options = [
+        controlling_process: self(),
         audio_codecs: [%{@opus_codec | payload_type: 100}],
         video_codecs: [%{@vp8_codec | payload_type: 101}],
-        feedbacks: [],
+        rtcp_feedbacks: [],
         features: [:twcc]
       ]
 
@@ -101,8 +102,9 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
     test "with RTX enabled" do
       options = [
+        controlling_process: self(),
         video_codecs: [%{@h264_codec | payload_type: 100}, %{@vp8_codec | payload_type: 101}],
-        feedbacks: [],
+        rtcp_feedbacks: [],
         features: [:inbound_rtx, :outbound_rtx]
       ]
 
@@ -131,7 +133,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
     end
 
     test "with defaults" do
-      config = Configuration.from_options!([])
+      config = Configuration.from_options!(controlling_process: self())
 
       assert %Configuration{
                video_codecs: video_codecs,
@@ -144,7 +146,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       assert Enum.sort(features) == [
                :inbound_rtx,
                :outbound_rtx,
-               :reports,
+               :rtcp_reports,
                :twcc
              ]
 
@@ -171,8 +173,9 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
       og_config =
         Configuration.from_options!(
+          controlling_process: self(),
           features: [],
-          header_extensions: extensions
+          rtp_header_extensions: extensions
         )
 
       # the ids in SDP are different than in config
@@ -249,6 +252,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
     test "updates codec payload types w/o RTX" do
       og_config =
         Configuration.from_options!(
+          controlling_process: self(),
           features: [],
           video_codecs: [%{@h264_codec | payload_type: 100}, %{@vp8_codec | payload_type: 101}],
           audio_codecs: [%{@opus_codec | payload_type: 111}]
@@ -278,6 +282,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
     test "updates codec payload types with RTX" do
       og_config =
         Configuration.from_options!(
+          controlling_process: self(),
           features: [],
           audio_codecs: [],
           video_codecs: [
@@ -329,9 +334,10 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
   test "intersect_codecs/2" do
     og_config =
       Configuration.from_options!(
+        controlling_process: self(),
         audio_codecs: [%{@opus_codec | payload_type: 111}],
         video_codecs: [%{@h264_codec | payload_type: 112}, %{@vp8_codec | payload_type: 113}],
-        feedbacks: [%{type: :all, feedback: :pli}],
+        rtcp_feedbacks: [%{type: :all, feedback: :pli}],
         features: [:inbound_rtx]
       )
 
@@ -389,7 +395,8 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
   test "intersect_extensions/2" do
     og_config =
       Configuration.from_options!(
-        header_extensions: [%{type: :all, uri: @mid_uri}, %{type: :video, uri: @twcc_uri}],
+        controlling_process: self(),
+        rtp_header_extensions: [%{type: :all, uri: @mid_uri}, %{type: :video, uri: @twcc_uri}],
         features: []
       )
 

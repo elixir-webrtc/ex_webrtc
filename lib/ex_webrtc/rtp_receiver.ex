@@ -68,7 +68,7 @@ defmodule ExWebRTC.RTPReceiver do
       track: track,
       codec: codec,
       simulcast_demuxer: SimulcastDemuxer.new(rtp_hdr_exts),
-      reports?: :reports in features,
+      reports?: :rtcp_reports in features,
       inbound_rtx?: :inbound_rtx in features,
       layers: %{}
     }
