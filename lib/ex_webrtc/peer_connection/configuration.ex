@@ -133,7 +133,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   * `rtp_header_extensions` - list of RTP header extensions to negotiate. Refer to `t:rtp_header_extension/0` for more information.
   * `rtcp_feedbacks` - list of RTCP feedbacks to negotiate. Refer to `t:rtcp_feedback/0` for more information.
 
-  Instead of manually enabling an RTP header extension or an RTCP feedback, you may want to use a `t:feature/0` instead, which will enable
+  Instead of manually enabling an RTP header extension or an RTCP feedback, you may want to use a `t:feature/0`, which will enable
   necessary header extensions under the hood. If you enable RTCP feedback/RTP header extension corresponding to some feature (but not the feature itself),
   the functionality might not work (e.g. even if you enable TWCC RTP header extension and TWCC feedbacks, without enabling the `:twcc` features, TWCC feedbacks
   won't be sent).
@@ -439,10 +439,10 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   end
 
   defp do_update_codecs(codecs, sdp_codecs, free_pts) do
-    # we replace codec payload_types in config to payload types from SDP
+    # we replace codec payload types in config to payload types from SDP
     # both normal codecs and rtx (we also update apt FMTP attribute in rtxs)
     # other codecs that are present in config but not in SDP
-    # are also updated with payloadtypes form a pool of free payload type (not present in SDP)
+    # are also updated with values from a pool of free payload types (not present in SDP)
     # to make sure they don't conflict
     {sdp_rtxs, sdp_codecs} = Enum.split_with(sdp_codecs, &rtx?/1)
     {rtxs, codecs} = Enum.split_with(codecs, &rtx?/1)
