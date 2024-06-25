@@ -30,14 +30,7 @@ defmodule SendFromFile.PeerHandler do
     %RTPCodecParameters{
       payload_type: 96,
       mime_type: "video/VP8",
-      clock_rate: 90_000,
-      rtcp_fbs: [%ExSDP.Attribute.RTCPFeedback{pt: 96, feedback_type: :nack}]
-    },
-    %RTPCodecParameters{
-      payload_type: 97,
-      mime_type: "video/rtx",
-      clock_rate: 90_000,
-      sdp_fmtp_line: %ExSDP.Attribute.FMTP{pt: 97, apt: 96}
+      clock_rate: 90_000
     }
   ]
 

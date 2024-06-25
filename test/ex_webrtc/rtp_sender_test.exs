@@ -22,7 +22,7 @@ defmodule ExWebRTC.RTPSenderTest do
 
     rtp_hdr_exts = [%Extmap{id: 1, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}]
 
-    sender = RTPSender.new(track, codec, nil, rtp_hdr_exts, "1", @ssrc, @rtx_ssrc)
+    sender = RTPSender.new(track, codec, nil, rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
     %{sender: sender}
   end

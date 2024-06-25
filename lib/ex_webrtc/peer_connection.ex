@@ -100,10 +100,12 @@ defmodule ExWebRTC.PeerConnection do
   """
   @spec start(Configuration.options(), GenServer.options()) :: GenServer.on_start()
   def start(pc_opts \\ [], gen_server_opts \\ []) do
-    {controlling_process, pc_opts} = Keyword.pop(pc_opts, :controlling_process)
-    controlling_process = controlling_process || self()
-    configuration = Configuration.from_options!(pc_opts)
-    GenServer.start(__MODULE__, {controlling_process, configuration}, gen_server_opts)
+    config =
+      pc_opts
+      |> Keyword.put_new(:controlling_process, self())
+      |> Configuration.from_options!()
+
+    GenServer.start(__MODULE__, config, gen_server_opts)
   end
 
   @doc """
@@ -113,10 +115,12 @@ defmodule ExWebRTC.PeerConnection do
   """
   @spec start_link(Configuration.options(), GenServer.options()) :: GenServer.on_start()
   def start_link(pc_opts \\ [], gen_server_opts \\ []) do
-    {controlling_process, pc_opts} = Keyword.pop(pc_opts, :controlling_process)
-    controlling_process = controlling_process || self()
-    configuration = Configuration.from_options!(pc_opts)
-    GenServer.start_link(__MODULE__, {controlling_process, configuration}, gen_server_opts)
+    config =
+      pc_opts
+      |> Keyword.put_new(:controlling_process, self())
+      |> Configuration.from_options!()
+
+    GenServer.start_link(__MODULE__, config, gen_server_opts)
   end
 
   @doc """
@@ -416,7 +420,7 @@ defmodule ExWebRTC.PeerConnection do
   #### CALLBACKS ####
 
   @impl true
-  def init({owner, config}) do
+  def init(config) do
     {:ok, _} = Registry.register(ExWebRTC.Registry, self(), self())
 
     ice_config = [
@@ -431,8 +435,17 @@ defmodule ExWebRTC.PeerConnection do
     # route data to the DTLSTransport
     :ok = DefaultICETransport.on_data(ice_pid, dtls_transport)
 
+    twcc_id =
+      (config.video_extensions ++ config.audio_extensions)
+      |> Enum.find(&(&1.uri == @twcc_uri))
+      |> then(&if(:twcc in config.features, do: &1.id, else: nil))
+
+    if twcc_id != nil do
+      Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
+    end
+
     state = %{
-      owner: owner,
+      owner: config.controlling_process,
       config: config,
       current_local_desc: nil,
       pending_local_desc: nil,
@@ -453,10 +466,10 @@ defmodule ExWebRTC.PeerConnection do
       last_answer: nil,
       peer_fingerprint: nil,
       sent_packets: 0,
+      twcc_extension_id: twcc_id,
       twcc_recorder: TWCCRecorder.new()
     }
 
-    Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
     notify(state.owner, {:connection_state_change, :new})
     notify(state.owner, {:signaling_state_change, :stable})
 
@@ -717,67 +730,58 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call({:set_transceiver_direction, tr_id, direction}, _from, state) do
-    idx = Enum.find_index(state.transceivers, fn tr -> tr.id == tr_id end)
-
-    case idx do
-      nil ->
-        {:reply, {:error, :invalid_transceiver_id}, state}
-
-      idx ->
-        tr = Enum.at(state.transceivers, idx)
-        tr = %{tr | direction: direction}
+    state.transceivers
+    |> Enum.with_index()
+    |> Enum.find(fn {tr, _idx} -> tr.id == tr_id end)
+    |> case do
+      {tr, idx} ->
+        tr = RTPTransceiver.set_direction(tr, direction)
         transceivers = List.replace_at(state.transceivers, idx, tr)
         state = %{state | transceivers: transceivers}
         state = update_negotiation_needed(state)
         {:reply, :ok, state}
+
+      nil ->
+        {:reply, {:error, :invalid_transceiver_id}, state}
     end
   end
 
   @impl true
   def handle_call({:stop_transceiver, tr_id}, _from, state) do
-    idx = Enum.find_index(state.transceivers, fn tr -> tr.id == tr_id end)
+    state.transceivers
+    |> Enum.with_index()
+    |> Enum.find(fn {tr, _idx} -> tr.id == tr_id end)
+    |> case do
+      {tr, _idx} when tr.stopping ->
+        {:reply, :ok, state}
 
-    case idx do
+      {tr, idx} ->
+        on_track_ended = on_track_ended(state.owner, tr.receiver.track.id)
+        tr = RTPTransceiver.stop_sending_and_receiving(tr, on_track_ended)
+        transceivers = List.replace_at(state.transceivers, idx, tr)
+        state = %{state | transceivers: transceivers}
+        state = update_negotiation_needed(state)
+        {:reply, :ok, state}
+
       nil ->
         {:reply, {:error, :invalid_transceiver_id}, state}
-
-      idx ->
-        tr = Enum.at(state.transceivers, idx)
-
-        if tr.stopping do
-          {:reply, :ok, state}
-        else
-          on_track_ended = on_track_ended(state.owner, tr.receiver.track.id)
-          tr = RTPTransceiver.stop_sending_and_receiving(tr, on_track_ended)
-          transceivers = List.replace_at(state.transceivers, idx, tr)
-          state = %{state | transceivers: transceivers}
-          state = update_negotiation_needed(state)
-          {:reply, :ok, state}
-        end
     end
   end
 
   @impl true
   def handle_call({:add_track, %MediaStreamTrack{kind: kind} = track}, _from, state) do
     # we ignore the condition that sender has never been used to send
-    free_transceiver_idx =
-      Enum.find_index(state.transceivers, fn
-        %{
-          kind: ^kind,
-          sender: %{track: nil},
-          current_direction: direction
-        }
-        when direction not in [:sendrecv, :sendonly] ->
-          true
-
-        _other ->
-          false
-      end)
-
     {ssrc, rtx_ssrc} = generate_ssrcs(state)
 
     {transceivers, sender} =
-      case free_transceiver_idx do
+      state.transceivers
+      |> Enum.with_index()
+      |> Enum.find(fn {tr, _idx} -> RTPTransceiver.can_add_track?(tr, kind) end)
+      |> case do
+        {tr, idx} ->
+          tr = RTPTransceiver.add_track(tr, track, ssrc, rtx_ssrc)
+          {List.replace_at(state.transceivers, idx, tr), tr.sender}
+
         nil ->
           options = [
             direction: :sendrecv,
@@ -788,61 +792,47 @@ defmodule ExWebRTC.PeerConnection do
 
           tr = RTPTransceiver.new(kind, track, state.config, options)
           {state.transceivers ++ [tr], tr.sender}
-
-        idx ->
-          tr = Enum.at(state.transceivers, idx)
-          tr = RTPTransceiver.add_track(tr, track, ssrc, rtx_ssrc)
-          {List.replace_at(state.transceivers, idx, tr), tr.sender}
       end
 
-    state = %{state | transceivers: transceivers}
-
-    state = update_negotiation_needed(state)
+    state =
+      %{state | transceivers: transceivers}
+      |> update_negotiation_needed()
 
     {:reply, {:ok, RTPSender.to_struct(sender)}, state}
   end
 
   @impl true
   def handle_call({:replace_track, sender_id, track}, _from, state) do
-    tr_idx = Enum.find_index(state.transceivers, fn tr -> tr.sender.id == sender_id end)
+    state.transceivers
+    |> Enum.with_index()
+    |> Enum.find(fn {tr, _idx} -> tr.sender.id == sender_id end)
+    |> case do
+      {tr, _idx} when track != nil and tr.kind != track.kind ->
+        {:reply, {:error, :invalid_track_type}, state}
 
-    case tr_idx do
+      {tr, idx} when tr.direction in [:sendrecv, :sendonly] ->
+        {ssrc, rtx_ssrc} = generate_ssrcs(state)
+        tr = RTPTransceiver.replace_track(tr, track, ssrc, rtx_ssrc)
+        transceivers = List.replace_at(state.transceivers, idx, tr)
+        state = %{state | transceivers: transceivers}
+        {:reply, :ok, state}
+
+      {_tr, _idx} ->
+        # that's not compliant with the W3C but it's safer not
+        # to allow for this until we have clear use case
+        {:reply, {:error, :invalid_transceiver_direction}, state}
+
       nil ->
         {:reply, {:error, :invalid_sender_id}, state}
-
-      tr_idx ->
-        tr = Enum.at(state.transceivers, tr_idx)
-
-        cond do
-          track != nil and tr.kind != track.kind ->
-            {:reply, {:error, :invalid_track_type}, state}
-
-          tr.direction in [:sendrecv, :sendonly] ->
-            {ssrc, rtx_ssrc} = generate_ssrcs(state)
-            tr = RTPTransceiver.replace_track(tr, track, ssrc, rtx_ssrc)
-            transceivers = List.replace_at(state.transceivers, tr_idx, tr)
-            state = %{state | transceivers: transceivers}
-            {:reply, :ok, state}
-
-          true ->
-            # that's not compliant with the W3C but it's safer not
-            # to allow for this until we have clear use case
-            {:reply, {:error, :invalid_transceiver_direction}, state}
-        end
     end
   end
 
   @impl true
   def handle_call({:remove_track, sender_id}, _from, state) do
-    tr_idx =
-      state.transceivers
-      |> Stream.with_index()
-      |> Enum.find(fn {tr, _idx} -> tr.sender.id == sender_id end)
-
-    case tr_idx do
-      nil ->
-        {:reply, {:error, :invalid_sender_id}, state}
-
+    state.transceivers
+    |> Stream.with_index()
+    |> Enum.find(fn {tr, _idx} -> tr.sender.id == sender_id end)
+    |> case do
       {tr, _idx} when tr.sender.track == nil ->
         {:reply, :ok, state}
 
@@ -852,6 +842,9 @@ defmodule ExWebRTC.PeerConnection do
         state = %{state | transceivers: transceivers}
         state = update_negotiation_needed(state)
         {:reply, :ok, state}
+
+      nil ->
+        {:reply, {:error, :invalid_sender_id}, state}
     end
   end
 
@@ -988,30 +981,17 @@ defmodule ExWebRTC.PeerConnection do
 
     # TODO: iterating over transceivers is not optimal
     # but this is, most likely, going to be refactored anyways
-    tr_idx =
-      state.transceivers
-      |> Stream.with_index()
-      |> Enum.find(fn
-        {%{sender: %{track: %{id: id}}}, _idx} ->
-          id == track_id
-
-        _ ->
-          false
-      end)
-
-    case tr_idx do
-      nil ->
-        Logger.warning("""
-        Attempted to send packet to track with unrecognized id: #{inspect(track_id)}. \
-        Ignoring.\
-        """)
-
-        {:noreply, state}
-
-      {transceiver, idx} ->
+    state.transceivers
+    |> Enum.with_index()
+    |> Enum.find(fn {tr, _idx} -> tr.sender.track && tr.sender.track.id == track_id end)
+    |> case do
+      {tr, idx} ->
         {packet, state} =
-          case Map.fetch(state.config.video_rtp_hdr_exts, @twcc_uri) do
-            {:ok, %{id: id}} ->
+          case state.twcc_extension_id do
+            nil ->
+              {packet, state}
+
+            id ->
               twcc =
                 ExRTP.Packet.Extension.TWCC.new(state.sent_packets)
                 |> ExRTP.Packet.Extension.TWCC.to_raw(id)
@@ -1023,16 +1003,21 @@ defmodule ExWebRTC.PeerConnection do
 
               state = %{state | sent_packets: state.sent_packets + 1 &&& 0xFFFF}
               {packet, state}
-
-            :error ->
-              {packet, state}
           end
 
-        {packet, transceiver} = RTPTransceiver.send_packet(transceiver, packet, rtx?)
+        {packet, tr} = RTPTransceiver.send_packet(tr, packet, rtx?)
         :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
 
-        transceivers = List.replace_at(state.transceivers, idx, transceiver)
+        transceivers = List.replace_at(state.transceivers, idx, tr)
         state = %{state | transceivers: transceivers}
+
+        {:noreply, state}
+
+      nil ->
+        Logger.warning("""
+        Attempted to send packet to track with unrecognized id: #{inspect(track_id)}. \
+        Ignoring.\
+        """)
 
         {:noreply, state}
     end
@@ -1114,21 +1099,22 @@ defmodule ExWebRTC.PeerConnection do
     with {:ok, packet} <- ExRTP.Packet.decode(data),
          {:ok, mid, demuxer} <- Demuxer.demux_packet(state.demuxer, packet),
          {idx, t} <- find_transceiver(state.transceivers, mid) do
-      # we always update the ssrc's for the one's from the latest packet
-      # although this is not a necessity, the feedbacks are transport-wide
-      twcc_recorder = %TWCCRecorder{
-        state.twcc_recorder
-        | media_ssrc: packet.ssrc,
-          sender_ssrc: t.sender.ssrc
-      }
+      # id == nil means we either did not negotiate TWCC, or it was turned off
 
       twcc_recorder =
-        with {:ok, %{id: id}} <- Map.fetch(state.config.video_rtp_hdr_exts, @twcc_uri),
+        with id when id != nil <- state.twcc_extension_id,
              {:ok, raw_ext} <- ExRTP.Packet.fetch_extension(packet, id),
              {:ok, %{sequence_number: seq_no}} <- ExRTP.Packet.Extension.TWCC.from_raw(raw_ext) do
-          TWCCRecorder.record_packet(twcc_recorder, seq_no)
+          # we always update the ssrc's for the one's from the latest packet
+          # although this is not a necessity, the feedbacks are transport-wide
+          %TWCCRecorder{
+            state.twcc_recorder
+            | media_ssrc: packet.ssrc,
+              sender_ssrc: t.sender.ssrc
+          }
+          |> TWCCRecorder.record_packet(seq_no)
         else
-          _other -> twcc_recorder
+          _other -> state.twcc_recorder
         end
 
       transceivers =
@@ -1257,7 +1243,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info(msg, state) do
-    Logger.info("OTHER MSG #{inspect(msg)}")
+    Logger.info("Received unexpected message: #{inspect(msg)}")
     {:noreply, state}
   end
 
@@ -1431,7 +1417,13 @@ defmodule ExWebRTC.PeerConnection do
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
          {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp) do
       config = Configuration.update(state.config, sdp)
-      state = %{state | config: config}
+
+      twcc_id =
+        (config.video_extensions ++ config.audio_extensions)
+        |> Enum.find(&(&1.uri == @twcc_uri))
+        |> then(&if(:twcc in config.features, do: &1.id, else: nil))
+
+      state = %{state | config: config, twcc_extension_id: twcc_id}
 
       transceivers =
         process_mlines_remote(sdp.media, state.transceivers, type, state.config, state.owner)
@@ -1821,12 +1813,16 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp handle_rtcp_packet(state, %ExRTCP.Packet.SenderReport{} = report) do
-    with {:ok, mid} <- Demuxer.demux_ssrc(state.demuxer, report.ssrc),
+    with true <- :rtcp_reports in state.config.features,
+         {:ok, mid} <- Demuxer.demux_ssrc(state.demuxer, report.ssrc),
          {idx, transceiver} <- find_transceiver(state.transceivers, mid) do
       transceiver = RTPTransceiver.receive_report(transceiver, report)
       transceivers = List.replace_at(state.transceivers, idx, transceiver)
       %{state | transceivers: transceivers}
     else
+      false ->
+        state
+
       _other ->
         Logger.warning("Unable to handle RTCP Sender Report, packet: #{inspect(report)}")
         state
@@ -1834,25 +1830,25 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp handle_rtcp_packet(state, %ExRTCP.Packet.TransportFeedback.NACK{} = nack) do
-    transceiver =
+    if :outbound_rtx in state.config.features do
       state.transceivers
       |> Enum.with_index()
       |> Enum.find(fn {tr, _idx} -> tr.sender.ssrc == nack.media_ssrc end)
+      |> case do
+        nil ->
+          state
 
-    case transceiver do
-      nil ->
-        state
+        # in case NACK was received, but RTX was not negotiated
+        # as NACK and RTX are negotiated independently
+        {%{sender: %{rtx_pt: nil}}, _idx} ->
+          state
 
-      # in case NACK was received, but RTX was not negotiated
-      # as NACK and RTX are negotiated independently
-      {%{sender: %{rtx_pt: nil}}, _idx} ->
-        state
-
-      {tr, idx} ->
-        {packets, tr} = RTPTransceiver.receive_nack(tr, nack)
-        for packet <- packets, do: send_rtp(self(), tr.sender.track.id, packet, rtx?: true)
-        transceivers = List.replace_at(state.transceivers, idx, tr)
-        %{state | transceivers: transceivers}
+        {tr, idx} ->
+          {packets, tr} = RTPTransceiver.receive_nack(tr, nack)
+          for packet <- packets, do: send_rtp(self(), tr.sender.track.id, packet, rtx?: true)
+          transceivers = List.replace_at(state.transceivers, idx, tr)
+          %{state | transceivers: transceivers}
+      end
     end
   end
 

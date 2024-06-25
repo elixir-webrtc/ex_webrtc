@@ -6,6 +6,7 @@ defmodule ExWebRTC.RTPReceiver do
   require Logger
 
   alias ExRTCP.Packet.TransportFeedback.NACK
+  alias ExSDP.Attribute.Extmap
   alias ExWebRTC.{MediaStreamTrack, Utils, RTPCodecParameters}
   alias __MODULE__.{NACKGenerator, ReportRecorder, SimulcastDemuxer}
 
@@ -17,6 +18,8 @@ defmodule ExWebRTC.RTPReceiver do
           track: MediaStreamTrack.t(),
           codec: RTPCodecParameters.t() | nil,
           simulcast_demuxer: SimulcastDemuxer.t(),
+          reports?: boolean(),
+          inbound_rtx?: boolean(),
           layers: %{(String.t() | nil) => layer()}
         }
 
@@ -56,31 +59,34 @@ defmodule ExWebRTC.RTPReceiver do
   end
 
   @doc false
-  @spec new(MediaStreamTrack.t(), RTPCodecParameters.t() | nil, [ExSDP.Attribute.Extmap.t()]) ::
+  @spec new(MediaStreamTrack.t(), RTPCodecParameters.t() | nil, [Extmap.t()], [atom()]) ::
           receiver()
-  def new(track, codec, rtp_hdr_exts) do
+  def new(track, codec, rtp_hdr_exts, features) do
     # layer `nil` is for the packets without RID/ no simulcast
     %{
       id: Utils.generate_id(),
       track: track,
       codec: codec,
       simulcast_demuxer: SimulcastDemuxer.new(rtp_hdr_exts),
+      reports?: :rtcp_reports in features,
+      inbound_rtx?: :inbound_rtx in features,
       layers: %{}
     }
   end
 
   @doc false
-  @spec update(receiver(), RTPCodecParameters.t() | nil, [ExSDP.Attribute.Extmap.t()], [
-          String.t()
-        ]) ::
-          receiver()
+  @spec update(receiver(), RTPCodecParameters.t() | nil, [Extmap.t()], [String.t()]) :: receiver()
   def update(receiver, codec, rtp_hdr_exts, stream_ids) do
     simulcast_demuxer = SimulcastDemuxer.update(receiver.simulcast_demuxer, rtp_hdr_exts)
     track = %MediaStreamTrack{receiver.track | streams: stream_ids}
 
     layers =
       Map.new(receiver.layers, fn {rid, layer} ->
-        report_recorder = %ReportRecorder{clock_rate: codec && codec.clock_rate}
+        report_recorder = %ReportRecorder{
+          layer.report_recorder
+          | clock_rate: codec && codec.clock_rate
+        }
+
         {rid, %{layer | report_recorder: report_recorder}}
       end)
 
@@ -105,8 +111,22 @@ defmodule ExWebRTC.RTPReceiver do
     {rid, simulcast_demuxer} = SimulcastDemuxer.demux_packet(receiver.simulcast_demuxer, packet)
     layer = receiver.layers[rid] || init_layer(receiver.codec)
 
-    report_recorder = ReportRecorder.record_packet(layer.report_recorder, packet)
-    nack_generator = NACKGenerator.record_packet(layer.nack_generator, packet)
+    # we only turn off the actual recording when features are not on,
+    # other stuff (like updating some metadata in the recorders etc)
+    # does not meaningfully impact performance
+    report_recorder =
+      if receiver.reports? do
+        ReportRecorder.record_packet(layer.report_recorder, packet)
+      else
+        layer.report_recorder
+      end
+
+    nack_generator =
+      if receiver.inbound_rtx? do
+        NACKGenerator.record_packet(layer.nack_generator, packet)
+      else
+        layer.nack_generator
+      end
 
     layer = %{
       layer

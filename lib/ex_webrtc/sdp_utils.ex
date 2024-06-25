@@ -222,7 +222,7 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   @spec get_cert_fingerprint(ExSDP.t()) ::
-          {:ok, {:fingerprint, {:sha256, binary()}}}
+          {:ok, {:fingerprint, {atom(), binary()}}}
           | {:error, :missing_cert_fingerprint | :conflicting_cert_fingerprints}
   def get_cert_fingerprint(sdp) do
     session_fingerprint = ExSDP.get_attribute(sdp, :fingerprint)

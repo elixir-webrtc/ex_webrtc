@@ -65,7 +65,7 @@ defmodule ExWebRTC.MixProject do
       {:crc, "~> 0.10"},
 
       # dev/test
-      {:excoveralls, "~> 0.17.0", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.31.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
