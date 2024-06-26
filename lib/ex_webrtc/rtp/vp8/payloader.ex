@@ -1,4 +1,4 @@
-defmodule ExWebRTC.RTP.VP8Payloader do
+defmodule ExWebRTC.RTP.VP8.Payloader do
   @moduledoc """
   Encapsulates VP8 video frames into RTP packets.
 

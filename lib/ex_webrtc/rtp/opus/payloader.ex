@@ -1,4 +1,4 @@
-defmodule ExWebRTC.RTP.OpusPayloader do
+defmodule ExWebRTC.RTP.Opus.Payloader do
   @moduledoc """
   Encapsulates Opus audio packet into an RTP packet.
 
