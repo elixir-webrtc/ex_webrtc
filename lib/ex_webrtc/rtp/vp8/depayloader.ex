@@ -26,51 +26,64 @@ defmodule ExWebRTC.RTP.VP8.Depayloader do
   def write(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {:ok, depayloader}
 
   def write(depayloader, packet) do
-    with {:ok, vp8_payload} <- Payload.parse(packet.payload) do
-      depayloader =
-        case {depayloader.current_frame, vp8_payload} do
-          {nil, %Payload{s: 1, pid: 0}} ->
-            %{
-              depayloader
-              | current_frame: vp8_payload.payload,
-                current_timestamp: packet.timestamp
-            }
+    case Payload.parse(packet.payload) do
+      {:ok, vp8_payload} ->
+        do_write(depayloader, packet, vp8_payload)
 
-          {nil, _vp8_payload} ->
-            Logger.debug("Dropping vp8 payload as it doesn't start a new frame")
+      {:error, reason} ->
+        Logger.warning("""
+        Couldn't parse payload, reason: #{reason}. \
+        Resetting depayloader state. Payload: #{inspect(packet.payload)}.\
+        """)
+
+        {:ok, %{depayloader | current_frame: nil, current_timestamp: nil}}
+    end
+  end
+
+  defp do_write(depayloader, packet, vp8_payload) do
+    depayloader =
+      case {depayloader.current_frame, vp8_payload} do
+        {nil, %Payload{s: 1, pid: 0}} ->
+          %{
             depayloader
+            | current_frame: vp8_payload.payload,
+              current_timestamp: packet.timestamp
+          }
 
-          {_current_frame, %Payload{s: 1, pid: 0}} ->
-            Logger.debug("""
-            Received packet that starts a new frame without finishing the previous frame. \
-            Dropping previous frame.\
-            """)
+        {nil, _vp8_payload} ->
+          Logger.debug("Dropping vp8 payload as it doesn't start a new frame")
+          depayloader
 
-            %{
-              depayloader
-              | current_frame: vp8_payload.payload,
-                current_timestamp: packet.timestamp
-            }
+        {_current_frame, %Payload{s: 1, pid: 0}} ->
+          Logger.debug("""
+          Received packet that starts a new frame without finishing the previous frame. \
+          Dropping previous frame.\
+          """)
 
-          _ when packet.timestamp != depayloader.current_timestamp ->
-            Logger.debug("""
-            Received packet with timestamp from a new frame that is not a beginning of this frame \
-            and without finishing the previous frame. Dropping both.\
-            """)
+          %{
+            depayloader
+            | current_frame: vp8_payload.payload,
+              current_timestamp: packet.timestamp
+          }
 
-            %{depayloader | current_frame: nil, current_timestamp: nil}
+        _ when packet.timestamp != depayloader.current_timestamp ->
+          Logger.debug("""
+          Received packet with timestamp from a new frame that is not a beginning of this frame \
+          and without finishing the previous frame. Dropping both.\
+          """)
 
-          {current_frame, vp8_payload} ->
-            %{depayloader | current_frame: current_frame <> vp8_payload.payload}
-        end
+          %{depayloader | current_frame: nil, current_timestamp: nil}
 
-      case {depayloader.current_frame, packet.marker} do
-        {current_frame, true} when current_frame != nil ->
-          {:ok, current_frame, %{depayloader | current_frame: nil, current_timestamp: nil}}
-
-        _ ->
-          {:ok, depayloader}
+        {current_frame, vp8_payload} ->
+          %{depayloader | current_frame: current_frame <> vp8_payload.payload}
       end
+
+    case {depayloader.current_frame, packet.marker} do
+      {current_frame, true} when current_frame != nil ->
+        {:ok, current_frame, %{depayloader | current_frame: nil, current_timestamp: nil}}
+
+      _ ->
+        {:ok, depayloader}
     end
   end
 end
