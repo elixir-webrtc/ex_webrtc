@@ -1,4 +1,4 @@
-defmodule ExWebRTC.RTP.VP8Payload do
+defmodule ExWebRTC.RTP.VP8.Payload do
   @moduledoc """
   Defines VP8 payload structure stored in RTP packet payload.
 

@@ -1,4 +1,4 @@
-defmodule ExWebRTC.RTP.VP8Depayloader do
+defmodule ExWebRTC.RTP.VP8.Depayloader do
   @moduledoc """
   Reassembles VP8 frames from RTP packets.
 
@@ -6,7 +6,7 @@ defmodule ExWebRTC.RTP.VP8Depayloader do
   """
   require Logger
 
-  alias ExWebRTC.RTP.VP8Payload
+  alias ExWebRTC.RTP.VP8.Payload
 
   @opaque t() :: %__MODULE__{
             current_frame: nil,
@@ -26,10 +26,10 @@ defmodule ExWebRTC.RTP.VP8Depayloader do
   def write(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {:ok, depayloader}
 
   def write(depayloader, packet) do
-    with {:ok, vp8_payload} <- VP8Payload.parse(packet.payload) do
+    with {:ok, vp8_payload} <- Payload.parse(packet.payload) do
       depayloader =
         case {depayloader.current_frame, vp8_payload} do
-          {nil, %VP8Payload{s: 1, pid: 0}} ->
+          {nil, %Payload{s: 1, pid: 0}} ->
             %{
               depayloader
               | current_frame: vp8_payload.payload,
@@ -40,7 +40,7 @@ defmodule ExWebRTC.RTP.VP8Depayloader do
             Logger.debug("Dropping vp8 payload as it doesn't start a new frame")
             depayloader
 
-          {_current_frame, %VP8Payload{s: 1, pid: 0}} ->
+          {_current_frame, %Payload{s: 1, pid: 0}} ->
             Logger.debug("""
             Received packet that starts a new frame without finishing the previous frame. \
             Dropping previous frame.\
