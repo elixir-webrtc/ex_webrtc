@@ -1,7 +1,7 @@
 defmodule ExWebRTC.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/elixir-webrtc/ex_webrtc"
 
   def project do
@@ -61,7 +61,7 @@ defmodule ExWebRTC.MixProject do
       {:ex_dtls, "~> 0.15.0"},
       {:ex_libsrtp, "~> 0.7.1"},
       {:ex_rtp, "~> 0.4.0"},
-      {:ex_rtcp, github: "elixir-webrtc/ex_rtcp"},
+      {:ex_rtcp, "~> 0.4.0"},
       {:crc, "~> 0.10"},
 
       # dev/test
