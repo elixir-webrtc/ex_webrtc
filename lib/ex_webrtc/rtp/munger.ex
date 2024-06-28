@@ -34,9 +34,9 @@ defmodule ExWebRTC.RTP.Munger do
               :rtp_sn,
               :rtp_ts,
               :wc_ts,
-              update?: false,
               sn_offset: 0,
-              ts_offset: 0
+              ts_offset: 0,
+              update?: false
             ] ++ @enforce_keys
 
   @spec new(non_neg_integer()) :: t()
@@ -133,6 +133,6 @@ defmodule ExWebRTC.RTP.Munger do
   end
 
   defp apply_offset(value, offset, max) do
-    rem(value + max - offset, max)
+    rem(value + max - offset + 1, max + 1)
   end
 end
