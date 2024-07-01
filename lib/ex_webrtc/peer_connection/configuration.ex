@@ -18,8 +18,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       payload_type: 111,
       mime_type: "audio/opus",
       clock_rate: 48_000,
-      channels: 2,
-      sdp_fmtp_line: %FMTP{pt: 111, minptime: 10, useinbandfec: true}
+      channels: 2
     }
   ]
 
@@ -32,13 +31,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     %RTPCodecParameters{
       payload_type: 98,
       mime_type: "video/H264",
-      clock_rate: 90_000,
-      sdp_fmtp_line: %FMTP{
-        pt: 98,
-        level_asymmetry_allowed: true,
-        packetization_mode: 1,
-        profile_level_id: 0x42001F
-      }
+      clock_rate: 90_000
     },
     %RTPCodecParameters{
       payload_type: 45,
