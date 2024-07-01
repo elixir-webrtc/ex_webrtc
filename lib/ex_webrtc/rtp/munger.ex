@@ -1,6 +1,35 @@
 defmodule ExWebRTC.RTP.Munger do
   @moduledoc """
-  RTP Munger.
+  RTP Munger allows for converting RTP packet timestamps and sequence numbers
+  to a common domain.
+
+  This is useful when e.g. changing between Simulcast layers - the sender sends
+  three separate RTP streams (also called layers or encodings), but the receiver can receive only a
+  single RTP stream.
+
+  ```
+  # assume you receive two layers: "high" and "low"
+  # and this is a GenServer
+
+  def init() do
+    {:ok, %{munger: Munger.new(90_000), layer: "high"}}
+  end
+
+  def handle_info({:ex_webrtc, _from, {:rtp, _id, rid, packet}}, state) do
+    if rid == state.layer do
+      {packet, munger} = Munger.munge(state.munger, packet)
+      send_packet_somewhere(packet)
+      {:noreply, %{state | munger: munger}}
+    else
+      {:noreply, state}
+    end
+  end
+
+  def handle_info({:change_layer, layer}, state) do
+    munger = Munger.update(state.munger)
+    {:noreply, %{munger: munger, layer: layer}
+  end
+  ```
   """
 
   alias ExRTP.Packet
@@ -9,25 +38,23 @@ defmodule ExWebRTC.RTP.Munger do
   @max_rtp_sn 0xFFFF
   @breakpoint 0x7FFF
 
-  @typedoc """
-  Fields:
-  * `clock_rate` - clock rate of the codec
-  * `rtp_sn` - highest sequence number of a previously munged packet
-  * `rtp_ts` - timestamp of the packet with `rtp_sn`
-  * `wc_ts` - "wallclock" (absolute) timestamp of the packet with `rtp_sn`
-  * `sn_offset` - offset for sequence numbers
-  * `ts_offset` - offset for timestamps
-  * `update?` - flag telling if the next munged packets belongs to a new encoding
-  """
-  @type t() :: %__MODULE__{
-          clock_rate: non_neg_integer(),
-          rtp_sn: non_neg_integer() | nil,
-          rtp_ts: non_neg_integer() | nil,
-          wc_ts: integer() | nil,
-          sn_offset: integer(),
-          ts_offset: integer(),
-          update?: boolean()
-        }
+  # Fields:
+  # * `clock_rate` - clock rate of the codec
+  # * `rtp_sn` - highest sequence number of a previously munged packet
+  # * `rtp_ts` - timestamp of the packet with `rtp_sn`
+  # * `wc_ts` - "wallclock" (absolute) timestamp of the packet with `rtp_sn`
+  # * `sn_offset` - offset for sequence numbers
+  # * `ts_offset` - offset for timestamps
+  # * `update?` - flag telling if the next munged packets belongs to a new encoding
+  @opaque t() :: %__MODULE__{
+            clock_rate: non_neg_integer(),
+            rtp_sn: non_neg_integer() | nil,
+            rtp_ts: non_neg_integer() | nil,
+            wc_ts: integer() | nil,
+            sn_offset: integer(),
+            ts_offset: integer(),
+            update?: boolean()
+          }
 
   @enforce_keys [:clock_rate]
   defstruct [
@@ -39,14 +66,26 @@ defmodule ExWebRTC.RTP.Munger do
               update?: false
             ] ++ @enforce_keys
 
+  @doc """
+  Creates a new `t:ExWebRTC.RTP.Munger.t/0`.
+
+  `clock_rate` is the clock rate of the codec carried in munged RTP packets.
+  """
   @spec new(non_neg_integer()) :: t()
   def new(clock_rate) do
     %__MODULE__{clock_rate: clock_rate}
   end
 
+  @doc """
+  Informs the munger that the next packet passed to `munge/2` will come
+  from a different RTP stream.
+  """
   @spec update(t()) :: t()
   def update(munger), do: %__MODULE__{munger | update?: true}
 
+  @doc """
+  Updates the RTP packet to match the common timestamp/sequence number domain.
+  """
   @spec munge(t(), Packet.t()) :: {Packet.t(), t()}
   def munge(%{rtp_sn: nil} = munger, packet) do
     # first packet ever munged

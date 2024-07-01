@@ -1,6 +1,6 @@
 defmodule ExWebRTC.RTP.H264 do
   @moduledoc """
-  Utilities for RTP Packets carrying H264 encoded payload.
+  Utilities for RTP packets carrying H264 encoded payload.
   """
 
   alias ExRTP.Packet
