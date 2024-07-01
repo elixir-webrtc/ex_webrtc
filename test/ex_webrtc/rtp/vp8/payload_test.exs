@@ -1,4 +1,4 @@
-defmodule ExWebRTC.Rtp.VP8.PayloadTest do
+defmodule ExWebRTC.RTP.VP8.PayloadTest do
   use ExUnit.Case, async: true
 
   alias ExWebRTC.RTP.VP8.Payload
