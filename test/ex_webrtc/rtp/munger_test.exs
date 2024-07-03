@@ -151,7 +151,7 @@ defmodule ExWebRTC.RTP.MungerTest do
     assert packet.timestamp == ts + 1001
   end
 
-  test "handle output timestamp rollover" do
+  test "handles output timestamp rollover" do
     munger = Munger.new(@clock_rate)
 
     l1_packet = %{@packet | sequence_number: 100, timestamp: @max_ts}

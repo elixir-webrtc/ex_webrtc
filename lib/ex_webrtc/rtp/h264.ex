@@ -6,8 +6,11 @@ defmodule ExWebRTC.RTP.H264 do
   alias ExRTP.Packet
 
   # Copied nearly 1-to-1 from https://github.com/membraneframework/membrane_rtp_h264_plugin/blob/master/lib/rtp_h264/utils.ex
+  # originally based on galene's implementation https://github.com/jech/galene/blob/6fbdf0eab2c9640e673d9f9ec0331da24cbf2c4c/codecs/codecs.go#L119
   # but only looks for SPS
-  # look there for explenations why it does what it does
+  # it is also unclear why we sometimes check against nalu type == 7
+  # and sometimes against nalu type == 5 but galene does it this way
+  # and it works
 
   @doc """
   Returns a boolean telling if the packets contains a beginning of a H264 intra-frame.

@@ -8,11 +8,11 @@ defmodule ExWebRTC.RTP.Munger do
   single RTP stream.
 
   ```
-  # assume you receive two layers: "high" and "low"
+  # assume you receive two layers: "h" (high) and "l" (low)
   # and this is a GenServer
 
   def init() do
-    {:ok, %{munger: Munger.new(90_000), layer: "high"}}
+    {:ok, %{munger: Munger.new(90_000), layer: "h"}}
   end
 
   def handle_info({:ex_webrtc, _from, {:rtp, _id, rid, packet}}, state) do
@@ -26,6 +26,7 @@ defmodule ExWebRTC.RTP.Munger do
   end
 
   def handle_info({:change_layer, layer}, state) do
+    # indicate to the munger that the next packet will be from a new layer
     munger = Munger.update(state.munger)
     {:noreply, %{munger: munger, layer: layer}
   end
