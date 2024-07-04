@@ -2,7 +2,7 @@ defmodule ExWebRTC.SDPUtils do
   @moduledoc false
 
   alias ExRTP.Packet.Extension
-  alias ExSDP.Attribute.{Extmap, RID, Simulcast}
+  alias ExSDP.Attribute.{Extmap, RID, Simulcast, SSRC}
 
   alias ExWebRTC.RTPCodecParameters
 
@@ -304,18 +304,25 @@ defmodule ExWebRTC.SDPUtils do
     |> Map.new()
   end
 
-  @spec get_ssrc_to_mid(ExSDP.t()) :: %{(ssrc :: String.t()) => mid :: String.t()}
-  def get_ssrc_to_mid(sdp) do
-    sdp.media
-    |> Enum.flat_map(fn mline ->
-      with {:mid, mid} <- ExSDP.get_attribute(mline, :mid),
-           %ExSDP.Attribute.SSRC{id: ssrc} <- ExSDP.get_attribute(mline, :ssrc) do
-        [{ssrc, mid}]
-      else
-        _ -> []
-      end
+  @spec get_ssrc_to_mid(ExSDP.t() | ExSDP.Media.t()) :: %{
+          (ssrc :: String.t()) => mid :: String.t()
+        }
+  def get_ssrc_to_mid(%ExSDP{media: media}) do
+    Enum.reduce(media, %{}, fn mline, acc ->
+      Map.merge(acc, get_ssrc_to_mid(mline))
     end)
-    |> Map.new()
+  end
+
+  def get_ssrc_to_mid(%ExSDP.Media{} = mline) do
+    case ExSDP.get_attribute(mline, :mid) do
+      {:mid, mid} ->
+        mline
+        |> ExSDP.get_attributes(:ssrc)
+        |> Map.new(fn %SSRC{id: ssrc} -> {ssrc, mid} end)
+
+      _other ->
+        %{}
+    end
   end
 
   @spec find_mline_by_mid(ExSDP.t(), binary()) :: ExSDP.Media.t() | nil
