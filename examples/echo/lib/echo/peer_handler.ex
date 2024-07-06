@@ -140,7 +140,7 @@ defmodule Echo.PeerHandler do
 
   defp handle_webrtc_msg({:rtp, id, rid, packet}, %{in_video_track_id: id} = state) do
     # rid is the id of the simulcast layer (set in `priv/static/script.js`)
-    # change it to "m" or "l" to change the layer 
+    # change it to "m" or "l" to change the layer
     # when simulcast is disabled, `rid == nil`
     if rid == "h" do
       PeerConnection.send_rtp(state.peer_connection, state.out_video_track_id, packet)
