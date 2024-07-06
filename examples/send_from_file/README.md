@@ -7,9 +7,16 @@ While in `examples/send_from_file` directory
 1. Generate media files
 
 ```shell
-ffmpeg -f lavfi -i testsrc=duration=5:size=640x480:rate=30 video.ivf
+ffmpeg -f lavfi -i testsrc=duration=5:size=640x480:rate=30 -g 60 video.ivf
 ffmpeg -f lavfi -i sine=frequency=420:duration=5 -c:a libopus audio.ogg
 ```
+
+> [!NOTE]
+> Option `-g` defines a GOP size i.e. how frequently we will generate a new keyframe.
+> Our framerate is 30, so we set the GOP to 60 to have a new keyframe every two seconds.
+> This is to make sure, that even if something goes really badly and your keyframe is dropped
+> (e.g. there is a bug in a web browser, or something strange happend on your network interface), 
+> a browser, in the worst case scenario, will get a new one in two seconds.
 
 You may use your own files, if they meet the requirements:
 * for video, it must be IVF in 30 FPS,
