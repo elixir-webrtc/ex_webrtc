@@ -12,7 +12,7 @@ defmodule SendFromFile.PeerHandler do
   }
 
   alias ExWebRTC.Media.{IVF, Ogg}
-  alias ExWebRTC.RTP.{OpusPayloader, VP8Payloader}
+  alias ExWebRTC.RTP.{Opus, VP8}
 
   @behaviour WebSock
 
@@ -60,7 +60,7 @@ defmodule SendFromFile.PeerHandler do
     {:ok, _sender} = PeerConnection.add_track(pc, audio_track)
 
     {:ok, _header, video_reader} = IVF.Reader.open(@video_file)
-    video_payloader = VP8Payloader.new(800)
+    video_payloader = VP8.Payloader.new(800)
 
     {:ok, audio_reader} = Ogg.Reader.open(@audio_file)
 
@@ -112,7 +112,7 @@ defmodule SendFromFile.PeerHandler do
 
     case IVF.Reader.next_frame(state.video_reader) do
       {:ok, frame} ->
-        {rtp_packets, payloader} = VP8Payloader.payload(state.video_payloader, frame.data)
+        {rtp_packets, payloader} = VP8.Payloader.payload(state.video_payloader, frame.data)
 
         # 3_000 = 90_000 (VP8 clock rate) / 30 FPS
         next_sequence_number =
@@ -158,7 +158,7 @@ defmodule SendFromFile.PeerHandler do
         # and time spent on reading and parsing the file
         Process.send_after(self(), :send_audio, duration)
 
-        rtp_packet = OpusPayloader.payload(packet)
+        rtp_packet = Opus.Payloader.payload(packet)
 
         rtp_packet = %{
           rtp_packet
