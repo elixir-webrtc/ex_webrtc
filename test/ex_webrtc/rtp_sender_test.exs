@@ -64,7 +64,11 @@ defmodule ExWebRTC.RTPSenderTest do
              ssrc: sender.ssrc,
              packets_sent: 0,
              bytes_sent: 0,
-             markers_sent: 0
+             markers_sent: 0,
+             nack_count: 0,
+             pli_count: 0,
+             retransmitted_packets_sent: 0,
+             retransmitted_bytes_sent: 0
            } == RTPSender.get_stats(sender, timestamp)
 
     packet = ExRTP.Packet.new(payload)
@@ -77,7 +81,11 @@ defmodule ExWebRTC.RTPSenderTest do
              ssrc: sender.ssrc,
              packets_sent: 1,
              bytes_sent: byte_size(data1),
-             markers_sent: 0
+             markers_sent: 0,
+             nack_count: 0,
+             pli_count: 0,
+             retransmitted_packets_sent: 0,
+             retransmitted_bytes_sent: 0
            } == RTPSender.get_stats(sender, timestamp)
 
     packet = ExRTP.Packet.new(payload, marker: true)
@@ -90,7 +98,11 @@ defmodule ExWebRTC.RTPSenderTest do
              ssrc: sender.ssrc,
              packets_sent: 2,
              bytes_sent: byte_size(data1) + byte_size(data2),
-             markers_sent: 1
+             markers_sent: 1,
+             nack_count: 0,
+             pli_count: 0,
+             retransmitted_packets_sent: 0,
+             retransmitted_bytes_sent: 0
            } == RTPSender.get_stats(sender, timestamp)
   end
 end

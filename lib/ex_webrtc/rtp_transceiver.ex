@@ -15,7 +15,7 @@ defmodule ExWebRTC.RTPTransceiver do
     Utils
   }
 
-  alias ExRTCP.Packet.{ReceiverReport, SenderReport, TransportFeedback.NACK}
+  alias ExRTCP.Packet.{ReceiverReport, SenderReport, TransportFeedback.NACK, PayloadFeedback.PLI}
 
   @report_interval 1000
   @nack_interval 100
@@ -324,6 +324,11 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec receive_packet(transceiver(), ExRTP.Packet.t(), non_neg_integer()) ::
           {:ok, {String.t() | nil, ExRTP.Packet.t()}, transceiver()} | :error
   def receive_packet(transceiver, packet, size) do
+    :telemetry.execute([:ex_webrtc, :inbound, :rtp], %{size: size}, %{
+      peer_connection: self(),
+      ssrc: packet.ssrc
+    })
+
     case check_if_rtx(transceiver.codecs, packet) do
       {:ok, apt} -> RTPReceiver.receive_rtx(transceiver.receiver, packet, apt)
       :error -> {:ok, packet, transceiver.receiver}
@@ -353,6 +358,13 @@ defmodule ExWebRTC.RTPTransceiver do
     {packets, sender} = RTPSender.receive_nack(transceiver.sender, nack)
     transceiver = %{transceiver | sender: sender}
     {packets, transceiver}
+  end
+
+  @doc false
+  @spec receive_pli(transceiver(), PLI.t()) :: transceiver()
+  def receive_pli(transceiver, pli) do
+    sender = RTPSender.receive_pli(transceiver.sender, pli)
+    %{transceiver | sender: sender}
   end
 
   @doc false
@@ -393,6 +405,15 @@ defmodule ExWebRTC.RTPTransceiver do
     transceiver = %{transceiver | receiver: receiver}
 
     {nacks, transceiver}
+  end
+
+  @doc false
+  @spec get_pli(transceiver(), String.t() | nil) :: {PLI.t(), transceiver()} | :error
+  def get_pli(transceiver, rid) do
+    case RTPReceiver.get_pli(transceiver.receiver, rid) do
+      :error -> :error
+      {pli, receiver} -> {pli, %{transceiver | receiver: receiver}}
+    end
   end
 
   @doc false
@@ -465,6 +486,32 @@ defmodule ExWebRTC.RTPTransceiver do
     # TODO stop receiving media
     on_track_ended.()
     %{transceiver | direction: :inactive, stopping: true}
+  end
+
+  @doc false
+  @spec get_stats(transceiver(), non_neg_integer()) :: [map()]
+  def get_stats(transceiver, timestamp) do
+    tr_stats = %{kind: transceiver.kind, mid: transceiver.mid}
+
+    case transceiver.current_direction do
+      :sendonly ->
+        stats = RTPSender.get_stats(transceiver.sender, timestamp)
+        [Map.merge(stats, tr_stats)]
+
+      :recvonly ->
+        stats = RTPReceiver.get_stats(transceiver.receiver, timestamp)
+        Enum.map(stats, &Map.merge(&1, tr_stats))
+
+      :sendrecv ->
+        sender_stats = RTPSender.get_stats(transceiver.sender, timestamp)
+        receiver_stats = RTPReceiver.get_stats(transceiver.receiver, timestamp)
+
+        [Map.merge(sender_stats, tr_stats)] ++
+          Enum.map(receiver_stats, &Map.merge(&1, tr_stats))
+
+      _other ->
+        []
+    end
   end
 
   defp to_mline(transceiver, opts) do

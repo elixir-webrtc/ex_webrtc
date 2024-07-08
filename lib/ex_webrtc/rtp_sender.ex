@@ -3,6 +3,7 @@ defmodule ExWebRTC.RTPSender do
   Implementation of the [RTCRtpSender](https://www.w3.org/TR/webrtc/#rtcrtpsender-interface).
   """
 
+  alias ExRTCP.Packet.{TransportFeedback.NACK, PayloadFeedback.PLI}
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils}
   alias ExSDP.Attribute.Extmap
   alias __MODULE__.{NACKResponder, ReportRecorder}
@@ -24,7 +25,11 @@ defmodule ExWebRTC.RTPSender do
           rtx_ssrc: non_neg_integer() | nil,
           packets_sent: non_neg_integer(),
           bytes_sent: non_neg_integer(),
+          retransmitted_packets_sent: non_neg_integer(),
+          retransmitted_bytes_sent: non_neg_integer(),
           markers_sent: non_neg_integer(),
+          nack_count: non_neg_integer(),
+          pli_count: non_neg_integer(),
           reports?: boolean(),
           outbound_rtx?: boolean(),
           report_recorder: ReportRecorder.t(),
@@ -86,7 +91,11 @@ defmodule ExWebRTC.RTPSender do
       mid: mid,
       packets_sent: 0,
       bytes_sent: 0,
+      retransmitted_packets_sent: 0,
+      retransmitted_bytes_sent: 0,
       markers_sent: 0,
+      nack_count: 0,
+      pli_count: 0,
       reports?: :rtcp_reports in features,
       outbound_rtx?: :outbound_rtx in features,
       report_recorder: %ReportRecorder{clock_rate: codec && codec.clock_rate},
@@ -159,6 +168,17 @@ defmodule ExWebRTC.RTPSender do
 
     data = ExRTP.Packet.encode(packet)
 
+    sender =
+      if rtx? do
+        %{
+          sender
+          | retransmitted_packets_sent: sender.retransmitted_packets_sent + 1,
+            retransmitted_bytes_sent: sender.retransmitted_bytes_sent + byte_size(data)
+        }
+      else
+        sender
+      end
+
     sender = %{
       sender
       | packets_sent: sender.packets_sent + 1,
@@ -172,13 +192,18 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec receive_nack(sender(), ExRTCP.Packet.TransportFeedback.NACK.t()) ::
-          {[ExRTP.Packet.t()], sender()}
+  @spec receive_nack(sender(), NACK.t()) :: {[ExRTP.Packet.t()], sender()}
   def receive_nack(sender, nack) do
     {packets, nack_responder} = NACKResponder.get_rtx(sender.nack_responder, nack)
-    sender = %{sender | nack_responder: nack_responder}
+    sender = %{sender | nack_responder: nack_responder, nack_count: sender.nack_count + 1}
 
     {packets, sender}
+  end
+
+  @doc false
+  @spec receive_pli(sender(), PLI.t()) :: sender()
+  def receive_pli(sender, _pli) do
+    %{sender | pli_count: sender.pli_count + 1}
   end
 
   @doc false
@@ -204,7 +229,11 @@ defmodule ExWebRTC.RTPSender do
       ssrc: sender.ssrc,
       packets_sent: sender.packets_sent,
       bytes_sent: sender.bytes_sent,
-      markers_sent: sender.markers_sent
+      markers_sent: sender.markers_sent,
+      retransmitted_packets_sent: sender.retransmitted_packets_sent,
+      retransmitted_bytes_sent: sender.retransmitted_bytes_sent,
+      nack_count: sender.nack_count,
+      pli_count: sender.pli_count
     }
   end
 end

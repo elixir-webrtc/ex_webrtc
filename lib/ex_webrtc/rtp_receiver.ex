@@ -5,7 +5,7 @@ defmodule ExWebRTC.RTPReceiver do
 
   require Logger
 
-  alias ExRTCP.Packet.TransportFeedback.NACK
+  alias ExRTCP.Packet.{TransportFeedback.NACK, PayloadFeedback.PLI}
   alias ExSDP.Attribute.Extmap
   alias ExWebRTC.{MediaStreamTrack, Utils, RTPCodecParameters}
   alias __MODULE__.{NACKGenerator, ReportRecorder, SimulcastDemuxer}
@@ -29,6 +29,8 @@ defmodule ExWebRTC.RTPReceiver do
           bytes_received: non_neg_integer(),
           packets_received: non_neg_integer(),
           markers_received: non_neg_integer(),
+          nack_count: non_neg_integer(),
+          pli_count: non_neg_integer(),
           report_recorder: ReportRecorder.t(),
           nack_generator: NACKGenerator.t()
         }
@@ -221,7 +223,13 @@ defmodule ExWebRTC.RTPReceiver do
       Enum.map_reduce(receiver.layers, [], fn {rid, layer}, nacks ->
         {nack, nack_generator} = NACKGenerator.get_feedback(layer.nack_generator)
         nacks = if(nack != nil, do: [nack | nacks], else: nacks)
-        layer = %{layer | nack_generator: nack_generator}
+
+        layer = %{
+          layer
+          | nack_generator: nack_generator,
+            nack_count: layer.nack_count + length(nacks)
+        }
+
         {{rid, layer}, nacks}
       end)
 
@@ -230,20 +238,38 @@ defmodule ExWebRTC.RTPReceiver do
   end
 
   @doc false
+  @spec get_pli(receiver(), String.t() | nil) :: {PLI.t(), receiver()} | :error
+  def get_pli(receiver, rid) do
+    case receiver do
+      %{layers: %{^rid => %{ssrc: ssrc} = layer}} when ssrc != nil ->
+        layer = %{layer | pli_count: layer.pli_count + 1}
+        pli = %PLI{sender_ssrc: 1, media_ssrc: ssrc}
+        {pli, %{receiver | layers: Map.put(receiver.layers, rid, layer)}}
+
+      _other ->
+        :error
+    end
+  end
+
+  @doc false
   @spec get_stats(receiver(), non_neg_integer()) :: [map()]
   def get_stats(receiver, timestamp) do
     Enum.map(receiver.layers, fn {rid, layer} ->
       id = if(rid == nil, do: receiver.track.id, else: "#{receiver.track.id}:#{rid}")
+      codec = receiver.codec && String.split(receiver.codec.mime_type, "/") |> List.last()
 
       %{
         id: id,
         rid: rid,
+        codec: codec,
         type: :inbound_rtp,
         timestamp: timestamp,
         ssrc: layer.ssrc,
         bytes_received: layer.bytes_received,
         packets_received: layer.packets_received,
-        markers_received: layer.markers_received
+        markers_received: layer.markers_received,
+        nack_count: layer.nack_count,
+        pli_count: layer.pli_count
       }
     end)
   end
@@ -259,7 +285,9 @@ defmodule ExWebRTC.RTPReceiver do
       packets_received: 0,
       markers_received: 0,
       report_recorder: report_recorder,
-      nack_generator: %NACKGenerator{}
+      nack_generator: %NACKGenerator{},
+      nack_count: 0,
+      pli_count: 0
     }
   end
 end
