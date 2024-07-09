@@ -324,11 +324,6 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec receive_packet(transceiver(), ExRTP.Packet.t(), non_neg_integer()) ::
           {:ok, {String.t() | nil, ExRTP.Packet.t()}, transceiver()} | :error
   def receive_packet(transceiver, packet, size) do
-    :telemetry.execute([:ex_webrtc, :inbound, :rtp], %{size: size}, %{
-      peer_connection: self(),
-      ssrc: packet.ssrc
-    })
-
     case check_if_rtx(transceiver.codecs, packet) do
       {:ok, apt} -> RTPReceiver.receive_rtx(transceiver.receiver, packet, apt)
       :error -> {:ok, packet, transceiver.receiver}

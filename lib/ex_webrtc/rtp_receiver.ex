@@ -227,7 +227,7 @@ defmodule ExWebRTC.RTPReceiver do
         layer = %{
           layer
           | nack_generator: nack_generator,
-            nack_count: layer.nack_count + length(nacks)
+            nack_count: layer.nack_count + if(nack != nil, do: 1, else: 0)
         }
 
         {{rid, layer}, nacks}
