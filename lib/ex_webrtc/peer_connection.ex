@@ -18,7 +18,6 @@ defmodule ExWebRTC.PeerConnection do
     MediaStreamTrack,
     RTPTransceiver,
     RTPSender,
-    RTPReceiver,
     SDPUtils,
     SessionDescription,
     Utils
@@ -907,29 +906,8 @@ defmodule ExWebRTC.PeerConnection do
       end)
 
     rtp_stats =
-      Enum.flat_map(state.transceivers, fn tr ->
-        tr_stats = %{kind: tr.kind, mid: tr.mid}
-
-        case tr.current_direction do
-          :sendonly ->
-            stats = RTPSender.get_stats(tr.sender, timestamp)
-            [Map.merge(stats, tr_stats)]
-
-          :recvonly ->
-            stats = RTPReceiver.get_stats(tr.receiver, timestamp)
-            Enum.map(stats, &Map.merge(&1, tr_stats))
-
-          :sendrecv ->
-            sender_stats = RTPSender.get_stats(tr.sender, timestamp)
-            receiver_stats = RTPReceiver.get_stats(tr.receiver, timestamp)
-
-            [Map.merge(sender_stats, tr_stats)] ++
-              Enum.map(receiver_stats, &Map.merge(&1, tr_stats))
-
-          _other ->
-            []
-        end
-      end)
+      state.transceivers
+      |> Enum.flat_map(&RTPTransceiver.get_stats(&1, timestamp))
       |> Map.new(fn stats -> {stats.id, stats} end)
 
     stats = %{
@@ -1026,23 +1004,28 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_cast({:send_pli, track_id, rid}, state) do
     state.transceivers
-    |> Enum.find(fn tr -> tr.receiver.track.id == track_id end)
+    |> Enum.with_index()
+    |> Enum.find(fn {tr, _idx} -> tr.receiver.track.id == track_id end)
     |> case do
-      %{receiver: %{layers: %{^rid => %{ssrc: ssrc}}}} when ssrc != nil ->
-        encoded =
-          %ExRTCP.Packet.PayloadFeedback.PLI{sender_ssrc: 1, media_ssrc: ssrc}
-          |> ExRTCP.Packet.encode()
+      {tr, idx} ->
+        case RTPTransceiver.get_pli(tr, rid) do
+          {pli, tr} ->
+            encoded = ExRTCP.Packet.encode(pli)
+            :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
+            {:noreply, %{state | transceivers: List.replace_at(state.transceivers, idx, tr)}}
 
-        :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
+          :error ->
+            Logger.warning(
+              "Unable to send PLI for track #{inspect(track_id)}, rid #{inspect(rid)}"
+            )
+
+            {:noreply, state}
+        end
 
       nil ->
         Logger.warning("Attempted to send PLI for non existent track #{inspect(track_id)}")
-
-      _other ->
-        Logger.warning("Unable to send PLI for track #{inspect(track_id)}, rid #{inspect(rid)}")
+        {:noreply, state}
     end
-
-    {:noreply, state}
   end
 
   @impl true
@@ -1849,6 +1832,21 @@ defmodule ExWebRTC.PeerConnection do
           transceivers = List.replace_at(state.transceivers, idx, tr)
           %{state | transceivers: transceivers}
       end
+    end
+  end
+
+  defp handle_rtcp_packet(state, %ExRTCP.Packet.PayloadFeedback.PLI{} = pli) do
+    state.transceivers
+    |> Enum.with_index()
+    |> Enum.find(fn {tr, _idx} -> tr.sender.ssrc == pli.media_ssrc end)
+    |> case do
+      nil ->
+        state
+
+      {tr, idx} ->
+        tr = RTPTransceiver.receive_pli(tr, pli)
+        transceivers = List.replace_at(state.transceivers, idx, tr)
+        %{state | transceivers: transceivers}
     end
   end
 

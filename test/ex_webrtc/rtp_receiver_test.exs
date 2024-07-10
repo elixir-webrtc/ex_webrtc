@@ -28,7 +28,10 @@ defmodule ExWebRTC.RTPReceiverTest do
                ssrc: 1234,
                bytes_received: byte_size(raw_packet1),
                packets_received: 1,
-               markers_received: 0
+               markers_received: 0,
+               codec: "opus",
+               nack_count: 0,
+               pli_count: 0
              }
            ] == RTPReceiver.get_stats(receiver, timestamp)
 
@@ -45,7 +48,10 @@ defmodule ExWebRTC.RTPReceiverTest do
                ssrc: 1234,
                bytes_received: byte_size(raw_packet1) + byte_size(raw_packet2),
                packets_received: 2,
-               markers_received: 1
+               markers_received: 1,
+               codec: "opus",
+               nack_count: 0,
+               pli_count: 0
              }
            ] == RTPReceiver.get_stats(receiver, timestamp)
   end
