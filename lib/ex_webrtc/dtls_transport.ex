@@ -167,16 +167,13 @@ defmodule ExWebRTC.DTLSTransport do
       base64_certificate: state.base64_cert
     }
 
-    remote_cert_info =
-      if state.dtls_state == :connected do
-        %{
-          fingerprint: Utils.hex_dump(state.remote_fingerprint),
-          fingerprint_algorithm: :sha_256,
-          base64_certificate: state.remote_base64_cert
-        }
-      else
-        nil
-      end
+    rem_fp = state.remote_fingerprint
+
+    remote_cert_info = %{
+      fingerprint: rem_fp && Utils.hex_dump(rem_fp),
+      fingerprint_algorithm: rem_fp && :sha_256,
+      base64_certificate: state.remote_base64_cert
+    }
 
     certs_info = %{
       local_cert_info: local_cert_info,
