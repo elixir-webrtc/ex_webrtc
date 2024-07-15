@@ -108,7 +108,7 @@ defmodule SendFromFile.PeerHandler do
   @impl true
   def handle_info(:send_video, state) do
     # 30 =~ 1000 millisecond / 30 FPS
-    Process.send_after(self(), :send_video, 30)
+    # Process.send_after(self(), :send_video, 30)
 
     case IVF.Reader.next_frame(state.video_reader) do
       {:ok, frame} ->
@@ -184,7 +184,7 @@ defmodule SendFromFile.PeerHandler do
         {:ok, state}
 
       :eof ->
-        send(self(), :send_audio)
+        # send(self(), :send_audio)
         Logger.info("Audio file finished. Looping...")
         {:ok, reader} = Ogg.Reader.open(@audio_file)
         {:ok, %{state | audio_reader: reader}}
