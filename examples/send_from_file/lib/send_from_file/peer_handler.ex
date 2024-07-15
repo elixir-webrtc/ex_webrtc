@@ -114,6 +114,8 @@ defmodule SendFromFile.PeerHandler do
       {:ok, frame} ->
         {rtp_packets, payloader} = VP8.Payloader.payload(state.video_payloader, frame.data)
 
+        dbg(length(rtp_packets))
+
         # 3_000 = 90_000 (VP8 clock rate) / 30 FPS
         next_sequence_number =
           Enum.reduce(rtp_packets, state.next_video_sequence_number, fn packet, sequence_number ->
