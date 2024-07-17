@@ -150,6 +150,7 @@ defmodule ExWebRTC.RTPReceiver do
     {rid, receiver}
   end
 
+  @doc false
   @spec receive_rtx(receiver(), ExRTP.Packet.t(), non_neg_integer()) ::
           {:ok, ExRTP.Packet.t()} | :error
   def receive_rtx(receiver, packet, apt) do
@@ -173,6 +174,7 @@ defmodule ExWebRTC.RTPReceiver do
     end
   end
 
+  @doc false
   @spec receive_report(receiver(), ExRTCP.Packet.SenderReport.t()) :: receiver()
   def receive_report(receiver, report) do
     rid = SimulcastDemuxer.demux_ssrc(receiver.simulcast_demuxer, report.ssrc)

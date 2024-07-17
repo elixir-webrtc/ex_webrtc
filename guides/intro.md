@@ -515,12 +515,92 @@ TODO mention Nexus as an example of this
 When connecting two peer, you also have to make sure that all of them actually use the same video and audio codec, as the codec negotiation happens
 completely separately between independent PeerConnections.
 
+You can tell what codec is carried in an RTP packet by inspecting its payload type (`packet.payload_type`, a non-negative integer field) and match it with one
+of the codecs listed in this track's transceiver's `codecs` field (you have to find the `transceiver` by iterating over `PeerConnection.get_transceivers` as shown
+previously in this turorial)
 
+In a real scenarion, you'd have to receive the RTP packet from the PeerConnection, inspect its payload type, find the codec associated with that payload type, find the payload type
+associated with that codec on the other PeerConnection and use it to overwrite the original payload type in the packet.
 
+Unfortunately, at the moment the `PeerConnection.send_rtp` API forces you to used the topmost negotaited codec, so you there's really not way to handle RTP streams with changing codecs.
+The only real solution is to force `PeerConnection` to negotiate only one codec
 
+```elixir
+codec = %ExWebRTC.RTPCodecParameters{
+    payload_type: 96,
+    mime_type: "video/VP8",
+    clock_rate: 90_000
+}
+{:ok, pc} = PeerConnection.start_link(video_codecs: [codec])
+```
 
-#### 3. Keyframes
+This is obviously not ideal as the remote PeerConnection might not support this particular codec. This tutorial will be approprietly updated once the `PeerConnection` API allows
+for more in this regard.
 
+#### 3. Types of vidoe frames
 
+When speaking about video codecs, we should also mention the idea of different types of frames.
+
+We are interested in these types (although there can be more, depending on the codec):
+* I-frames (/intra-frames/keyframes) - these are complete, independent images and do not require other frames to be decoded
+* P-frames (predicted frames/delta-frames) - these only hold changes in the image from the previous frame.
+
+Thanks to this, size of all of the frames other than the keyframe can be greatly reduces, but:
+* loss of a keyframe or P-frame will result in a freeze and the receiver signaling that something is wrong and video cannot be decodec
+* video playback can only start from a keyframe
+
+Thus, it's very important not to loose the keyframes, or in the case of loss, swiftly respond to keyframe requests from the receiving peer and produce a new keyframe, as
+typically (at least in WebRTC) intervals between unprompted keyframes in a video stream can be counted in tens of seconds. As you probably realise, 15 second video
+freeze would be quite disastrous! It's also important to request a new keyframe when a new peer that's supposed to receive media joins, so they can start video
+playback right aways instead of waiting.
+
+> #### WebRTC internals {: .tip}
+> If you're developing using a Chromium-based browser, be sure to type out `chrome://webrtc-internals` in your address bar,
+> you'll access a lot of WebRTC-related stats.
+>
+> If you ever see black screen with the "loading" spinning circle instad of you video in the `video` HTML element, be sure
+> to find your PeerConnection in the WebRTC internals, go to `inbound-rtp(type=video, ...)` tab and check the `pliCount` stat.
+> If you see it growing, but the video still does not load, you most likely are missing a keyframe and are not responding
+> to the PLI (Picture Loss Indication) requests with a new keyframe.
+
+In case of a forwarding unit, like the example we have been examining in this section, we cannot really produce a keyframe, as we don't produce any video at all.
+The only option is to send the keyframe request to the source, which in `ExWebRTC.PeerConnection` can be acomplished with the `PeerConnection.send_pli` function.
+PLI (Picture Loss Indication) is simply a type of RTCP packet.
+
+Usually, when forwarding media between peer, we would:
+* send PLI to source tracks when new receiving peer joins,
+* forward PLI from source tracks to receiving tracks
+
+Which can be acomplished with this piece of code similar to this
+
+```elixir
+defp handle_info(:new_peer_joined, state) do
+  for source <- state.sources do
+    :ok = PeerConnection.send_pli(source.peer_connection, source.video_track_id);
+  end
+  {:noreply, state}
+end
+
+defp handle_info({:ex_webrtc, from, {:rtcp, packets}}, state) do
+  for packet <- packets do
+    case packet do
+      %ExRTCP.Packet.PayloadFeedback.PLI{media_ssrc: ssrc} ->
+        # TODO how to get the ids
+
+        :ok = PeerConnection.send_pli(peer_connection, source_track_id)
+
+      _other -> :ok
+    end
+  end
+
+  {:noreply, state}
+end
+```
+
+TODO some ending note?
+
+TODO mention that PeerConnection overwrites a lot of things in the packet
 
 ### Depayloading and decoding the packets
+
+_TBD_
