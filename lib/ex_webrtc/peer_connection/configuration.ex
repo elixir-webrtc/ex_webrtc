@@ -119,6 +119,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   * `ice_servers` - list of STUN/TURN servers to use. By default, no servers are provided.
   * `ice_transport_policy` - which type of ICE candidates should be used. Defaults to `:all`.
   * `ice_ip_filter` - filter applied when gathering local candidates. By default, all IP addresses are accepted.
+  * `ice_port_range` - range of ports that ICE will use for gathering host candidates. Defaults to ephemeral ports.
   * `audio_codecs` and `video_codecs` - lists of audio and video codecs to negotiate. By default these are equal to
   `default_audio_codecs/0` and `default_video_codecs/0`. To extend the list with your own codecs, do
   `audio_codecs: Configuration.default_audio_codecs() ++ my_codecs`.
@@ -141,6 +142,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_servers: [ice_server()],
           ice_transport_policy: :relay | :all,
           ice_ip_filter: (:inet.ip_address() -> boolean()),
+          ice_port_range: Enumerable.t(non_neg_integer()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
           features: [feature()],
@@ -154,6 +156,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_servers: [ice_server()],
           ice_transport_policy: :relay | :all,
           ice_ip_filter: (:inet.ip_address() -> boolean()),
+          ice_port_range: Enumerable.t(non_neg_integer()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
           audio_extensions: [Extmap.t()],
@@ -171,6 +174,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
               [
                 ice_servers: [],
                 ice_transport_policy: :all,
+                ice_port_range: [0],
                 audio_codecs: @default_audio_codecs,
                 video_codecs: @default_video_codecs,
                 features: @default_features
