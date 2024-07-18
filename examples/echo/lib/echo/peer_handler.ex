@@ -131,7 +131,8 @@ defmodule Echo.PeerHandler do
   defp handle_webrtc_msg({:rtcp, packets}, state) do
     for packet <- packets do
       case packet do
-        %ExRTCP.Packet.PayloadFeedback.PLI{} when state.in_video_track_id != nil ->
+        {track_id, %ExRTCP.Packet.PayloadFeedback.PLI{}} when state.in_video_track_id != nil ->
+          dbg(track_id)
           Logger.info("Received keyframe request. Sending PLI.")
           :ok = PeerConnection.send_pli(state.peer_connection, state.in_video_track_id, "h")
 

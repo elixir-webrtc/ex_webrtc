@@ -119,7 +119,7 @@ defmodule WhipWhep.Forwarder do
   def handle_info({:ex_webrtc, _pc, {:rtcp, packets}}, state) do
     for packet <- packets do
       case packet do
-        %ExRTCP.Packet.PayloadFeedback.PLI{} when state.input_pc != nil ->
+        {_track_id, %ExRTCP.Packet.PayloadFeedback.PLI{}} when state.input_pc != nil ->
           :ok = PeerConnection.send_pli(state.input_pc, state.video_input)
 
         _other ->
