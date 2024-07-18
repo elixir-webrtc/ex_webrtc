@@ -385,11 +385,11 @@ Well, forwarding the packets back to the same peer is not very useful in the rea
 ```mermaid
 flowchart LR
   subgraph Elixir
-    PC1[PeerConnection1] <--> Forwarder <--> PC2[PeerConnection2]
+    PC1[PeerConnection 1] <--> Forwarder <--> PC2[PeerConnection 2]
   end
 
-  WB1((Web Browser1)) <-.-> PC1
-  WB2((Web Browser2)) <-.-> PC2
+  WB1((Web Browser 1)) <-.-> PC1
+  WB2((Web Browser 2)) <-.-> PC2
 ```
 
 In the scenario on the diagram, we just forward packets from one peer to the other one (or even a bunch of other peers).
@@ -434,7 +434,7 @@ flowchart LR
   end
 
   subgraph elixir [Elixir App]
-    PCE1[PeerConnection]-- "3. {:track, track11}" -->Forwarder
+    PCE1[PeerConnection 1]-- "3. {:track, track11}" -->Forwarder
   end
 
   PCW1-. "2. offer/answer" .->PCE1
@@ -447,8 +447,8 @@ We can either:
     ```mermaid
     flowchart LR
       subgraph elixir [Elixir App]
-        PCE1[PeerConnection]
-        Forwarder-- "4. add_track(track12)" -->PCE2[PeerConnection]
+        PCE1[PeerConnection 1]
+        Forwarder-- "4. add_track(track12)" -->PCE2[PeerConnection 2]
         PCE2-- "3. {:track, track22}" -->Forwarder
       end
 
@@ -469,8 +469,8 @@ We can either:
     ```mermaid
     flowchart BR
       subgraph elixir [Elixir App]
-        PCE1[PeerConnection]
-        Forwarder-- "2. add_transceiver(track12)" -->PCE2[PeerConnection]
+        PCE1[PeerConnection 1]
+        Forwarder-- "2. add_transceiver(track12)" -->PCE2[PeerConnection 2]
         PCE2-- "4. {:track, track22}" -->Forwarder
       end
 
@@ -487,12 +487,12 @@ We can either:
 ```mermaid
 flowchart LR
   subgraph P1["Peer 1 (Web Browser)"]
-    PCW1-- "3. ontrack(track12)" --> U1
+    PCW1[PeerConnection]-- "3. ontrack(track12)" --> U1
   end
 
   subgraph elixir [Elixir App]
-    Forwarder-- "1. add_track(21)" -->PCE1[PeerConnection]
-    PCE2[PeerConnection]
+    Forwarder-- "1. add_track(21)" -->PCE1[PeerConnection 1]
+    PCE2[PeerConnection 2]
   end
 
   PCE1-. "2. offer/answer" .->PCW1
@@ -509,16 +509,16 @@ flowchart LR
 >     track11 -.-> track12
 >     track22 -.-> track21
 >   end
->   PC1[PeerConnection1] --> track11
->   PC2[PeerConnection2] --> track22
+>   PC1[PeerConnection 1] --> track11
+>   PC2[PeerConnection 2] --> track22
 >   track12 --> PC2
 >   track21 --> PC1
 > ```
 >
 > This might be a bit counterintuitive, as in reality both of the tracks `track11` and `track12` still carry the same media stream.
 
-A similar process would happen for all of the joining/leaving peers. If you want to check an actual working example, check out the [Nexus](https://github.com/elixir-webrtc/apps)
-- our Elxir WebRTC-based videoconferencing demo app.
+A similar process would happen for all of the joining/leaving peers. If you want to check an actual working example, check out the
+[Nexus](https://github.com/elixir-webrtc/apps/tree/master/nexus) - our Elixir, WebRTC-based videoconferencing demo app.
  
 #### 2. Codecs
 
