@@ -1805,11 +1805,7 @@ defmodule ExWebRTC.PeerConnection do
          {_idx, transceiver} <- find_transceiver(state.transceivers, mid) do
       {transceiver.receiver.track.id, state}
     else
-      false ->
-        {nil, state}
-
       _other ->
-        Logger.warning("Unable to handle RTCP Receiver Report, packet: #{inspect(report)}")
         {nil, state}
     end
   end
