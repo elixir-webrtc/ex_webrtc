@@ -69,7 +69,7 @@ const offer = await pc.createOffer();
 await pc.setLocalDescription(offer);
 ```
 
-Next, we need to pass the offer to the other peer - in out case, the Elixir app. The WebRTC standard does not specify how you do this, but generally, some kind of
+Next, we need to pass the offer to the other peer - in our case, the Elixir app. The WebRTC standard does not specify how to do this, but generally, some kind of
 WebSocket relay server can be used. Here, we will just assume that the offer was magically sent to the Elixir app.
 
 ```js
@@ -81,17 +81,17 @@ send_offer_to_other_peer(json);
 > WebRTC itself is peer-to-peer. It means that the audio and video data is sent directly from one peer to another.
 > But to even establish the connection itself, we need to somehow pass the SDP offer and answer between the peers.
 > In our case, the Elixir app (e.g. a Phoenix web app) probably has a public-facing IP address - we can send the offer directly to it.
-> In case when we want to connect two web browser WebRTC peers, a relay service might be needed to pass the SDP offer and answer -
+> In the case when we want to connect two web browser WebRTC peers, a relay service might be needed to pass the SDP offer and answer -
 > after all both of the peers might be in private networks, like your home WiFi.
 
 And then we receive the SDP offer in Elixir.
 
 ```elixir
-# we will use Jason library for decoding the JSON message
+# we will use the Jason library for decoding the JSON message
 offer = receive_offer() |> Jason.decode!() |> ExWebRTC.SessionDescription.from_json()
 ```
 
-It's the moment when we need to start playing with the Elixir API, but do not worry, it's very similar to the JavaScript one.
+Now's the moment when we need to start playing with the Elixir API, but do not worry, it's very similar to the JavaScript one.
 
 ```elixir
 alias ExWebRTC.PeerConnection
@@ -105,12 +105,12 @@ alias ExWebRTC.PeerConnection
 
 answer
 |> ExWebRTC.SessionDescription.to_json()
-|> Jason.encode()
+|> Jason.encode!()
 |> send_answer_to_other_peer()
 ```
 
-We created a PeerConnection, set the offer, created an answer, set it, and sent it back to the web browser. Now the `PeerConnection` process should send
-messages to its parent process indicating remote tracks - each of the messages maps to one of the tracks added on the JavaScript side.
+We created a PeerConnection, set the offer, created an answer, applied it, and sent it back to the web browser. Now the `PeerConnection` process should send
+messages to its parent process announcing remote tracks - each of the messages maps to one of the tracks added on the JavaScript side.
 
 ```elixir
 receive do
@@ -120,9 +120,9 @@ end
 ```
 
 > #### ICE candidates {: .info}
-> ICE candidates are, simplifying a bit, the IP addresses that PeerConnectin will try to use to establish a connection with the other peer.
+> ICE candidates are, simplifying a bit, the IP addresses that PeerConnection will try to use to establish a connection with the other peer.
 > Candidates can be included in the offer/answer, or (if Trickle ICE is enabled, and by default it is) can be gathered asynchronously and exchanged
-> after the offer/answer negotiation already happened (using the same medium as the offer/answer, e.g. a WebSocket server, or anything else).
+> after the offer/answer negotiation already happened (using any medium, i.e. the same WebSocket server used for the offer/answer, or some other way).
 >
 > In JavaScript:
 >
@@ -139,7 +139,7 @@ end
 > alias ExWebRTC.{PeerConnection, ICECandidate}
 >
 > def handle_info({:ex_webrtc, _from, {:ice_candidate, cand}}, state) do
->   cand |> ICECandidate.to_json() |> Jason.encode() |> send_cand_to_other_peer()
+>   cand |> ICECandidate.to_json() |> Jason.encode!() |> send_cand_to_other_peer()
 >   {:noreply, state}
 > end
 >
@@ -154,14 +154,14 @@ Lastly, we need to set the answer on the JavaScript side.
 
 ```js
 answer = JSON.parse(receive_answer());
-await pc.setRemoteDescription();
+await pc.setRemoteDescription(answer);
 ```
 
-The process of the offer/answer exchange is called _negotiation_. After negotiation has been completed, the connection between the peers can established and media
+The process of the offer/answer exchange is called _negotiation_. After negotiation has been completed, the connection between the peers can be established and media
 flow can start.
 
 > #### PeerConnection can be bidirectional {: .tip}
-> In our simple example, we only send media from the web browser to the Elixir app. We can use the same PeerConnection to send media from Elixir app back to the browser.
+> In our simple example, we only send media from the web browser to the Elixir app. We can use the same PeerConnection to send media from the Elixir app back to the browser.
 > We could achieve this by adding the tracks **before** we created the answer.
 >
 > ```elixir
@@ -174,13 +174,13 @@ flow can start.
 > ```
 >
 > As you can see, the track does not have to be obtained from some kind of source, like the `userMedia` API in JavaScript. This is because
-> we allow for the sending arbitrary media data on each of the tracks.
+> we allow for the sending of arbitrary media data on each of the tracks.
 > You will see how to send media from the Elixir PeerConnection further in this tutorial.
 >
 > After you apply the answer on the JavaScript side, the `RTCPeerConnection` should fire the `ontrack` handler for both of these tracks.
 >
 > ```js
-> // you can attach remote stream (which contains both of the tracks) to an HTML video element
+> // you can attach the remote stream (which contains both of the tracks) to an HTML video element
 > pc.ontrack = event => videoElement.srcObject = event.streams[0];
 > ```
 
@@ -189,7 +189,7 @@ or by handling the `onconnectionstatechange` event on the JavaScript `RTCPeerCon
 
 You might be wondering how can you actually do something with the media data in the Elixir app.
 While in JavaScript API you are limited to e.g. attaching tracks to video elements on a web page,
-Elixir Webrtc provides you with the actual media data sent by the other peer in the form
+Elixir WebRTC provides you with the actual media data sent by the other peer in the form
 of RTP packets for further processing.
 
 ```elixir
@@ -206,13 +206,14 @@ The `track_id` corresponds to one of the tracks that we received in `{:ex_webrtc
 > RTP is a network protocol created for carrying real-time data (like media) and is used
 > by WebRTC. It provides some useful features like:
 > * sequence numbers: UDP (which is usually used by WebRTC) does not provide ordering, thus we need this to catch missing or out-of-order packets
-> * timestamp: these can be used to properly play the media back to the user (e.g. using proper frames per second for video)
-> * payload type: thanks to this combined with information in the SDP offer/answer, we can tell what codec is carried by this packet
+> * timestamp: these can be used to correctly play the media back to the user (e.g. using the right framerate for the video)
+> * payload type: thanks to this combined with information in the SDP offer/answer, we can tell which codec is carried by this packet
 >
 > and many more. Check out the [RFC 3550](https://datatracker.ietf.org/doc/html/rfc3550) to learn more about RTP.
+>
 > RTCP, on the other hand, carries metadata about the RTP streams. Unless you're familiar with it, you don't have to care about
 > RTCP in Elixir WebRTC, as the PeerConnection handles all of the things necessary for correct operation.
-> Both types of packets are sent to the user as messages: `{:ex_webrtc, _from, msg}`, where `msg` is either `{:rtp, track_id, rid, pacet}`
+> Both types of packets are sent to the user as messages: `{:ex_webrtc, _from, msg}`, where `msg` is either `{:rtp, track_id, rid, packet}`
 > or `{:rtcp, packets}`.
 
 Next, we will learn what you can do with the RTP packets.
@@ -278,7 +279,7 @@ will arrive as messages after the negotiation.
 > Alternatively, all of the tracks can be obtained by iterating over the transceivers:
 >
 > ```elixir
-> transceivers =
+> tracks =
 >   peer_connection
 >   |> PeerConnection.get_transceivers()
 >   |> Enum.map(&(&1.receiver.track))
@@ -289,9 +290,10 @@ will arrive as messages after the negotiation.
 Next, we need to take care of the offer/answer and ICE candidate exchange.
 
 ```elixir
+# sending/receiving the offer/answer/candidates to/from the other peer is your responsibility
+
 @impl true
 def handle_info({:offer, offer}, state) do
-  # it's your job to get the offer from the web browser to here
   :ok = PeerConnection.set_remote_description(state.pc, offer)
   {:ok, answer} = PeerConnection.create_answer(state.pc)
   :ok = PeerConnection.set_local_description(state.pc, answer)
@@ -301,7 +303,6 @@ end
 
 @impl true
 def handle_info({:cand, cand}, state) do
-  # similarly to the `handle_info` above, it's your job to get the candidates from/to web browser
   :ok = PeerConnection.add_ice_candidate(state.pc, cand)
   {:noreply, state}
 end
@@ -339,8 +340,8 @@ end
 
 > #### RTP packet rewriting {: .info}
 > In the example above we just receive the RTP packet and immediately send it back. In reality, a lot of stuff in the packet header must be rewritten.
-> That includes SSRC (a number that identifies to which stream the packet belongs), payload type (indicates the codec, even tho the codec does not
-> change between two tracks, the payload types are dynamically assigned and may differ between RTP sessions), some RTP header extensions. All of that is
+> That includes SSRC (a number that identifies to which stream the packet belongs), payload type (indicates the codec, even though the codec does not
+> change between two tracks, the payload types are dynamically assigned and may differ between RTP sessions), and some RTP header extensions. All of that is
 > done by Elixir WebRTC behind the scenes, but be aware - it is not as simple as forwarding the exact same piece of data!
 
 Lastly, let's take care of the client-side code.
@@ -350,14 +351,14 @@ const localStream = await navigator.mediaDevices.getUserMedia({audio: true, vide
 const pc = new RTCPeerConnection({iceServers: [{urls: "stun:stun.l.google.com:19302"}]});
 localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-// these will be the tracks that we added by `PeerConnection.add_track`
+// these will be the tracks that we added using `PeerConnection.add_track`
 pc.ontrack = event => videoPlayer.srcObject = event.stream[0];
 
 // sending/receiving the offer/answer/candidates to the other peer is your responsiblity
 pc.onicecandidate = event => send_to_other_peer(event.candidate);
 on_cand_received(cand => pc.addIceCandidate(cand));
 
-// remember that we set up Elixir app to just handle the incoming offer
+// remember that we set up the Elixir app to just handle the incoming offer
 // so we need to generate and send it (an thus, start the negotiation) here
 const offer = await pc.createOffer();
 await pc.setLocalDescription(offer)
@@ -371,7 +372,7 @@ And that's it! The other peer should be able to see and hear the echoed video an
 
 > #### PeerConnection state {: .info}
 > Before we can send anything on a PeerConnection, its state must change to `connected` which is signaled
-> by the `{:ex_webrtc, _from, {:connection_state_change, :connected}}`. In this particular example, we want
+> by the `{:ex_webrtc, _from, {:connection_state_change, :connected}}` message. In this particular example, we want
 > to send packets on the very same PeerConnection that we received the packets from, thus it must be connected
 > from the first RTP packet received.
 
@@ -380,7 +381,7 @@ Check it out and play with it!
 
 ### To other peers
 
-Well, forwarding the packets back to the same peer is not very useful in the real world, but you can use the knowledge to build more complex apps.
+Well, forwarding the packets back to the same peer is not very useful in the real world, but you can use the gained knowledge to build more complex apps.
 
 ```mermaid
 flowchart LR
@@ -412,13 +413,12 @@ new negotiation has to take place and is signaled by a `{:ex_webrtc, _from, :neg
 > #### The caveats of negotiation {: .tip}
 > But wait, the peer who added new tracks doesn't have to start the negotiation?
 >
-> Certainly, that's the simplest way, but as long as the *number of transceivers* of the offerer (or the number of mlines in the offer SDP with appropariate `direction`
-> attribute set to be specific) is greater or
-> equal to the number of all tracks added by the answerer, the tracks will be considered in the negotiation.
+> Certainly, that's the simplest way, but as long as the *number of transceivers* of the offerer (or, to be specific, the number of m-lines in the offer SDP with the appropariate
+> `direction` attribute set) is greater or equal to the number of all tracks added by the answerer, the tracks will be considered in the negotiation.
 >
 > But what does that even mean?
 > Each transceiver is responsible for sending and/or receiving a single track. When you call `PeerConnection.add_track`, we actually look for a free transceiver
-> (that is, one that is not sending a track already) and use it, or create a new transceiver in case we do not find anything suitable. If you are very sure
+> (that is, one that is not sending a track already) and use it, or create a new transceiver if we don't not find anything suitable. If you are very sure
 > that the remote peer added _N_ new video tracks, you can add _N_ video transceivers (using `PeerConnection.add_transceiver`) and begin the negotiation as
 > the offerer. If you didn't add the transceivers, the tracks added by the remote peer (the answerer) would be ignored.
 
@@ -442,7 +442,8 @@ flowchart LR
 
 2. The second peer (Peer 2) joins - now we need to make a decision: we want Peer 2 to receive track from Peer 1, but Peer 2 also wants to send some tracks.
 We can either:
-    - perform two negotiations: first, where Peer 2 is the offerer and adds their tracks, second where the server is the offerer and adds Peer 1's tracks to Peer 2's PeerConnection.
+    - perform two negotiations: the first one, where Peer 2 is the offerer and adds their tracks, and the second one where the server is the offerer and adds
+    Peer 1's tracks to Peer 2's PeerConnection.
 
     ```mermaid
     flowchart LR
@@ -547,7 +548,7 @@ codec = %ExWebRTC.RTPCodecParameters{
 This is not ideal as the remote PeerConnection might not support this particular codec. This tutorial will be appropriately updated once the `PeerConnection` API allows
 for more in this regard.
 
-#### 3. Types of vidoe frames
+#### 3. Types of video frames
 
 When speaking about video codecs, we should also mention the idea of different types of frames.
 
@@ -560,7 +561,7 @@ Thanks to this, the size of all of the frames other than the keyframe can be gre
 * video playback can only start from a keyframe
 
 Thus, it's very important not to lose the keyframes, or in the case of loss, swiftly respond to keyframe requests from the receiving peer and produce a new keyframe, as
-typically (at least in WebRTC) intervals between unprompted keyframes in a video stream can be counted in tens of seconds. As you probably realize, 15-second video
+typically (at least in WebRTC) intervals between unprompted keyframes in a video stream can be counted in tens of seconds. As you probably realize, a 15-second video
 freeze would be quite disastrous! It's also important to request a new keyframe when a new peer that's supposed to receive media joins, so they can start video
 playback right away instead of waiting.
 
