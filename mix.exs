@@ -73,14 +73,23 @@ defmodule ExWebRTC.MixProject do
   end
 
   defp docs() do
+    intro_guides = ["intro", "negotiation", "forwarding", "consuming", "modifying"]
+
     [
       main: "readme",
       logo: "logo.svg",
-      extras: ["README.md", "guides/mastering_transceivers.md"],
+      extras:
+        ["README.md"] ++
+          Enum.map(intro_guides, &"guides/introduction/#{&1}.md") ++
+          Path.wildcard("guides/advanced/*.md"),
       source_ref: "v#{@version}",
       formatters: ["html"],
       before_closing_body_tag: &before_closing_body_tag/1,
       nest_modules_by_prefix: [ExWebRTC],
+      groups_for_extras: [
+        Introduction: Path.wildcard("guides/introduction/*.md"),
+        Advanced: Path.wildcard("guides/advanced/*.md")
+      ],
       groups_for_modules: [
         MEDIA: ~r"ExWebRTC\.Media\..*",
         RTP: ~r"ExWebRTC\.RTP\..*"
@@ -90,6 +99,7 @@ defmodule ExWebRTC.MixProject do
 
   defp before_closing_body_tag(:html) do
     # highlight JS code blocks
+    # and mermaid graphs
     """
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
@@ -103,6 +113,29 @@ defmodule ExWebRTC.MixProject do
       document.addEventListener("DOMContentLoaded", function () {
         for (const codeEl of document.querySelectorAll("pre code.js")) {
           codeEl.innerHTML = hljs.highlight(codeEl.innerText, {language: 'js'}).value;
+        }
+      });
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.2.3/dist/mermaid.min.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: document.body.className.includes("dark") ? "dark" : "default"
+        });
+        let id = 0;
+        for (const codeEl of document.querySelectorAll("pre code.mermaid")) {
+          const preEl = codeEl.parentElement;
+          const graphDefinition = codeEl.textContent;
+          const graphEl = document.createElement("div");
+          const graphId = "mermaid-graph-" + id++;
+          mermaid.render(graphId, graphDefinition).then(({svg, bindFunctions}) => {
+            graphEl.innerHTML = svg;
+            bindFunctions?.(graphEl);
+            preEl.insertAdjacentElement("afterend", graphEl);
+            preEl.remove();
+          });
         }
       });
     </script>
