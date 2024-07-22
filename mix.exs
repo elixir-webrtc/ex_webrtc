@@ -73,14 +73,23 @@ defmodule ExWebRTC.MixProject do
   end
 
   defp docs() do
+    intro_guides = ["intro", "negotiation", "forwarding", "consuming", "modifying"]
+
     [
       main: "readme",
       logo: "logo.svg",
-      extras: ["README.md", "guides/intro.md", "guides/mastering_transceivers.md"],
+      extras:
+        ["README.md"] ++
+          Enum.map(intro_guides, &"guides/introduction/#{&1}.md") ++
+          Path.wildcard("guides/advanced/*.md"),
       source_ref: "v#{@version}",
       formatters: ["html"],
       before_closing_body_tag: &before_closing_body_tag/1,
       nest_modules_by_prefix: [ExWebRTC],
+      groups_for_extras: [
+        Introduction: Path.wildcard("guides/introduction/*.md"),
+        Advanced: Path.wildcard("guides/advanced/*.md")
+      ],
       groups_for_modules: [
         MEDIA: ~r"ExWebRTC\.Media\..*",
         RTP: ~r"ExWebRTC\.RTP\..*"
