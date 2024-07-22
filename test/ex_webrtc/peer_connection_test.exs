@@ -998,6 +998,70 @@ defmodule ExWebRTC.PeerConnectionTest do
 
   # MISC TESTS
 
+  describe "RTCP" do
+    test "sends and handles PLI" do
+      # turn off features in order to not receive unwanted RTCP packets
+      {:ok, pc1} = PeerConnection.start_link(features: [])
+      {:ok, pc2} = PeerConnection.start_link(features: [])
+
+      %MediaStreamTrack{id: id1} = track = MediaStreamTrack.new(:video)
+      {:ok, _sender} = PeerConnection.add_track(pc1, track)
+
+      :ok = negotiate(pc1, pc2)
+      :ok = connect(pc1, pc2)
+
+      assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :video, id: id2}}}
+
+      # we have to send something on the track, otherwise pc2 won't know the ssrc of its track
+      :ok = PeerConnection.send_rtp(pc1, track.id, ExRTP.Packet.new(<<3, 2, 5>>))
+      assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, _rid, _packet}}
+
+      assert :ok = PeerConnection.send_pli(pc2, id2)
+
+      assert_receive {:ex_webrtc, ^pc1, {:rtcp, [{^id1, pli}]}}
+      assert %ExRTCP.Packet.PayloadFeedback.PLI{} = pli
+    end
+
+    test "sends NACK" do
+      # turn off features in order to not receive unwanted RTCP packets
+      {:ok, pc1} =
+        PeerConnection.start_link(features: [:inbound_rtx, :outbound_rtx], rtcp_feedbacks: [])
+
+      {:ok, pc2} =
+        PeerConnection.start_link(features: [:inbound_rtx, :outbound_rtx], rtcp_feedbacks: [])
+
+      %MediaStreamTrack{id: id1} = track = MediaStreamTrack.new(:video)
+      {:ok, _sender} = PeerConnection.add_track(pc1, track)
+
+      :ok = negotiate(pc1, pc2)
+      :ok = connect(pc1, pc2)
+
+      assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :video, id: id2}}}
+
+      # we have to send something on the track, otherwise pc2 won't know the ssrc of its track
+      :ok =
+        PeerConnection.send_rtp(
+          pc1,
+          track.id,
+          ExRTP.Packet.new(<<3, 2, 5>>, sequence_number: 100)
+        )
+
+      assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, _rid, _packet}}
+
+      :ok =
+        PeerConnection.send_rtp(
+          pc1,
+          track.id,
+          ExRTP.Packet.new(<<3, 2, 5>>, sequence_number: 102)
+        )
+
+      assert_receive {:ex_webrtc, ^pc2, {:rtp, ^id2, _rid, _packet}}
+
+      assert_receive {:ex_webrtc, ^pc1, {:rtcp, [{^id1, nack}]}}
+      assert %ExRTCP.Packet.TransportFeedback.NACK{nacks: [%{pid: 101}]} = nack
+    end
+  end
+
   describe "send data in both directions on a single transceiver" do
     test "using one negotiation" do
       {:ok, pc1} = PeerConnection.start_link()
