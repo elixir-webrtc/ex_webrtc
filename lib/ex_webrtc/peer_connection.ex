@@ -81,7 +81,7 @@ defmodule ExWebRTC.PeerConnection do
            | {:track_muted, MediaStreamTrack.id()}
            | {:track_ended, MediaStreamTrack.id()}
            | {:rtp, MediaStreamTrack.id(), String.t() | nil, ExRTP.Packet.t()}}
-          | {:rtcp, [{ExRTCP.Packet.packet(), MediaStreamTrack.id() | nil}]}
+          | {:rtcp, [{MediaStreamTrack.id() | nil, ExRTCP.Packet.packet()}]}
 
   #### NON-MDN-API ####
 
