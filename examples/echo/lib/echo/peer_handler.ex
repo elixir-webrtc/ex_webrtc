@@ -132,7 +132,6 @@ defmodule Echo.PeerHandler do
     for packet <- packets do
       case packet do
         {track_id, %ExRTCP.Packet.PayloadFeedback.PLI{}} when state.in_video_track_id != nil ->
-          dbg(track_id)
           Logger.info("Received keyframe request. Sending PLI.")
           :ok = PeerConnection.send_pli(state.peer_connection, state.in_video_track_id, "h")
 

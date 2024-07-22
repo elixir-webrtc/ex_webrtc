@@ -65,8 +65,9 @@ defmodule ExWebRTC.PeerConnection do
   * `:track_muted`, `:track_ended` - these match the [MediaStreamTrack events](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack#events).
   * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection. The third element of `:rtp` tuple is a simulcast RID and is set to `nil` if simulcast
   is not used.
-  * each of the packets in `:rtcp` message contains MediaStreamTrack id it was matched to, or `nil`. In case of PLI and NACK, this is the id of an outgoing
-  (sender's) track id, in case of Sender and Receiver Reports - incoming (receiver's) track id.
+  * each of the packets in `:rtcp` message is in the form of `{track_id, packet}` tuple, where `track_id` is the id of the corrsponding track.
+  In case of PLI and NACK, this is the id of an outgoing (sender's) track id, in case of Sender and Receiver Reports - incoming (receiver's) track id.
+  If matching to a track was not possible (like in the case of TWCC packedts), `track_id` is set to `nil`.
   """
   @type message() ::
           {:ex_webrtc, pid(),
