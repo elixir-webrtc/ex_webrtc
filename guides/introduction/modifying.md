@@ -1,7 +1,7 @@
 # Modifying the session
 
-So far, we focused on forwarding the data back to the same peer. Usually, you wan't to connect multiple peers, which means adding
-more PeerConnection to the Elixir app, like on the diagram below.
+So far, we focused on forwarding the data back to the same peer. Usually, you want to connect with multiple peers, which means adding
+more PeerConnection to the Elixir app, like in the diagram below.
 
 ```mermaid
 flowchart BR
@@ -15,7 +15,7 @@ flowchart BR
   WB3((Web Browser 3)) <-.-> PC3
 ```
 
-In this scenario, we just forward packets from one peer to the other one (or even a bunch of other peers). This a bit more challanging for a bunch of reasons:
+In this scenario, we just forward packets from one peer to the other one (or even a bunch of other peers). This is a bit more challenging for a bunch of reasons:
 
 ## Negotiation gets more complex
 
@@ -26,18 +26,18 @@ new negotiation has to take place!
 > #### The caveats of negotiation {: .tip}
 > But wait, the peer who added new tracks doesn't have to start the negotiation?
 >
-> Certainly, that's the simplest way, but as long as the *number of transceivers* of the offerer (or, to be specific, the number of m-lines in the offer SDP with the appropariate
+> Certainly, that's the simplest way, but as long as the *number of transceivers* of the offerer (or, to be specific, the number of m-lines in the offer SDP with the appropriate
 > `direction` attribute set) is greater or equal to the number of all tracks added by the answerer, the tracks will be considered in the negotiation.
 >
 > But what does that even mean?
 > Each transceiver is responsible for sending and/or receiving a single track. When you call `PeerConnection.add_track`, we actually look for a free transceiver
-> (that is, one that is not sending a track already) and use it, or create a new transceiver if we don't not find anything suitable. If you are very sure
+> (that is, one that is not sending a track already) and use it, or create a new transceiver if we don' find anything suitable. If you are very sure
 > that the remote peer added _N_ new video tracks, you can add _N_ video transceivers (using `PeerConnection.add_transceiver`) and begin the negotiation as
 > the offerer. If you didn't add the transceivers, the tracks added by the remote peer (the answerer) would be ignored.
 
 Let's look at an example:
 1. The first peer (Peer 1) joins - here it probably makes more sense for the client (so the Web Browser) to start the negotiation, as the server (Elixir App/
-`Forwarder` in the diagram) does not know how many tracks the client wants to add (the `2. offer/answer` message indicates exchange of offer where the direction of
+`Forwarder` in the diagram) does not know how many tracks the client wants to add (the `2. offer/answer` message indicates the exchange of offer where the direction of
 the arrow means the direction of the offer message).
 
 ```mermaid
@@ -97,9 +97,9 @@ We can either:
    ```
 
 > #### Negotiation needed {: .tip}
-> Instead of relaying on gut feeling when it comes to performing the renegotiation, you can use the `negotiationneeded` event (of, in case of Elixir WebRTC,
+> Instead of relying on gut feeling when it comes to performing the renegotiation, you can use the `negotiationneeded` event (of, in the case of Elixir WebRTC,
 > `{:ex_webrtc, _from, :negotiation_needed}` message). It should fire every time renegotiation is needed. Be careful though! If you plan to add five tracks
-> at once, do not perform five renegotiation by accident, when you could do only one at the very end!
+> at once, do not perform five renegotiations by accident, when you could do only one at the very end!
 
 3. Lastly, Peer 1 also wants to receive Peer 2's tracks, so we need to add the new tracks to Peer 1's PeerConnection and perform the renegotiation there.
 
@@ -148,7 +148,7 @@ We are interested in these types (although there can be more, depending on the c
 * P-frames (predicted frames/delta-frames) - these only hold changes in the image from the previous frame.
 
 Thanks to this, the size of all of the frames other than the keyframe can be greatly reduced, but:
-* loss of a keyframe or P-frame will result in a freeze and the receiver signaling that something is wrong and video cannot be decoded
+* loss of a keyframe or P-frame will result in a freeze and the receiver signaling that something is wrong and the video cannot be decoded
 * video playback can only start from a keyframe
 
 Thus, it's very important not to lose the keyframes, or in the case of loss, swiftly respond to keyframe requests from the receiving peer and produce a new keyframe, as

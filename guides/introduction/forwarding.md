@@ -4,13 +4,13 @@ Elixir WebRTC, in contrast to the JavaScript API, provides you with the actual m
 That means you can be much more flexible with what you do with the data, but you also need to know a bit more
 about how WebRTC actually works under the hood.
 
-All of the media data received by the `PeerConnection` is send to the user in a form of messages like this:
+All of the media data received by the `PeerConnection` is sent to the user in the form of messages like this:
 
 ```elixir
 receive do
   {:ex_webrtc, ^pc, {:rtp, track_id, _rid, packet}} ->
     # do something with the packet
-    # also, for now you can assume that _rid is always nil and ignore it
+    # also, for now, you can assume that _rid is always nil and ignore it
 end
 ```
 
@@ -28,7 +28,7 @@ The `packet` is an RTP packet. It contains the media data alongside some other u
 > and many more. Check out the [RFC 3550](https://datatracker.ietf.org/doc/html/rfc3550) to learn more about RTP.
 
 Next, we will learn what you can do with the RTP packets.
-For now we won't actually look into the packets themselves, our goal for this part of the tutorial will be to forward the received data back to the same web browser.
+For now, we won't actually look into the packets themselves, our goal for this part of the tutorial will be to forward the received data back to the same web browser.
 
 ```mermaid
 flowchart LR
@@ -123,7 +123,7 @@ def handle_info({:ex_webrtc, _from, {:ice_candidate, cand}}, state) do
 end
 ```
 
-Now we can expect to receive the messages with notifications about new remote tracks.
+Now we can expect to receive messages with notifications about new remote tracks.
 Let's handle these and match them with the tracks that we are going to send to.
 We need to be careful not to send packets from the audio track on a video track by mistake!
 
@@ -152,7 +152,7 @@ end
 > In the example above we just receive the RTP packet and immediately send it back. In reality, a lot of stuff in the packet header must be rewritten.
 > That includes SSRC (a number that identifies to which stream the packet belongs), payload type (indicates the codec, even though the codec does not
 > change between two tracks, the payload types are dynamically assigned and may differ between RTP sessions), and some RTP header extensions. All of that is
-> done by Elixir WebRTC behind the scenes, but be aware - it is not as simple as forwarding the exact same piece of data!
+> done by Elixir WebRTC behind the scenes, but be aware - it is not as simple as forwarding the same piece of data!
 
 Lastly, let's take care of the client-side code. It's nearly identical to what we have written in the previous tutorial.
 
@@ -164,12 +164,12 @@ localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 // these will be the tracks that we added using `PeerConnection.add_track`
 pc.ontrack = event => videoPlayer.srcObject = event.stream[0];
 
-// sending/receiving the offer/answer/candidates to the other peer is your responsiblity
+// sending/receiving the offer/answer/candidates to the other peer is your responsibility
 pc.onicecandidate = event => send_to_other_peer(event.candidate);
 on_cand_received(cand => pc.addIceCandidate(cand));
 
 // remember that we set up the Elixir app to just handle the incoming offer
-// so we need to generate and send it (an thus, start the negotiation) here
+// so we need to generate and send it (and thus, start the negotiation) here
 const offer = await pc.createOffer();
 await pc.setLocalDescription(offer)
 send_offer_to_other_peer(offer);
@@ -190,6 +190,6 @@ What you've seen here is a simplified version of the [echo](https://github.com/e
 in the Elixir WebRTC Github repo. Check it out and play with it!
 
 Now, you might be thinking that forwarding the media back to the same web browser does not seem very useful, and you're probably right!
-But thankfully, you can use the gained knowledge to build more complex app.
+But thankfully, you can use the gained knowledge to build more complex apps.
 
-In the next part of the tutorial we will learn how to actually do something with media data in the Elixir app.
+In the next part of the tutorial, we will learn how to actually do something with media data in the Elixir app.

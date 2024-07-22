@@ -1,7 +1,7 @@
 # Introduction to WebRTC
 
-In this series of tutorials, we are going to learn what is WebRTC, and go throught some simple use cases of Elixir WebRTC.
-It's purpose is to teach you where you'd want to use WebRTC, show you how the WebRTC API looks like and how it should
+In this series of tutorials, we are going to learn what is WebRTC, and go through some simple use cases of Elixir WebRTC.
+Its purpose is to teach you where you'd want to use WebRTC, show you what the WebRTC API looks like, and how it should
 be used, focusing on some common caveats.
 
 > #### Before You Start {: .info}
@@ -12,13 +12,13 @@ be used, focusing on some common caveats.
 ## What is WebRTC
 
 WebRTC is an open, real-time communication standard that allows you to send video, audio, and generic data between peers over the network.
-It's places a lot of emphasis on low latency (targeting values in low hundreds of milliseconds end-to-end) and was designed to be used peer-to-peer.
+It places a lot of emphasis on low latency (targeting values in low hundreds of milliseconds end-to-end) and was designed to be used peer-to-peer.
 
-WebRTC is implemented by all of the major web browsers and available as a JavaScript API, there's also native WebRTC clients for Android and iOS
+WebRTC is implemented by all of the major web browsers and is available as a JavaScript API, there's also native WebRTC clients for Android and iOS
 and implementation in other programming languages ([Pion](https://github.com/pion/webrtc), [webrtc.rs](https://github.com/webrtc-rs/webrtc),
 and now [Elixir WebRTC](https://github.com/elixir-webrtc/ex_webrtc)).
 
-## Where you'd use WebRTC
+## Where would you use WebRTC
 
 WebRTC is the obvious choice in applications where low latency is important. It's also probably the easiest way to obtain the voice and video from a user of
 your web application. Here are some example use cases:
