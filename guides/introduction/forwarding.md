@@ -21,7 +21,7 @@ The `packet` is an RTP packet. It contains the media data alongside some other u
 > RTP is a network protocol created for carrying real-time data (like media) and is used by WebRTC.
 > It provides some useful features like:
 >
-> * sequence numbers: UDP (which is usually used by WebRTC) does not provide ordering, thus we need this to catch missing or out-of-order packets
+> * sequence numbers: UDP (which is usually used by WebRTC) does not provide packet ordering, thus we need this to catch missing or out-of-order packets
 > * timestamp: these can be used to correctly play the media back to the user (e.g. using the right framerate for the video)
 > * payload type: thanks to this combined with information in the SDP offer/answer, we can tell which codec is carried by this packet
 >
@@ -63,8 +63,8 @@ defmodule Forwarder do
     {:ok, _sender} = PeerConnection.add_track(pc, audio_track)
     {:ok, _sender} = PeerConnection.add_track(pc, video_track)
 
-    # in_tracks (tracks we will receive media from) = %{id => kind}
-    # out_tracks (tracks we will send media to) = %{kind => id}
+    # in_tracks (tracks we will receive from the browser) = %{id => kind}
+    # out_tracks (tracks we will send to the browser) = %{kind => id}
     out_tracks = %{audio: audio_track.id, video: video_track.id}
     {:ok, %{pc: pc, out_tracks: out_tracks, in_tracks: %{}}}
   end
