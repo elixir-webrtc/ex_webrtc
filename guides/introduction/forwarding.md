@@ -39,37 +39,28 @@ flowchart LR
   WB((Web Browser)) <-.-> PC
 ```
 
-The only thing we have to implement is the `Forwarder` GenServer. Let's combine the ideas from the previous section to write it.
+The only thing we have to implement is the `Forwarder` process. In practice, making it a `GenServer` would be probably the
+easiest and that's what we are going to do here. Let's combine the ideas from the previous section to write it.
 
 ```elixir
-defmodule Forwarder do
-  use GenServer
+def init(_) do
+  {:ok, pc} = PeerConnection.start_link(ice_servers: [%{urls: "stun:stun.l.google.com:19302"}])
 
-  alias ExWebRTC.{PeerConnection, ICEAgent, MediaStreamTrack, SessionDescription}
+  # we expect to receive two tracks from the web browser - one for audio, one for video
+  # so we also need to add two tracks here, we will use these to forward media
+  # from each of the web browser tracks
+  stream_id = MediaStreamTrack.generate_stream_id()
+  audio_track = MediaStreamTrack.new(:audio, [stream_id])
+  video_track = MediaStreamTrack.new(:video, [stream_id])
 
-  @ice_servers [%{urls: "stun:stun.l.google.com:19302"}]
+  {:ok, _sender} = PeerConnection.add_track(pc, audio_track)
+  {:ok, _sender} = PeerConnection.add_track(pc, video_track)
 
-  @impl true
-  def init(_) do
-    {:ok, pc} = PeerConnection.start_link(ice_servers: @ice_servers)
-
-    # we expect to receive two tracks from the web browser - one for audio, one for video
-    # so we also need to add two tracks here, we will use these to forward media
-    # from each of the web browser tracks
-    stream_id = MediaStreamTrack.generate_stream_id()
-    audio_track = MediaStreamTrack.new(:audio, [stream_id])
-    video_track = MediaStreamTrack.new(:video, [stream_id])
-
-    {:ok, _sender} = PeerConnection.add_track(pc, audio_track)
-    {:ok, _sender} = PeerConnection.add_track(pc, video_track)
-
-    # in_tracks (tracks we will receive from the browser) = %{id => kind}
-    # out_tracks (tracks we will send to the browser) = %{kind => id}
-    out_tracks = %{audio: audio_track.id, video: video_track.id}
-    {:ok, %{pc: pc, out_tracks: out_tracks, in_tracks: %{}}}
-  end
-
-  # ...
+  # in_tracks (tracks we will receive from the browser) = %{id => kind}
+  # out_tracks (tracks we will send to the browser) = %{kind => id}
+  in_tracks = %{}
+  out_tracks = %{audio: audio_track.id, video: video_track.id}
+  {:ok, %{pc: pc, out_tracks: out_tracks, in_tracks: in_tracks}}
 end
 ```
 
@@ -77,7 +68,7 @@ We started by creating the PeerConnection and adding two tracks (one for audio a
 Remember that these tracks will be used to *send* data to the web browser peer. Remote tracks (the ones we will set up on the JavaScript side, like in the previous tutorial)
 will arrive as messages after the negotiation is completed.
 
-> #### Where are the tracks? {: .tip}
+> #### What are the tracks? {: .tip}
 > In the context of Elixir WebRTC, a track is simply a _track id_, _ids_ of streams this track belongs to, and a _kind_ (audio/video).
 > We can either add tracks to the PeerConnection (these tracks will be used to *send* data when calling `PeerConnection.send_rtp/4` and
 > for each one of the tracks, the remote peer should fire the `track` event)
@@ -96,34 +87,10 @@ will arrive as messages after the negotiation is completed.
 >
 > If you want to know more about transceivers, read the [Mastering Transceivers](https://hexdocs.pm/ex_webrtc/mastering_transceivers.html) guide.
 
-Next, we need to take care of the offer/answer and ICE candidate exchange. As in the previous tutorial, we assume that there's some kind
-of WebSocket relay service available that will forward our offer/answer/candidate messages to the web browser and back to us.
+Next, we need to take care of the offer/answer and ICE candidate exchange. This can be done the exact same way as in the previous
+tutorial, so we won't get into here.
 
-```elixir
-@impl true
-def handle_info({:web_socket, {:offer, offer}}, state) do
-  :ok = PeerConnection.set_remote_description(state.pc, offer)
-  {:ok, answer} = PeerConnection.create_answer(state.pc)
-  :ok = PeerConnection.set_local_description(state.pc, answer)
-
-  web_socket_send(answer)
-  {:noreply, state}
-end
-
-@impl true
-def handle_info({:web_socket, {:ice_candidate, cand}}, state) do
-  :ok = PeerConnection.add_ice_candidate(state.pc, cand)
-  {:noreply, state}
-end
-
-@impl true
-def handle_info({:ex_webrtc, _from, {:ice_candidate, cand}}, state) do
-  web_socket_send(cand)
-  {:noreply, state}
-end
-```
-
-Now we can expect to receive messages with notifications about new remote tracks.
+After the negotiation, we can expect to receive messages with notifications about new remote tracks.
 Let's handle these and match them with the tracks that we are going to send to.
 We need to be careful not to send packets from the audio track on a video track by mistake!
 
@@ -154,28 +121,13 @@ end
 > change between two tracks, the payload types are dynamically assigned and may differ between RTP sessions), and some RTP header extensions. All of that is
 > done by Elixir WebRTC behind the scenes, but be aware - it is not as simple as forwarding the same piece of data!
 
-Lastly, let's take care of the client-side code. It's nearly identical to what we have written in the previous tutorial.
+Lastly, let's take care of the client-side code. It's nearly identical to what we have written in the previous tutorial,
+except for the fact that we need to handle tracks added by the Elixir's PeerConnection.
 
 ```js
-const localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
-const pc = new RTCPeerConnection({iceServers: [{urls: "stun:stun.l.google.com:19302"}]});
-localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-
-// these will be the tracks that we added using `PeerConnection.add_track`
+// these will be the tracks that we added using `PeerConnection.add_track` in Elixir
+// but be careful! event for the same track, the ids might be different for each of the peers
 pc.ontrack = event => videoPlayer.srcObject = event.stream[0];
-
-// sending/receiving the offer/answer/candidates to the other peer is your responsibility
-pc.onicecandidate = event => send_to_other_peer(event.candidate);
-on_cand_received(cand => pc.addIceCandidate(cand));
-
-// remember that we set up the Elixir app to just handle the incoming offer
-// so we need to generate and send it (and thus, start the negotiation) here
-const offer = await pc.createOffer();
-await pc.setLocalDescription(offer)
-send_offer_to_other_peer(offer);
-
-const answer = await receive_answer_from_other_peer();
-await pc.setRemoteDescription(answer);
 ```
 
 And that's it! The other peer should be able to see and hear the echoed video and audio.
