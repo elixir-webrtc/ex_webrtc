@@ -95,7 +95,6 @@ Let's handle these and match them with the tracks that we are going to send to.
 We need to be careful not to send packets from the audio track on a video track by mistake!
 
 ```elixir
-@impl true
 def handle_info({:ex_webrtc, _from, {:track, track}}, state) do
   state = put_in(state.in_tracks[track.id], track.kind)
   {:noreply, state}
@@ -105,7 +104,6 @@ end
 We are ready to handle the incoming RTP packets!
 
 ```elixir
-@impl true
 def handle_info({:ex_webrtc, _from, {:rtp, track_id, nil, packet}}, state) do
   kind = Map.fetch!(state.in_tracks, track_id)
   id = Map.fetch!(state.out_tracks, kind)
