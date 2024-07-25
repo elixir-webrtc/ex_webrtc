@@ -3,13 +3,25 @@
 Other than just forwarding, we would like to be able to use the media right in the Elixir app to e.g.
 use it as a machine learning model input, or create a recording of a meeting.
 
-In this tutorial, we are going to depayload and decode received video data to use it for ML inference.
+In this tutorial, we are going to learn how to use received media as input for ML inference.
 
-## Depayloading RTP
+## From raw media to RTP
 
-We refer to the process of getting the media payload out of RTP packets as _depayloading_. It may seem straightforward at first,
-we just take the payload of the packets and we get a stream of media data. Sometimes it is that simple, like in the
-case of Opus-encoded audio, where each of the RTP packets is, more or less, 20 milliseconds of audio, and that's it.
+When the browser sends audio or video, it does the following things:
+
+1. Capturing the media from your peripheral devices, like a webcam or microphone.
+2. Encoding the media, so it takes less space and uses less network bandwidth.
+3. Packing it into a single or multiple RTP packets, depending on the media chunk (e.g., video frame) size.
+4. Sending it to the other peer using WebRTC.
+
+We have to reverse these steps in order to be able to use the media:
+
+1. We receive the media from WebRTC.
+2. We unpack the encoded media from RTP packets.
+3. We decode the media to a raw format.
+4. We use the media however we like.
+
+We already know how to do step 1 from previous tutorials, and step 4 is completely up to the user, so let's go through steps 2 and 3 in the next sections.
 
 > #### Codecs {: .info}
 > A media codec is a program/technique used to encode/decode digital video and audio streams. Codecs also compress the media data,
@@ -19,10 +31,11 @@ case of Opus-encoded audio, where each of the RTP packets is, more or less, 20 m
 > the SDP offer/answer exchange. You can tell what codec is carried in an RTP packet by inspecting its payload type (`payload_type` field in the case of Elixir WebRTC).
 > This value should correspond to one of the codecs included in the SDP offer/answer.
 
-Unfortunately, in other cases, we need to do more work. In video, things are more complex: each video frame is usually split into multiple packets (and
-we need complete frames, not some pieces of encoded video out of context), the video codec does not keep track of timestamps, and many other quirks.
+## Depayloading RTP
 
-Elixir WebRTC provides depayloading utilities for some codecs (see the `ExWebRTC.RTP.<codec>` submodules). For instance, when receiving VP8 RTP packets, we could depayload
+We refer to the process of getting the media payload out of RTP packets as _depayloading_. Usually a single video frame is split into
+multiple RTP packets, and in case of audio, each packet carries, more or less, 20 milliseconds of sound. Fortunately, you don't have to worry about this,
+just use one of the depayloaders provided by Elixir WebRTC (see the `ExWebRTC.RTP.<codec>` submodules). For instance, when receiving VP8 RTP packets, we could depayload
 the video by doing:
 
 ```elixir

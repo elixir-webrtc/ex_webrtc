@@ -46,8 +46,8 @@ easiest and that's what we are going to do here. Let's combine the ideas from th
 def init(_) do
   {:ok, pc} = PeerConnection.start_link(ice_servers: [%{urls: "stun:stun.l.google.com:19302"}])
 
-  # we expect to receive two tracks from the web browser - one for audio, one for video
-  # so we also need to add two tracks here, we will use these to forward media
+  # we expect to receive two tracks from the web browser - audio and video
+  # so we also need to add two tracks here, we will use them to loop media back t othe browser
   # from each of the web browser tracks
   stream_id = MediaStreamTrack.generate_stream_id()
   audio_track = MediaStreamTrack.new(:audio, [stream_id])

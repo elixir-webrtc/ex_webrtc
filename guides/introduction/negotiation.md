@@ -49,13 +49,10 @@ const offer = await pc.createOffer();
 await pc.setLocalDescription(offer);
 ```
 
-> #### Offers, answers and SDP {: .info}
-> Offers and answers contain information about your local `RTCPeerConnection`, like added tracks, codecs, IP addresses, encryption fingerprints, and more.
-> All of that is carried in a text format called SDP. One of the WebRTC peers has to create an offer, to which the other responds with an answer in order
-> to negotiate the conditions of various aspects of media transmision.
->
-> You, as the user, can very successfully use WebRTC without ever looking into what's in the SDP,
-> but if you wish to learn more, check out the [SDP Anatomy](https://webrtchacks.com/sdp-anatomy/) tutorial from _webrtcHacks_.
+Finally, we have to create and set an offer.
+It will contain information on how many tracks we want to send, which codecs we want to use, whether we are willing to also receive something or not and so on.
+The other side responds with an answer, which can either accept, reject or partially accept our offer (e.g. accept only audio tracks).
+Both offer and answer are carried in a text format called SDP. You can read more about it in the [SDP Anatomy](https://webrtchacks.com/sdp-anatomy/) tutorial from _webrtcHacks_.
 
 Next, we need to pass the offer to the other peer - in our case, the Elixir app. The WebRTC standard does not specify how to do this.
 Here, we will just assume that the offer was sent to the Elixir app using some kind of WebSocket relay service that we previously connected to, but generally it
@@ -142,13 +139,9 @@ answer = JSON.parse(receive_answer());
 await pc.setRemoteDescription(answer);
 ```
 
-The process of the offer/answer exchange is called _negotiation_.
-
-> #### Renegotiations {: .info}
-> We've just gone through the first negotiation, but you'll need to repeat the same steps after you added/removed tracks
-> to your `PeerConnection`. The need for renegotiation is signaled by the `negotiationneeded` event in JavaScript or by the
-> `{:ex_webrtc, _from, :negotiation_needed}` message in Elixir WebRTC. You will learn more about how to properly conduct
-> a renegotiation with multiple PeerConnectins present in [Modifying the session](./../advanced/modifying.md) tutorial.
+The process of the offer/answer exchange is called _negotiation_. Here, we've just presented the very first negotiation, but
+the process has to be repeated every time tracks are added or removed. You can learn
+about negotiation in more complex secenarios in [Modifying the session](./../advanced/modifying.md).
 
 ## ICE and candidate exchange
 
@@ -204,10 +197,10 @@ with `iceServers` options:
 > const pc = new RTCPeerConnection({ iceServers: "stun:stun.l.google.com:19302" })
 > ```
 >
-> It is a list of STUN/TURN servers that the PeerConnection will try to use. You can learn more about
-> it in the [MDN docs](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/RTCPeerConnection) but
-> it boils down to the fact that lack of any STUN servers might cause you trouble connecting with other peers, so make sure
-> there's at least one STUN server there. You can find a list of publicly available STUN servers online.
+> It is a list of STUN/TURN servers that the PeerConnection will try to use.
+> These are used by the PeerConnection to generate more ICE candidates with different types, which vastly
+> increases chances of establishing a connection between peers in some specific cases.
+> You can read more about it in the [MDN docs](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/RTCPeerConnection).
 
 You might be wondering how can you do something with the media data in the Elixir app.
 While in JavaScript API you are limited to e.g. attaching tracks to video elements on a web page,
