@@ -1,6 +1,6 @@
 # Modifying the session
 
-So far, we focused on forwarding the data back to the same peer. Usually, you want to connect with multiple peers, which means adding
+In the introductory tutorials we focused on forwarding the data back to the same peer. Usually, you want to connect with multiple peers, which means adding
 more PeerConnection to the Elixir app, like in the diagram below.
 
 ```mermaid
@@ -31,7 +31,7 @@ new negotiation has to take place!
 >
 > But what does that even mean?
 > Each transceiver is responsible for sending and/or receiving a single track. When you call `PeerConnection.add_track`, we actually look for a free transceiver
-> (that is, one that is not sending a track already) and use it, or create a new transceiver if we don' find anything suitable. If you are very sure
+> (that is, one that is not sending a track already) and use it, or create a new transceiver if we don't find anything suitable. If you are very sure
 > that the remote peer added _N_ new video tracks, you can add _N_ video transceivers (using `PeerConnection.add_transceiver`) and begin the negotiation as
 > the offerer. If you didn't add the transceivers, the tracks added by the remote peer (the answerer) would be ignored.
 

@@ -30,4 +30,4 @@ your web application. Here are some example use cases:
 In general, all of the use cases come down to getting media from one peer to another. In the case of Elixir WebRTC, one of the peers is usually a server,
 like your Phoenix app (although it doesn't have to - there's no concept of server/client in WebRTC, so you might as well connect two browsers or two Elixir peers).
 
-This is what the next section of this tutorial series will focus on - we will try to get media from a web browser to a simple Elixir app.
+This is what the next tutorials will focus on - we will try to get media from a web browser to a simple Elixir app.
