@@ -18,9 +18,10 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   defp ensure_non_empty(sdp) do
-    case length(sdp.media) do
-      0 -> {:error, :empty_sdp}
-      _other -> :ok
+    if Enum.empty?(sdp.media) do
+      {:error, :empty_sdp}
+    else
+      :ok
     end
   end
 
