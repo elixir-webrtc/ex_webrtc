@@ -24,7 +24,7 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
-  def ensure_mid(sdp) do
+  defp ensure_mid(sdp) do
     sdp.media
     |> Enum.reduce_while({:ok, []}, fn media, {:ok, acc} ->
       case ExSDP.get_attributes(media, :mid) do
@@ -39,7 +39,7 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
-  def ensure_bundle(sdp) do
+  defp ensure_bundle(sdp) do
     groups = ExSDP.get_attributes(sdp, ExSDP.Attribute.Group)
 
     mline_mids = get_bundle_mids(sdp.media)
@@ -64,7 +64,7 @@ defmodule ExWebRTC.SDPUtils do
     Enum.filter(groups, fn %ExSDP.Attribute.Group{semantics: name} -> name == to_filter end)
   end
 
-  def ensure_rtcp_mux(sdp) do
+  defp ensure_rtcp_mux(sdp) do
     sdp.media
     |> Enum.all?(&(ExSDP.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
     |> case do
