@@ -135,7 +135,7 @@ defmodule ExWebRTC.SDPUtils do
     mline_creds =
       sdp.media
       |> Enum.reject(&rejected?/1)
-      |> Enum.map(fn mline -> do_get_ice_credentials(mline) end)
+      |> Enum.map(&do_get_ice_credentials/1)
 
     case {session_creds, mline_creds} do
       # no session creds and no mlines (empty SDP)
