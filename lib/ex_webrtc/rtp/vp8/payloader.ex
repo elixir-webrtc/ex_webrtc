@@ -8,6 +8,8 @@ defmodule ExWebRTC.RTP.VP8.Payloader do
   does not pay attention to VP8 partition boundaries (see RFC 7741 sec. 4.4).
   """
 
+  @behaviour ExWebRTC.RTP.Payloader
+
   @first_chunk_descriptor <<0::1, 0::1, 0::1, 1::1, 0::1, 0::3>>
 
   @next_chunk_descriptor <<0::1, 0::1, 0::1, 0::1, 0::1, 0::3>>
@@ -18,8 +20,16 @@ defmodule ExWebRTC.RTP.VP8.Payloader do
             max_payload_size: non_neg_integer()
           }
 
-  defstruct [:max_payload_size]
+  @enforce_keys [:max_payload_size]
+  defstruct @enforce_keys
 
+  @doc """
+  Creates a new VP8 payloader struct.
+
+  The parameter `max_payload_size` determines the maximum size of a single RTP packet
+  outputted by the payloader. It must be greater than `100`, and is set to `1000` by default.
+  """
+  @impl true
   @spec new(non_neg_integer()) :: t()
   def new(max_payload_size \\ 1000) when max_payload_size > 100 do
     %__MODULE__{max_payload_size: max_payload_size}
@@ -30,8 +40,9 @@ defmodule ExWebRTC.RTP.VP8.Payloader do
 
   Fields from RTP header like ssrc, timestamp etc. are set to 0.
   """
+  @impl true
   @spec payload(t(), frame :: binary()) :: {[ExRTP.Packet.t()], t()}
-  def payload(payloader, frame) when frame != <<>> do
+  def payload(%__MODULE__{} = payloader, frame) when frame != <<>> do
     rtp_payloads = chunk(frame, payloader.max_payload_size - @desc_size_bytes)
 
     [first_rtp_payload | next_rtp_payloads] = rtp_payloads

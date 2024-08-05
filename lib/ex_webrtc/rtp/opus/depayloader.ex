@@ -7,9 +7,31 @@ defmodule ExWebRTC.RTP.Opus.Depayloader do
 
   alias ExRTP.Packet
 
+  @behaviour ExWebRTC.RTP.Depayloader
+
+  @opaque t :: %__MODULE__{}
+
+  @enforce_keys []
+  defstruct @enforce_keys
+
+  @doc """
+  Creates a new Opus depayloader struct.
+
+  Does not take any options/parameters.
+  """
+  @impl true
+  @spec new(any()) :: t()
+  def new(_unused \\ nil) do
+    %__MODULE__{}
+  end
+
   @doc """
   Takes Opus packet out of an RTP packet.
+
+  Always returns a binary as the first element.
   """
-  @spec depayload(Packet.t()) :: binary()
-  def depayload(%Packet{payload: payload}), do: payload
+  @impl true
+  @spec depayload(t(), Packet.t()) :: {binary(), t()}
+  def depayload(%__MODULE__{} = depayloader, %Packet{payload: payload}),
+    do: {payload, depayloader}
 end

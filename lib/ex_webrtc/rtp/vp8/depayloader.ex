@@ -4,6 +4,9 @@ defmodule ExWebRTC.RTP.VP8.Depayloader do
 
   Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741).
   """
+
+  @behaviour ExWebRTC.RTP.Depayloader
+
   require Logger
 
   alias ExWebRTC.RTP.VP8.Payload
@@ -15,17 +18,30 @@ defmodule ExWebRTC.RTP.VP8.Depayloader do
 
   defstruct [:current_frame, :current_timestamp]
 
-  @spec new() :: t()
-  def new() do
+  @doc """
+  Creates a new VP8 depayloader struct.
+
+  Does not take any options/parameters.
+  """
+  @impl true
+  @spec new(any()) :: t()
+  def new(_unused \\ nil) do
     %__MODULE__{}
   end
 
-  @spec write(t(), ExRTP.Packet.t()) :: {:ok, t()} | {:ok, binary(), t()}
-  def write(depayloader, packet)
+  @doc """
+  Reassembles VP8 frames from subsequent RTP packets.
 
-  def write(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {:ok, depayloader}
+  Returns the frame (or `nil` if a frame could not be decoded yet)
+  together with the updated depayloader struct.
+  """
+  @impl true
+  @spec depayload(t(), ExRTP.Packet.t()) :: {binary() | nil, t()}
+  def depayload(depayloader, packet)
 
-  def write(depayloader, packet) do
+  def depayload(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {nil, depayloader}
+
+  def depayload(depayloader, packet) do
     case Payload.parse(packet.payload) do
       {:ok, vp8_payload} ->
         do_write(depayloader, packet, vp8_payload)
@@ -80,10 +96,10 @@ defmodule ExWebRTC.RTP.VP8.Depayloader do
 
     case {depayloader.current_frame, packet.marker} do
       {current_frame, true} when current_frame != nil ->
-        {:ok, current_frame, %{depayloader | current_frame: nil, current_timestamp: nil}}
+        {current_frame, %{depayloader | current_frame: nil, current_timestamp: nil}}
 
       _ ->
-        {:ok, depayloader}
+        {nil, depayloader}
     end
   end
 end

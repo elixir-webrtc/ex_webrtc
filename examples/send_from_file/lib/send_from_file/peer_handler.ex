@@ -63,6 +63,7 @@ defmodule SendFromFile.PeerHandler do
     video_payloader = VP8.Payloader.new(800)
 
     {:ok, audio_reader} = Ogg.Reader.open(@audio_file)
+    audio_payloader = Opus.Payloader.new()
 
     state = %{
       peer_connection: pc,
@@ -71,6 +72,7 @@ defmodule SendFromFile.PeerHandler do
       video_reader: video_reader,
       video_payloader: video_payloader,
       audio_reader: audio_reader,
+      audio_payloader: audio_payloader,
       next_video_timestamp: Enum.random(0..@max_rtp_timestamp),
       next_audio_timestamp: Enum.random(0..@max_rtp_timestamp),
       next_video_sequence_number: Enum.random(0..@max_rtp_seq_no),
@@ -158,7 +160,7 @@ defmodule SendFromFile.PeerHandler do
         # and time spent on reading and parsing the file
         Process.send_after(self(), :send_audio, duration)
 
-        rtp_packet = Opus.Payloader.payload(packet)
+        {[rtp_packet], payloader} = Opus.Payloader.payload(state.audio_payloader, packet)
 
         rtp_packet = %{
           rtp_packet
@@ -177,6 +179,7 @@ defmodule SendFromFile.PeerHandler do
         state = %{
           state
           | audio_reader: reader,
+            audio_payloader: payloader,
             next_audio_timestamp: next_timestamp,
             next_audio_sequence_number: next_sequence_number
         }
