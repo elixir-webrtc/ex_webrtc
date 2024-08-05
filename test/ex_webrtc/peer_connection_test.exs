@@ -495,10 +495,6 @@ defmodule ExWebRTC.PeerConnectionTest do
         a=fingerprint:sha-256 C8:06:34:28:7C:5B:55:00:42:61:54:D2:84:29:B5:07:3D:9A:6C:5C:C6:79:B1:B0:A8:12:30:AD:26:36:93:45
         a=setup:active
         a=mid:0
-        a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
-        a=extmap:1 urn:ietf:params:rtp-hdrext:sdes:mid
-        a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
-        a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id
         a=sendonly
         a=rtcp-mux
         m=audio 9 UDP/TLS/RTP/SAVPF 111
@@ -510,8 +506,6 @@ defmodule ExWebRTC.PeerConnectionTest do
         a=fingerprint:sha-256 C8:06:34:28:7C:5B:55:00:42:61:54:D2:84:29:B5:07:3D:9A:6C:5C:C6:79:B1:B0:A8:12:30:AD:26:36:93:45
         a=setup:active
         a=mid:1
-        a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
-        a=extmap:1 urn:ietf:params:rtp-hdrext:sdes:mid
         a=recvonly
         a=rtcp-mux
         a=rtpmap:111 opus/48000/2
