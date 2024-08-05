@@ -1398,10 +1398,8 @@ defmodule ExWebRTC.PeerConnection do
   defp apply_remote_description(%SessionDescription{type: type, sdp: raw_sdp}, state) do
     with {:ok, next_sig_state} <- next_signaling_state(state.signaling_state, :remote, type),
          {:ok, sdp} <- parse_sdp(raw_sdp),
-         :ok <- SDPUtils.ensure_mid(sdp),
-         :ok <- SDPUtils.ensure_bundle(sdp),
-         :ok <- SDPUtils.ensure_rtcp_mux(sdp),
-         {:ok, {ice_ufrag, ice_pwd}} <- SDPUtils.get_ice_credentials(sdp),
+         :ok <- SDPUtils.ensure_valid(sdp),
+         {:ok, ice_creds} <- SDPUtils.get_ice_credentials(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
          {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp) do
       config = Configuration.update(state.config, sdp)
@@ -1420,8 +1418,16 @@ defmodule ExWebRTC.PeerConnection do
       dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
       DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
 
+      # ice_creds will be nil if all of the mlines in the description are rejected
+      # in such case, if this is the first remote description, connection won't be established
       # TODO: this can result in ICE restart (when it should, e.g. when this is answer)
-      :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
+      case ice_creds do
+        nil ->
+          :ok
+
+        {ice_ufrag, ice_pwd} ->
+          :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
+      end
 
       for candidate <- SDPUtils.get_ice_candidates(sdp) do
         state.ice_transport.add_remote_candidate(state.ice_pid, candidate)

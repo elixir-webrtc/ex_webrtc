@@ -467,6 +467,62 @@ defmodule ExWebRTC.PeerConnectionTest do
         assert expected_result == PeerConnection.set_remote_description(pc, offer)
       end)
     end
+
+    test "mline rejected" do
+      {:ok, pc} = PeerConnection.start_link()
+
+      {:ok, _sender} = PeerConnection.add_track(pc, MediaStreamTrack.new(:video))
+      {:ok, _sender} = PeerConnection.add_track(pc, MediaStreamTrack.new(:audio))
+      {:ok, offer} = PeerConnection.create_offer(pc)
+      :ok = PeerConnection.set_local_description(pc, offer)
+
+      # first m-line is rejected = ice ufrag and passwd are random (thats what Chromium seems to do)
+      sdp =
+        """
+        v=0
+        o=- 4455712322662451611 2 IN IP4 127.0.0.1
+        s=-
+        t=0 0
+        a=group:BUNDLE 1
+        a=extmap-allow-mixed
+        a=msid-semantic: WMS
+        m=video 0 UDP/TLS/RTP/SAVPF 0
+        c=IN IP4 0.0.0.0
+        a=rtcp:9 IN IP4 0.0.0.0
+        a=ice-ufrag:oIRa
+        a=ice-pwd:10rPa8NrMCm602mt1OVkUHJs
+        a=ice-options:trickle
+        a=fingerprint:sha-256 C8:06:34:28:7C:5B:55:00:42:61:54:D2:84:29:B5:07:3D:9A:6C:5C:C6:79:B1:B0:A8:12:30:AD:26:36:93:45
+        a=setup:active
+        a=mid:0
+        a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+        a=extmap:1 urn:ietf:params:rtp-hdrext:sdes:mid
+        a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
+        a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id
+        a=sendonly
+        a=rtcp-mux
+        m=audio 9 UDP/TLS/RTP/SAVPF 111
+        c=IN IP4 0.0.0.0
+        a=rtcp:9 IN IP4 0.0.0.0
+        a=ice-ufrag:Anyh
+        a=ice-pwd:cdaU0jbHlOTf98BNTRoZxMo1
+        a=ice-options:trickle
+        a=fingerprint:sha-256 C8:06:34:28:7C:5B:55:00:42:61:54:D2:84:29:B5:07:3D:9A:6C:5C:C6:79:B1:B0:A8:12:30:AD:26:36:93:45
+        a=setup:active
+        a=mid:1
+        a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+        a=extmap:1 urn:ietf:params:rtp-hdrext:sdes:mid
+        a=recvonly
+        a=rtcp-mux
+        a=rtpmap:111 opus/48000/2
+        a=rtcp-fb:111 transport-cc
+        a=fmtp:111 minptime=10;useinbandfec=1
+        """
+
+      answer = %SessionDescription{type: :answer, sdp: sdp}
+
+      assert :ok = PeerConnection.set_remote_description(pc, answer)
+    end
   end
 
   describe "add_transceiver/3" do
