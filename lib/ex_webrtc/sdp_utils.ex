@@ -8,8 +8,24 @@ defmodule ExWebRTC.SDPUtils do
 
   @type extension() :: {Extension.SourceDescription, atom()}
 
-  @spec ensure_mid(ExSDP.t()) :: :ok | {:error, :missing_mid | :duplicated_mid}
-  def ensure_mid(sdp) do
+  @spec ensure_valid(ExSDP.t()) :: :ok | {:error, term()}
+  def ensure_valid(sdp) do
+    with :ok <- ensure_non_empty(sdp),
+         :ok <- ensure_mid(sdp),
+         :ok <- ensure_bundle(sdp) do
+      ensure_rtcp_mux(sdp)
+    end
+  end
+
+  defp ensure_non_empty(sdp) do
+    if Enum.empty?(sdp.media) do
+      {:error, :empty_sdp}
+    else
+      :ok
+    end
+  end
+
+  defp ensure_mid(sdp) do
     sdp.media
     |> Enum.reduce_while({:ok, []}, fn media, {:ok, acc} ->
       case ExSDP.get_attributes(media, :mid) do
@@ -24,14 +40,7 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
-  @spec ensure_bundle(ExSDP.t()) ::
-          :ok
-          | {:error,
-             :non_exhaustive_bundle_group
-             | :missing_bundle_group
-             | :multiple_bundle_groups
-             | :invalid_bundle_group}
-  def ensure_bundle(sdp) do
+  defp ensure_bundle(sdp) do
     groups = ExSDP.get_attributes(sdp, ExSDP.Attribute.Group)
 
     mline_mids = get_bundle_mids(sdp.media)
@@ -56,8 +65,7 @@ defmodule ExWebRTC.SDPUtils do
     Enum.filter(groups, fn %ExSDP.Attribute.Group{semantics: name} -> name == to_filter end)
   end
 
-  @spec ensure_rtcp_mux(ExSDP.t()) :: :ok | {:error, :missing_rtcp_mux}
-  def ensure_rtcp_mux(sdp) do
+  defp ensure_rtcp_mux(sdp) do
     sdp.media
     |> Enum.all?(&(ExSDP.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
     |> case do
@@ -116,7 +124,7 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   @spec get_ice_credentials(ExSDP.t()) ::
-          {:ok, {binary(), binary()}}
+          {:ok, {binary(), binary()} | nil}
           | {:error,
              :missing_ice_pwd
              | :missing_ice_ufrag
@@ -124,12 +132,16 @@ defmodule ExWebRTC.SDPUtils do
              | :conflicting_ice_credentials}
   def get_ice_credentials(sdp) do
     session_creds = do_get_ice_credentials(sdp)
-    mline_creds = Enum.map(sdp.media, fn mline -> do_get_ice_credentials(mline) end)
+
+    mline_creds =
+      sdp.media
+      |> Enum.reject(&rejected?/1)
+      |> Enum.map(&do_get_ice_credentials/1)
 
     case {session_creds, mline_creds} do
       # no session creds and no mlines (empty SDP)
       {{nil, nil}, []} ->
-        {:error, :missing_ice_credentials}
+        {:ok, nil}
 
       # session creds but no mlines (empty SDP)
       {session_creds, []} ->
