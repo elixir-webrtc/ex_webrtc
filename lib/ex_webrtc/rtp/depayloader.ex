@@ -15,7 +15,7 @@ defmodule ExWebRTC.RTP.Depayloader do
   @doc """
   Processes binary data from a single RTP packet, and outputs a frame if assembled.
 
-  Returns the frame (or `nil` if a frame could not be decoded yet)
+  Returns the frame (or `nil` if a frame could not be depayloaded yet)
   together with the updated depayloader struct.
   """
   @callback depayload(depayloader(), packet :: ExRTP.Packet.t()) ::

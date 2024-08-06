@@ -32,7 +32,7 @@ defmodule ExWebRTC.RTP.VP8.Depayloader do
   @doc """
   Reassembles VP8 frames from subsequent RTP packets.
 
-  Returns the frame (or `nil` if a frame could not be decoded yet)
+  Returns the frame (or `nil` if a frame could not be depayloaded yet)
   together with the updated depayloader struct.
   """
   @impl true

@@ -9,8 +9,7 @@ defmodule ExWebRTC.RTP.Opus.Payloader do
 
   @opaque t :: %__MODULE__{}
 
-  @enforce_keys []
-  defstruct @enforce_keys
+  defstruct []
 
   @doc """
   Creates a new Opus payloader struct.

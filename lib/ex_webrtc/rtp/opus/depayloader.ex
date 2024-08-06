@@ -11,8 +11,7 @@ defmodule ExWebRTC.RTP.Opus.Depayloader do
 
   @opaque t :: %__MODULE__{}
 
-  @enforce_keys []
-  defstruct @enforce_keys
+  defstruct []
 
   @doc """
   Creates a new Opus depayloader struct.

@@ -54,7 +54,7 @@ defmodule SaveToFile.PeerHandler do
       video_writer: nil,
       video_depayloader: nil,
       audio_writer: nil,
-      audio_payloader: nil,
+      audio_depayloader: nil,
       frames_cnt: 0
     }
 
