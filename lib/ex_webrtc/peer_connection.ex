@@ -1427,10 +1427,10 @@ defmodule ExWebRTC.PeerConnection do
 
         {ice_ufrag, ice_pwd} ->
           :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
-      end
 
-      for candidate <- SDPUtils.get_ice_candidates(sdp) do
-        state.ice_transport.add_remote_candidate(state.ice_pid, candidate)
+          for candidate <- SDPUtils.get_ice_candidates(sdp) do
+            state.ice_transport.add_remote_candidate(state.ice_pid, candidate)
+          end
       end
 
       state =
