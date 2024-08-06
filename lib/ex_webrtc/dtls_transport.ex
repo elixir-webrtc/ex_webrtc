@@ -267,6 +267,13 @@ defmodule ExWebRTC.DTLSTransport do
         # packets to retransmit have to be the same as dtls_buffered_packets
         Process.send_after(self(), :dtls_timeout, timeout)
 
+      {:retransmit, _packets, timeout} ->
+        Logger.warning(
+          "DTLSTransport: Packets to retransmit differ from buffered local packets despite ICE not being connected"
+        )
+
+        Process.send_after(self(), :dtls_timeout, timeout)
+
       :ok ->
         :ok
     end
