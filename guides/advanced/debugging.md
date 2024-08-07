@@ -18,7 +18,7 @@ The visual aspects may not knock you off your feet, but the page provides a lot 
 to learn more about what's in the WebRTC Internals, or simply explore the tool and see what you find useful.
 
 > #### Other browsers {: .info}
-> Chromium's WebRTC Internals is arguably the best tool of this kind. Firefox provides `about:webrtc` page, but it's not nearly as featureful as `chrome::/webrtc-internals`.
+> Chromium's WebRTC Internals is arguably the best tool of this kind. Firefox provides `about:webrtc` page, but it's not nearly as featureful as `chrome://webrtc-internals`.
 > Safari does not have an equivalent, but it allows you to enable verbose logging of WebRTC-related stuff.
 
 ## Elixir WebRTC Dashboard
@@ -132,8 +132,7 @@ assign some unrelated payload type to the packets. The browser obviously won't b
 ### 2. Some of my Simulcast layers are not sent at all.
 
 When using Simulcast in a browser, make sure that you allocate not too little bandwidth for the resolution of the Simulcast layers. Otherwise,
-if the browser deems that there is too little bandwidth available, or that the CPU load is too big, it might decide to just stop sending one of the layers
-(usually, the last one).
+if the browser deems that there is too little bandwidth available, or that the CPU load is too big, it might decide to just stop sending one of the layers.
 
 ```js
 mediaConstraints = {video: {width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true};
