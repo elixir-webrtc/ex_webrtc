@@ -72,9 +72,9 @@ defmodule ExWebRTC.MixProject do
     ]
   end
 
-  defp docs() do
+  defp docs do
     intro_guides = ["intro", "negotiation", "forwarding", "consuming"]
-    advanced_guides = ["modifying", "mastering_transceivers"]
+    advanced_guides = ["modifying", "mastering_transceivers", "debugging"]
 
     [
       main: "readme",
@@ -83,6 +83,7 @@ defmodule ExWebRTC.MixProject do
         ["README.md"] ++
           Enum.map(intro_guides, &"guides/introduction/#{&1}.md") ++
           Enum.map(advanced_guides, &"guides/advanced/#{&1}.md"),
+      assets: "guides/assets",
       source_ref: "v#{@version}",
       formatters: ["html"],
       before_closing_body_tag: &before_closing_body_tag/1,
