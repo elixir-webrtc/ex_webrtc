@@ -66,7 +66,9 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   defp ensure_rtcp_mux(sdp) do
+    # Firefox does not add `rtcp_mux` in rejected mlines
     sdp.media
+    |> Enum.reject(&rejected?/1)
     |> Enum.all?(&(ExSDP.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
     |> case do
       true -> :ok
