@@ -12,7 +12,6 @@ defmodule ExWebRTC.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       description: "Implementation of the W3C WebRTC API",
-      aliases: aliases(),
       package: package(),
       deps: deps(),
 
@@ -73,12 +72,6 @@ defmodule ExWebRTC.MixProject do
     ]
   end
 
-  defp aliases do
-    [docs: ["docs", &copy_images/1]]
-  end
-
-  defp copy_images(_), do: File.cp_r!("guides/assets", "doc/assets")
-
   defp docs do
     intro_guides = ["intro", "negotiation", "forwarding", "consuming"]
     advanced_guides = ["modifying", "mastering_transceivers", "debugging"]
@@ -90,6 +83,7 @@ defmodule ExWebRTC.MixProject do
         ["README.md"] ++
           Enum.map(intro_guides, &"guides/introduction/#{&1}.md") ++
           Enum.map(advanced_guides, &"guides/advanced/#{&1}.md"),
+      assets: "guides/assets",
       source_ref: "v#{@version}",
       formatters: ["html"],
       before_closing_body_tag: &before_closing_body_tag/1,
