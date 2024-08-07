@@ -8,14 +8,14 @@ In this tutorial, we will go through some of the methods you can use to debug We
 ## WebRTC Internals
 
 If you're using a Chromium-based web browser, you're in luck. Chromium provides _WebRTC Internals_ - a page with WebRTC stats
-about currently used PeerConnections. If you access the address `chrome://webrtc-internals`, you'll see something like this:
+about currently used PeerConnections. Access the address `chrome://webrtc-internals` to see something like this:
 
 <video width="100%" controls muted autoplay loop>
   <source src="assets/webrtc_internals.mp4" type="video/mp4">
 </video>
 
 The visual aspects may not knock you off your feet, but the page provides a lot of useful information and stats. Check out this [blog post](https://getstream.io/blog/debugging-webrtc-calls/)
-to learn more about what's in the WebRTC internals, or simply explore the tool and see what you find useful.
+to learn more about what's in the WebRTC Internals, or simply explore the tool and see what you find useful.
 
 > #### Other browsers {: .info}
 > Chromium's WebRTC Internals is arguably the best tool of this kind. Firefox provides `about:webrtc` page, but it's not nearly as featureful as `chrome::/webrtc-internals`.
@@ -24,15 +24,15 @@ to learn more about what's in the WebRTC internals, or simply explore the tool a
 ## Elixir WebRTC Dashboard
 
 While Chromium's `chrome://webrtc-internals` provides you with stats about PeerConnection in the browser, Elixir WebRTC has its [dashboard](https://github.com/elixir-webrtc/ex_webrtc_dashboard).
-It is an extension of [Phoenix LiveDashboard](https://github.com/phoenixframework/phoenix_live_dashboard). It can be added with a few lines of code to your Phoenix
-project and it provides information about the PeerConnection state, ICE candidates, inbound and outbound RTP, etc. It is not as rich as the WebRTC internals but still may
+It is an extension of [Phoenix LiveDashboard](https://github.com/phoenixframework/phoenix_live_dashboard) and can be added with a few lines of code to your Phoenix
+project. It provides information about the PeerConnection state, ICE candidates, inbound and outbound RTP, etc. It is not as rich as the WebRTC Internals but still may
 be very helpful when debugging.
 
 <video width="100%" controls muted autoplay loop>
   <source src="assets/dashboard.mp4" type="video/mp4">
 </video>
 
-We won't go through each of the sections - if you're familiar with WebRTC internals, you'll feel right at home in the dashboard.
+We won't go through each of the sections - if you're familiar with WebRTC Internals, you'll feel right at home in the Elixir WebRTC dashboard.
 
 ## Turning on logs in Chromium
 
@@ -85,8 +85,8 @@ Now, you should be able to open the `rtp-dump.pcap` file with Wireshark and insp
 
 ## FAQ
 
-This section will contain a bunch of questions related to _something not working_ when using Elixir WebRTC. Some of these contain very simple fixes
-to quite non-obvious problems and can be diagnosed using the techniques described earlier in this tutorial.
+This section contains a bunch of questions related to _something not working_ when using Elixir WebRTC or WebRTC in general. Some of them can be diagnosed with the
+techiniques described earlier in this tutorial and can be remedied with simple fixes.
 
 ### 1. I'm sending data from Elixir WebRTC to a browser, but my HTML video element is loading infinitely and not showing the video.
 
@@ -96,7 +96,7 @@ will be called _Stats graphs for inbound-rtp (kind=video, mid=2, ...)_) related 
 
 ![PeerConnection state](assets/state.png)
 
-If you cannot find the `inbound-rtp` section, make sure you properly added and negotiated the tracks. You can inspect the SDP offer and answer in the API trace section of
+If you cannot find the `inbound-rtp` section, make sure you properly added and negotiated the tracks. The SDP offer and answer can be inspected in the API trace section of
 `chrome://webrtc-internals`.
 
 ![InboundRTP](assets/inbound.png)
@@ -126,7 +126,7 @@ and the `pliCount` stat. If it's growing indefinitely, the other peer is ignorin
 handling PLI on the remote PeerConnection, or that you produce a keyframe periodically.
 
 The issues also might be caused by the fact that you're trying to send RTP packets with
-an invalid codec. For instance, you're trying to negotiate H264, but it was rejected (and you did not realize that), now you're trying to send H264, but Elixir WebRTC will
+an invalid codec. For instance, you're wanted to negotiate H264, but it was rejected (and you did not realize that), and now you're trying to send H264, Elixir WebRTC will
 assign some unrelated payload type to the packets. The browser obviously won't be able to decode that.
 
 ### 2. Some of my Simulcast layers are not sent at all.
@@ -154,7 +154,7 @@ from `libwebrtc` to have an idea of what values should you use.
 
 ### 3. Firewall
 
-When using Elixir WebRTC, make sure you open the ephemeral range of UDP ports in your firewall. WebRTC uses a random port in this range for every PeerConnection.
+When using Elixir WebRTC, make sure you open the ephemeral range of UDP ports in your firewall. WebRTC uses a random port in this range, one for every PeerConnection.
 You can also configure PeerConnection to use a specific port range by doing
 
 ```elixir
