@@ -476,7 +476,9 @@ defmodule ExWebRTC.PeerConnectionTest do
       {:ok, offer} = PeerConnection.create_offer(pc)
       :ok = PeerConnection.set_local_description(pc, offer)
 
-      # first m-line is rejected = ice ufrag and passwd are random (thats what Chromium seems to do)
+      # first m-line is rejected, which means:
+      # - ice ufrag and passwd are random (thats what Chromium seems to do)
+      # - no rtcp_mux (thats what Firefox does)
       sdp =
         """
         v=0
@@ -496,7 +498,6 @@ defmodule ExWebRTC.PeerConnectionTest do
         a=setup:active
         a=mid:0
         a=sendonly
-        a=rtcp-mux
         m=audio 9 UDP/TLS/RTP/SAVPF 111
         c=IN IP4 0.0.0.0
         a=rtcp:9 IN IP4 0.0.0.0
