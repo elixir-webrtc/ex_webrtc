@@ -1,6 +1,6 @@
 defmodule ExWebRTC.RTP.Depayloader do
   @moduledoc """
-  Behaviour for ExWebRTC Depayloaders.
+  Dispatcher module and behaviour for ExWebRTC Depayloaders.
   """
 
   alias ExWebRTC.RTPCodecParameters
@@ -9,8 +9,6 @@ defmodule ExWebRTC.RTP.Depayloader do
 
   @doc """
   Creates a new depayloader struct.
-
-  Refer to the modules implementing the behaviour for available options.
   """
   @callback new(options :: any()) :: depayloader()
 
@@ -24,7 +22,9 @@ defmodule ExWebRTC.RTP.Depayloader do
               {binary() | nil, depayloader()}
 
   @doc """
-  TODO WRITEME
+  Creates a new depayloader struct that matches the passed codec parameters.
+
+  Refer to the modules implementing the behaviour for available options.
   """
   @spec new(RTPCodecParameters.t(), any()) ::
           {:ok, depayloader()} | {:error, :no_depayloader_for_codec}
@@ -37,7 +37,11 @@ defmodule ExWebRTC.RTP.Depayloader do
   end
 
   @doc """
-  TODO WRITEME
+  Processes binary data from a single RTP packet using the depayloader's module,
+  and outputs a frame if assembled.
+
+  Returns the frame (or `nil` if a frame could not be depayloaded yet)
+  together with the updated depayloader struct.
   """
   @spec depayload(depayloader(), ExRTP.Packet.t()) :: {binary() | nil, depayloader()}
   def depayload(%module{} = depayloader, packet) do

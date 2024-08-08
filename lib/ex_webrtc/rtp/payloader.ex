@@ -1,6 +1,6 @@
 defmodule ExWebRTC.RTP.Payloader do
   @moduledoc """
-  Behaviour for ExWebRTC Payloaders.
+  Dispatcher module and behaviour for ExWebRTC Payloaders.
   """
 
   alias ExWebRTC.RTPCodecParameters
@@ -9,8 +9,6 @@ defmodule ExWebRTC.RTP.Payloader do
 
   @doc """
   Creates a new payloader struct.
-
-  Refer to the modules implementing the behaviour for available options.
   """
   @callback new(options :: any()) :: payloader()
 
@@ -22,7 +20,9 @@ defmodule ExWebRTC.RTP.Payloader do
   @callback payload(payloader(), frame :: binary()) :: {[ExRTP.Packet.t()], payloader()}
 
   @doc """
-  TODO WRITEME
+  Creates a new payloader struct that matches the passed codec parameters.
+
+  Refer to the modules implementing the behaviour for available options.
   """
   @spec new(RTPCodecParameters.t(), any()) ::
           {:ok, payloader()} | {:error, :no_payloader_for_codec}
@@ -35,7 +35,9 @@ defmodule ExWebRTC.RTP.Payloader do
   end
 
   @doc """
-  TODO WRITEME
+  Packs a frame into one or more RTP packets using the payloader's module.
+
+  Returns the packets together with the updated payloader struct.
   """
   @spec payload(payloader(), binary()) :: {[ExRTP.Packet.t()], payloader()}
   def payload(%module{} = payloader, frame) do
