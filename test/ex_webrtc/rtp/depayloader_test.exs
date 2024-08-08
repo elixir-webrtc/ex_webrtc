@@ -3,7 +3,6 @@ defmodule ExWebRTC.RTP.DepayloaderTest do
 
   alias ExWebRTC.RTPCodecParameters
   alias ExWebRTC.RTP.Depayloader
-  alias ExWebRTC.RTP.{Opus, VP8}
 
   @packet %ExRTP.Packet{
     payload_type: 96,
@@ -19,7 +18,7 @@ defmodule ExWebRTC.RTP.DepayloaderTest do
              |> Depayloader.new()
 
     assert Depayloader.depayload(depayloader, @packet) ==
-             VP8.Depayloader.depayload(depayloader, @packet)
+             Depayloader.VP8.depayload(depayloader, @packet)
   end
 
   test "creates an Opus depayloader and dispatches calls to its module" do
@@ -33,7 +32,7 @@ defmodule ExWebRTC.RTP.DepayloaderTest do
              |> Depayloader.new()
 
     assert Depayloader.depayload(depayloader, @packet) ==
-             Opus.Depayloader.depayload(depayloader, @packet)
+             Depayloader.Opus.depayload(depayloader, @packet)
   end
 
   test "returns error if no depayloader exists for given codec" do
