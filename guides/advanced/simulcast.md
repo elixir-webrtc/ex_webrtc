@@ -19,6 +19,15 @@ Currently there is no support for:
 * Bandwidth estimation
 * Automatic encoding switching
 
+```mermaid
+flowchart LR
+  WB1((Web Browser1)) -->|low| Server
+  WB1((Web Browser1)) -->|medium| Server
+  WB1((Web Browser1)) -->|high| Server
+  Server -->|low| WB2((WebBrowser 2))
+  Server -->|high| WB3((WebBrowser 3))
+```
+
 ## Turning simulcast on
 
 ### Elixir WebRTC
@@ -51,7 +60,7 @@ pc.addTransceiver(localStream.getVideoTracks()[0], {
 
 > #### Minimal starting resolution {: .warning}
 > To run 3 simulcast encodings, the minimal starting resolution
-> must be 960x540. See more [here](https://source.chromium.org/chromium/chromium/src/+/main:third_party/webrtc/video/config/simulcast.cc;l=79?q=simulcast.cc)
+> must be 960x540. See more [here](https://source.chromium.org/chromium/chromium/src/+/main:third_party/webrtc/video/config/simulcast.cc;l=79?q=simulcast.cc).
 
 
 ## Receiving simulcast packets
@@ -60,7 +69,7 @@ When simulcast is enabled, packets are labeled with an `rid`, which denotes simu
 encoding that a packet belongs to:
 
 ```elixir
-{:ex_webrtc, pc_pid, {:rtp, track_id, rid, packet}}
+{:ex_webrtc, input_pc_pid, {:rtp, input_track_id, rid, packet}}
 ```
 
 ## Switching between simulcast encodings
@@ -80,10 +89,16 @@ alias ExWebRTC.RTP.{H264, Munger}
 m = Munger.new(90_000)
 ```
 
-2. When a packet arrives, rewrite its sequnce number and timestamp:
+2. When a packet from an encoding that we want to forward arrives, rewrite its sequnce number and timestamp:
 
 ```elixir
-{packet, munger} = Munger.munge(munger, packet)
+receive do
+  {:ex_webrtc, input_pc, {:rtp, _input_track_id, "m", packet}} ->
+    {packet, munger} = Munger.munge(munger, packet)
+    :ok = PeerConnection.send_rtp(output_pc, output_track_id, packet)
+  {:ex_webrtc, input_pc, {:rtp, _input_track_id, _rid, packet}} ->
+    # ignore other packets
+end
 ```
 
 3. To switch to another encoding, request a keyframe for this encoding.
@@ -92,22 +107,36 @@ For example, transitioning from encoding `m` to `h`:
 
 
 ```elixir
-:ok = PeerConnection.send_pli(input_pc, track_id, "h")
+# assume we have the following state
+state = %{
+  current_encoding: "m", 
+  munger: munger, 
+  input_pc: input_pc,
+  input_track_id: input_track_id,
+  output_pc: output_pc, 
+  output_track_id: output_track_id
+}
+
+:ok = PeerConnection.send_pli(state.input_pc, state.input_track_id, "h")
 
 # ...
 
-def handle_info({:ex_webrtc, input_pc, {:rtp, _track_id, "h", packet}}, state) do
-  if H264.keyframe?(packet) do
-    munger = Munger.update(munger)
-    {munger, packet} = Munger.munge(munger, packet)
-    PeerConnection.send_rtp(state.output_pc, state.output_track_id, packet)
-    state = %{state | munger: munger}
-    {:noreply, state}
-  else
-    # Ignore packets from 'h' until we receive a keyframe.
-    {:noreply, state}
-  end
+receive do
+  {:ex_webrtc, input_pc, {:rtp, _input_track_id, rid, packet}} ->
+    cond  do
+      rid == state.current_encoding -> 
+        {munger, packet} = Munger.munge(munger, packet)
+        :ok = PeerConnection.send_rtp(state.output_pc, state.output_track_id, packet)
+        %{state | munger: munger}
+      rid == "h" and H264.keyframe?(packet) ->
+        munger = Munger.update(munger)
+        {munger, packet} = Munger.munge(munger, packet)
+        :ok = PeerConnection.send_rtp(state.output_pc, state.output_track_id, packet)
+        %{state | munger: munger, current_encoding: "h"}
+      true ->
+        state
+    end
 end
 ```
 
-See our [Broadcaster](https://github.com/elixir-webrtc/apps/tree/master/broadcaster) app source code for more.
+See our [Broadcaster](https://github.com/elixir-webrtc/apps/blob/master/broadcaster/lib/broadcaster/forwarder.ex) app source code for more.
