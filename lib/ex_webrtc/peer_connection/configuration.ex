@@ -31,12 +31,19 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     %RTPCodecParameters{
       payload_type: 98,
       mime_type: "video/H264",
-      clock_rate: 90_000
+      clock_rate: 90_000,
+      sdp_fmtp_line: %FMTP{
+        pt: 98,
+        level_asymmetry_allowed: 1,
+        packetization_mode: 0,
+        profile_level_id: 0x42E01F
+      }
     },
     %RTPCodecParameters{
       payload_type: 45,
       mime_type: "video/AV1",
-      clock_rate: 90_000
+      clock_rate: 90_000,
+      sdp_fmtp_line: %FMTP{pt: 45, level_idx: 5, profile: 0, tier: 0}
     }
   ]
 
