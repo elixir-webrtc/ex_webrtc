@@ -12,13 +12,15 @@ defmodule ExWebRTC.RTP.Payloader do
   @doc """
   Creates a new payloader that matches the passed codec parameters.
 
-  * max_payload_size - determines the maximum size of a single RTP packet outputted by the payloader.
-  It must be greater than `100`, and is set to `1000` by default.
+  Opts:
+    * max_payload_size - determines the maximum size of a single RTP packet outputted by the payloader.
+    It must be greater than `100`, and is set to `1000` by default.
   """
-  @spec new(RTPCodecParameters.t(), integer()) ::
+  @spec new(RTPCodecParameters.t(), max_payload_size: integer()) ::
           {:ok, payloader()} | {:error, :no_payloader_for_codec}
-  def new(codec_params, max_payload_size \\ 1000) do
+  def new(codec_params, opts \\ []) do
     with {:ok, module} <- to_payloader_module(codec_params.mime_type) do
+      max_payload_size = opts[:max_payload_size] || 1000
       payloader = module.new(max_payload_size)
       {:ok, payloader}
     end
