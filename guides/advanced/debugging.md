@@ -94,12 +94,12 @@ Firstly, take a look at `chrome://webrtc-internals`. Make sure that there's noth
 your PeerConnection is in the `connected` state. Find the `inbound-rtp` section (either table with stats or graphs, the graph section
 will be called _Stats graphs for inbound-rtp (kind=video, mid=2, ...)_) related to your track.
 
-![PeerConnection state](assets/state.png)
+![PeerConnection state](assets/state.jpg)
 
 If you cannot find the `inbound-rtp` section, make sure you properly added and negotiated the tracks. The SDP offer and answer can be inspected in the API trace section of
 `chrome://webrtc-internals`.
 
-![InboundRTP](assets/inbound.png)
+![InboundRTP](assets/inbound.jpg)
 
 Assuming you have found your `inbound-rtp` section, take a look at `packetsReceived` graph.
 
@@ -116,7 +116,7 @@ transceiver will drop all of the incoming packets. For instance, creating a `rec
 direction (not `sendonly`!) on the remote peer, which might be counterintuitive. Make sure you properly negotiated the session by inspecting the SDP offers and answers.
 If you're sure that the session was properly negotiated, reproduce the issue, create an RTP dump, and share it with us - this might be an Elixir WebRTC bug.
 
-![CandidatePair](assets/pair.png)
+![CandidatePair](assets/pair.jpg)
 
 #### 2. `packetsReceived` growing, but `framesDecoded` stays on 0 (in case of video)
 
