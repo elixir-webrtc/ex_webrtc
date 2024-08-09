@@ -3,7 +3,6 @@ defmodule ExWebRTC.RTP.PayloaderTest do
 
   alias ExWebRTC.RTPCodecParameters
   alias ExWebRTC.RTP.Payloader
-  alias ExWebRTC.RTP.{Opus, VP8}
 
   @frame <<0, 1, 2, 3>>
 
@@ -15,9 +14,9 @@ defmodule ExWebRTC.RTP.PayloaderTest do
     # with options
     assert {:ok, payloader} =
              %RTPCodecParameters{payload_type: 96, mime_type: "video/VP8", clock_rate: 90_000}
-             |> Payloader.new(800)
+             |> Payloader.new(max_payload_size: 800)
 
-    assert Payloader.payload(payloader, @frame) == VP8.Payloader.payload(payloader, @frame)
+    assert Payloader.payload(payloader, @frame) == Payloader.VP8.payload(payloader, @frame)
   end
 
   test "creates an Opus payloader and dispatches calls to its module" do
@@ -30,7 +29,7 @@ defmodule ExWebRTC.RTP.PayloaderTest do
              }
              |> Payloader.new()
 
-    assert Payloader.payload(payloader, @frame) == Opus.Payloader.payload(payloader, @frame)
+    assert Payloader.payload(payloader, @frame) == Payloader.Opus.payload(payloader, @frame)
   end
 
   test "returns error if no payloader exists for given codec" do

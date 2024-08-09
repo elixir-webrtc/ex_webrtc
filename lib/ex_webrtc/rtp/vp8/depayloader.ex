@@ -1,42 +1,28 @@
-defmodule ExWebRTC.RTP.VP8.Depayloader do
-  @moduledoc """
-  Reassembles VP8 frames from RTP packets.
+defmodule ExWebRTC.RTP.Depayloader.VP8 do
+  @moduledoc false
+  # Reassembles VP8 frames from RTP packets.
+  #
+  # Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741).
 
-  Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741).
-  """
-
-  @behaviour ExWebRTC.RTP.Depayloader
+  @behaviour ExWebRTC.RTP.Depayloader.Behaviour
 
   require Logger
 
   alias ExWebRTC.RTP.VP8.Payload
 
-  @opaque t() :: %__MODULE__{
-            current_frame: nil,
-            current_timestamp: nil
-          }
+  @type t() :: %__MODULE__{
+          current_frame: nil,
+          current_timestamp: nil
+        }
 
   defstruct [:current_frame, :current_timestamp]
 
-  @doc """
-  Creates a new VP8 depayloader struct.
-
-  Does not take any options/parameters.
-  """
   @impl true
-  @spec new(any()) :: t()
-  def new(_unused \\ nil) do
+  def new() do
     %__MODULE__{}
   end
 
-  @doc """
-  Reassembles VP8 frames from subsequent RTP packets.
-
-  Returns the frame (or `nil` if a frame could not be depayloaded yet)
-  together with the updated depayloader struct.
-  """
   @impl true
-  @spec depayload(t(), ExRTP.Packet.t()) :: {binary() | nil, t()}
   def depayload(depayloader, packet)
 
   def depayload(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {nil, depayloader}
@@ -44,7 +30,7 @@ defmodule ExWebRTC.RTP.VP8.Depayloader do
   def depayload(depayloader, packet) do
     case Payload.parse(packet.payload) do
       {:ok, vp8_payload} ->
-        do_write(depayloader, packet, vp8_payload)
+        do_depayload(depayloader, packet, vp8_payload)
 
       {:error, reason} ->
         Logger.warning("""
@@ -56,7 +42,7 @@ defmodule ExWebRTC.RTP.VP8.Depayloader do
     end
   end
 
-  defp do_write(depayloader, packet, vp8_payload) do
+  defp do_depayload(depayloader, packet, vp8_payload) do
     depayloader =
       case {depayloader.current_frame, vp8_payload} do
         {nil, %Payload{s: 1, pid: 0}} ->

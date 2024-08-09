@@ -60,7 +60,7 @@ defmodule SendFromFile.PeerHandler do
     {:ok, _sender} = PeerConnection.add_track(pc, audio_track)
 
     {:ok, _header, video_reader} = IVF.Reader.open(@video_file)
-    {:ok, video_payloader} = @video_codecs |> hd() |> Payloader.new(800)
+    {:ok, video_payloader} = @video_codecs |> hd() |> Payloader.new(max_payload_size: 800)
 
     {:ok, audio_reader} = Ogg.Reader.open(@audio_file)
     {:ok, audio_payloader} = @audio_codecs |> hd() |> Payloader.new()
