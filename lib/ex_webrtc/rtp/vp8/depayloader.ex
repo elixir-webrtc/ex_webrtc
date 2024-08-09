@@ -1,34 +1,36 @@
-defmodule ExWebRTC.RTP.VP8.Depayloader do
-  @moduledoc """
-  Reassembles VP8 frames from RTP packets.
+defmodule ExWebRTC.RTP.Depayloader.VP8 do
+  @moduledoc false
+  # Reassembles VP8 frames from RTP packets.
+  #
+  # Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741).
 
-  Based on [RFC 7741: RTP Payload Format for VP8 Video](https://datatracker.ietf.org/doc/html/rfc7741).
-  """
+  @behaviour ExWebRTC.RTP.Depayloader.Behaviour
+
   require Logger
 
   alias ExWebRTC.RTP.VP8.Payload
 
-  @opaque t() :: %__MODULE__{
-            current_frame: nil,
-            current_timestamp: nil
-          }
+  @type t() :: %__MODULE__{
+          current_frame: nil,
+          current_timestamp: nil
+        }
 
   defstruct [:current_frame, :current_timestamp]
 
-  @spec new() :: t()
+  @impl true
   def new() do
     %__MODULE__{}
   end
 
-  @spec write(t(), ExRTP.Packet.t()) :: {:ok, t()} | {:ok, binary(), t()}
-  def write(depayloader, packet)
+  @impl true
+  def depayload(depayloader, packet)
 
-  def write(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {:ok, depayloader}
+  def depayload(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {nil, depayloader}
 
-  def write(depayloader, packet) do
+  def depayload(depayloader, packet) do
     case Payload.parse(packet.payload) do
       {:ok, vp8_payload} ->
-        do_write(depayloader, packet, vp8_payload)
+        do_depayload(depayloader, packet, vp8_payload)
 
       {:error, reason} ->
         Logger.warning("""
@@ -40,7 +42,7 @@ defmodule ExWebRTC.RTP.VP8.Depayloader do
     end
   end
 
-  defp do_write(depayloader, packet, vp8_payload) do
+  defp do_depayload(depayloader, packet, vp8_payload) do
     depayloader =
       case {depayloader.current_frame, vp8_payload} do
         {nil, %Payload{s: 1, pid: 0}} ->
@@ -80,10 +82,10 @@ defmodule ExWebRTC.RTP.VP8.Depayloader do
 
     case {depayloader.current_frame, packet.marker} do
       {current_frame, true} when current_frame != nil ->
-        {:ok, current_frame, %{depayloader | current_frame: nil, current_timestamp: nil}}
+        {current_frame, %{depayloader | current_frame: nil, current_timestamp: nil}}
 
       _ ->
-        {:ok, depayloader}
+        {nil, depayloader}
     end
   end
 end

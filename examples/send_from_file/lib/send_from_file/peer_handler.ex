@@ -12,7 +12,7 @@ defmodule SendFromFile.PeerHandler do
   }
 
   alias ExWebRTC.Media.{IVF, Ogg}
-  alias ExWebRTC.RTP.{Opus, VP8}
+  alias ExWebRTC.RTP.Payloader
 
   @behaviour WebSock
 
@@ -60,9 +60,10 @@ defmodule SendFromFile.PeerHandler do
     {:ok, _sender} = PeerConnection.add_track(pc, audio_track)
 
     {:ok, _header, video_reader} = IVF.Reader.open(@video_file)
-    video_payloader = VP8.Payloader.new(800)
+    {:ok, video_payloader} = @video_codecs |> hd() |> Payloader.new(max_payload_size: 800)
 
     {:ok, audio_reader} = Ogg.Reader.open(@audio_file)
+    {:ok, audio_payloader} = @audio_codecs |> hd() |> Payloader.new()
 
     state = %{
       peer_connection: pc,
@@ -71,6 +72,7 @@ defmodule SendFromFile.PeerHandler do
       video_reader: video_reader,
       video_payloader: video_payloader,
       audio_reader: audio_reader,
+      audio_payloader: audio_payloader,
       next_video_timestamp: Enum.random(0..@max_rtp_timestamp),
       next_audio_timestamp: Enum.random(0..@max_rtp_timestamp),
       next_video_sequence_number: Enum.random(0..@max_rtp_seq_no),
@@ -112,7 +114,7 @@ defmodule SendFromFile.PeerHandler do
 
     case IVF.Reader.next_frame(state.video_reader) do
       {:ok, frame} ->
-        {rtp_packets, payloader} = VP8.Payloader.payload(state.video_payloader, frame.data)
+        {rtp_packets, payloader} = Payloader.payload(state.video_payloader, frame.data)
 
         # 3_000 = 90_000 (VP8 clock rate) / 30 FPS
         next_sequence_number =
@@ -158,7 +160,7 @@ defmodule SendFromFile.PeerHandler do
         # and time spent on reading and parsing the file
         Process.send_after(self(), :send_audio, duration)
 
-        rtp_packet = Opus.Payloader.payload(packet)
+        {[rtp_packet], payloader} = Payloader.payload(state.audio_payloader, packet)
 
         rtp_packet = %{
           rtp_packet
@@ -177,6 +179,7 @@ defmodule SendFromFile.PeerHandler do
         state = %{
           state
           | audio_reader: reader,
+            audio_payloader: payloader,
             next_audio_timestamp: next_timestamp,
             next_audio_sequence_number: next_sequence_number
         }

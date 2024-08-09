@@ -10,7 +10,7 @@ defmodule SaveToFile.PeerHandler do
   }
 
   alias ExWebRTC.Media.{IVF, Ogg}
-  alias ExWebRTC.RTP.{Opus, VP8}
+  alias ExWebRTC.RTP.Depayloader
 
   @behaviour WebSock
 
@@ -54,6 +54,7 @@ defmodule SaveToFile.PeerHandler do
       video_writer: nil,
       video_depayloader: nil,
       audio_writer: nil,
+      audio_depayloader: nil,
       frames_cnt: 0
     }
 
@@ -140,9 +141,11 @@ defmodule SaveToFile.PeerHandler do
         timebase_num: 1
       )
 
+    {:ok, video_depayloader} = @video_codecs |> hd() |> Depayloader.new()
+
     state = %{
       state
-      | video_depayloader: VP8.Depayloader.new(),
+      | video_depayloader: video_depayloader,
         video_writer: video_writer,
         video_track_id: id
     }
@@ -153,8 +156,15 @@ defmodule SaveToFile.PeerHandler do
   defp handle_webrtc_msg({:track, %MediaStreamTrack{kind: :audio, id: id}}, state) do
     # by default uses 1 mono channel and 48k clock rate
     {:ok, audio_writer} = Ogg.Writer.open(@audio_file)
+    {:ok, audio_depayloader} = @audio_codecs |> hd() |> Depayloader.new()
 
-    state = %{state | audio_writer: audio_writer, audio_track_id: id}
+    state = %{
+      state
+      | audio_depayloader: audio_depayloader,
+        audio_writer: audio_writer,
+        audio_track_id: id
+    }
+
     {:ok, state}
   end
 
@@ -166,11 +176,11 @@ defmodule SaveToFile.PeerHandler do
 
   defp handle_webrtc_msg({:rtp, id, nil, packet}, %{video_track_id: id} = state) do
     state =
-      case VP8.Depayloader.write(state.video_depayloader, packet) do
-        {:ok, video_depayloader} ->
+      case Depayloader.depayload(state.video_depayloader, packet) do
+        {nil, video_depayloader} ->
           %{state | video_depayloader: video_depayloader}
 
-        {:ok, vp8_frame, video_depayloader} ->
+        {vp8_frame, video_depayloader} ->
           frame = %IVF.Frame{timestamp: state.frames_cnt, data: vp8_frame}
           {:ok, video_writer} = IVF.Writer.write_frame(state.video_writer, frame)
 
@@ -186,10 +196,10 @@ defmodule SaveToFile.PeerHandler do
   end
 
   defp handle_webrtc_msg({:rtp, id, nil, packet}, %{audio_track_id: id} = state) do
-    opus_packet = Opus.Depayloader.depayload(packet)
+    {opus_packet, depayloader} = Depayloader.depayload(state.audio_depayloader, packet)
     {:ok, audio_writer} = Ogg.Writer.write_packet(state.audio_writer, opus_packet)
 
-    {:ok, %{state | audio_writer: audio_writer}}
+    {:ok, %{state | audio_depayloader: depayloader, audio_writer: audio_writer}}
   end
 
   defp handle_webrtc_msg(_msg, state), do: {:ok, state}
