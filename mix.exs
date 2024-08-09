@@ -56,7 +56,7 @@ defmodule ExWebRTC.MixProject do
 
   defp deps do
     [
-      {:ex_sdp, "~> 0.17.0"},
+      {:ex_sdp, "~> 1.0"},
       {:ex_ice, "~> 0.8.0"},
       {:ex_dtls, "~> 0.15.0"},
       {:ex_libsrtp, "~> 0.7.1"},
