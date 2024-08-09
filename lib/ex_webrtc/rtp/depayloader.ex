@@ -2,7 +2,7 @@ defmodule ExWebRTC.RTP.Depayloader do
   @moduledoc """
   RTP depayloader.
 
-  It unpacks RTP pakcets into audio/video frames.
+  It unpacks RTP packets into audio/video frames.
   """
 
   alias ExWebRTC.RTPCodecParameters
