@@ -1399,8 +1399,8 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = PeerConnection.add_ice_candidate(pc1, candidate)
 
     # wait to establish connection
-    assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}, 2000
-    assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :connected}}, 2000
+    assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}
+    assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :connected}}
 
     :ok
   end
