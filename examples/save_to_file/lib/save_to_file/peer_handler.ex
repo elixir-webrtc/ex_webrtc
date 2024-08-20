@@ -10,9 +10,11 @@ defmodule SaveToFile.PeerHandler do
   }
 
   alias ExWebRTC.Media.{IVF, Ogg}
-  alias ExWebRTC.RTP.Depayloader
+  alias ExWebRTC.RTP.{Depayloader, JitterBuffer}
 
   @behaviour WebSock
+
+  @jitter_buffer_latency_ms 100
 
   @video_file "./video.ivf"
   @audio_file "./audio.ogg"
@@ -53,8 +55,10 @@ defmodule SaveToFile.PeerHandler do
       audio_track_id: nil,
       video_writer: nil,
       video_depayloader: nil,
+      video_buffer: nil,
       audio_writer: nil,
       audio_depayloader: nil,
+      audio_buffer: nil,
       frames_cnt: 0
     }
 
@@ -71,6 +75,15 @@ defmodule SaveToFile.PeerHandler do
   @impl true
   def handle_info({:ex_webrtc, _from, msg}, state) do
     handle_webrtc_msg(msg, state)
+  end
+
+  @impl true
+  def handle_info({:jitter_buffer, buffer, msg}, state) do
+    cond do
+      buffer == state.video_buffer -> handle_video_buffer_msg(msg, state)
+      buffer == state.audio_buffer -> handle_audio_buffer_msg(msg, state)
+      true -> {:ok, state}
+    end
   end
 
   @impl true
@@ -142,11 +155,14 @@ defmodule SaveToFile.PeerHandler do
       )
 
     {:ok, video_depayloader} = @video_codecs |> hd() |> Depayloader.new()
+    {:ok, video_buffer} = JitterBuffer.start_link(latency: @jitter_buffer_latency_ms)
+    JitterBuffer.start_timer(video_buffer)
 
     state = %{
       state
       | video_depayloader: video_depayloader,
         video_writer: video_writer,
+        video_buffer: video_buffer,
         video_track_id: id
     }
 
@@ -157,11 +173,14 @@ defmodule SaveToFile.PeerHandler do
     # by default uses 1 mono channel and 48k clock rate
     {:ok, audio_writer} = Ogg.Writer.open(@audio_file)
     {:ok, audio_depayloader} = @audio_codecs |> hd() |> Depayloader.new()
+    {:ok, audio_buffer} = JitterBuffer.start_link(latency: @jitter_buffer_latency_ms)
+    JitterBuffer.start_timer(audio_buffer)
 
     state = %{
       state
       | audio_depayloader: audio_depayloader,
         audio_writer: audio_writer,
+        audio_buffer: audio_buffer,
         audio_track_id: id
     }
 
@@ -175,6 +194,18 @@ defmodule SaveToFile.PeerHandler do
   end
 
   defp handle_webrtc_msg({:rtp, id, nil, packet}, %{video_track_id: id} = state) do
+    JitterBuffer.place_packet(state.video_buffer, packet)
+    {:ok, state}
+  end
+
+  defp handle_webrtc_msg({:rtp, id, nil, packet}, %{audio_track_id: id} = state) do
+    JitterBuffer.place_packet(state.audio_buffer, packet)
+    {:ok, state}
+  end
+
+  defp handle_webrtc_msg(_msg, state), do: {:ok, state}
+
+  defp handle_video_buffer_msg({:packet, packet}, state) do
     state =
       case Depayloader.depayload(state.video_depayloader, packet) do
         {nil, video_depayloader} ->
@@ -195,12 +226,10 @@ defmodule SaveToFile.PeerHandler do
     {:ok, state}
   end
 
-  defp handle_webrtc_msg({:rtp, id, nil, packet}, %{audio_track_id: id} = state) do
+  defp handle_audio_buffer_msg({:packet, packet}, state) do
     {opus_packet, depayloader} = Depayloader.depayload(state.audio_depayloader, packet)
     {:ok, audio_writer} = Ogg.Writer.write_packet(state.audio_writer, opus_packet)
 
     {:ok, %{state | audio_depayloader: depayloader, audio_writer: audio_writer}}
   end
-
-  defp handle_webrtc_msg(_msg, state), do: {:ok, state}
 end
