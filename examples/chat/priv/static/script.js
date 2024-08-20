@@ -1,6 +1,6 @@
 const pcConfig = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' },] };
 const chatInput = document.getElementById("chatInput");
-const chatMessages = document.getElementById("chatMessges");
+const chatMessages = document.getElementById("chatMessages");
 
 const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
 const ws = new WebSocket(`${proto}//${window.location.host}/ws`);
@@ -20,7 +20,7 @@ const start_connection = async (ws) => {
 
   dataChannel.onmessage = event => {
     const msg = document.createElement("p");
-    p.innerText = event.data;
+    msg.innerText = event.data;
     chatMessages.appendChild(msg);
   };
 

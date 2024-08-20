@@ -2,6 +2,7 @@ defmodule Chat.PeerHandler do
   require Logger
 
   alias ExWebRTC.{
+    DataChannel,
     ICECandidate,
     PeerConnection,
     SessionDescription
@@ -16,8 +17,12 @@ defmodule Chat.PeerHandler do
   @impl true
   def init(_) do
     {:ok, pc} = PeerConnection.start_link(ice_servers: @ice_servers)
+    {:ok, _} = Registry.register(Chat.PubSub, "chat", [])
 
-    state = %{peer_connection: pc}
+    state = %{
+      peer_connection: pc,
+      channel_id: nil
+    }
 
     {:ok, state}
   end
@@ -32,6 +37,12 @@ defmodule Chat.PeerHandler do
   @impl true
   def handle_info({:ex_webrtc, _from, msg}, state) do
     handle_webrtc_msg(msg, state)
+  end
+
+  @impl true
+  def handle_info({:chat_msg, msg}, state) do
+    :ok = PeerConnection.send_data(state.peer_connection, state.channel_id, msg)
+    {:ok, state}
   end
 
   @impl true
@@ -79,7 +90,18 @@ defmodule Chat.PeerHandler do
     {:push, {:text, msg}, state}
   end
 
-  # TODO: implement stuff
+  defp handle_webrtc_msg({:data_channel, %DataChannel{id: id}}, state) do
+    state = %{state | channel_id: id}
+    {:ok, state}
+  end
+
+  defp handle_webrtc_msg({:data, id, data}, %{channel_id: id} = state) do
+    Registry.dispatch(Chat.PubSub, "chat", fn entries ->
+      for {pid, _} <- entries, do: send(pid, {:chat_msg, data})
+    end)
+
+    {:ok, state}
+  end
 
   defp handle_webrtc_msg(_msg, state), do: {:ok, state}
 end
