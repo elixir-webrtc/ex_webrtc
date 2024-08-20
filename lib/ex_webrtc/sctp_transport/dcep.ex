@@ -16,20 +16,26 @@ defmodule ExWebRTC.SCTPTransport.DCEP do
   defmodule DataChannelOpen do
     @moduledoc false
 
-    @enforce_keys [:reliability, :order, :label, :protocol, :priority]
-    defstruct @enforce_keys ++ [:max_rtx, :lifetime]
+    @enforce_keys [:reliability, :order, :label, :protocol, :priority, :param]
+    defstruct @enforce_keys
 
     def decode(
           <<ch_type::8, priority::16, param::32, label_len::16, proto_len::16, rest::binary>>
         ) do
       with {:ok, reliability, order} <- to_channel_type(ch_type),
-           params <- %{reliability: reliability, order: order},
-           params <- to_reliability_param(params, param),
            <<label::binary-size(label_len), rest::binary>> <- rest,
            <<protocol::binary-size(proto_len)>> <- rest do
-        params
-        |> Map.merge(%{label: label, protocol: protocol, priority: priority})
-        |> then(&{:ok, struct!(__MODULE__, &1)})
+        dca =
+          %__MODULE__{
+            reliability: reliability,
+            order: order,
+            param: param,
+            label: label,
+            protocol: protocol,
+            priority: priority
+          }
+
+        {:ok, dca}
       else
         _other -> :error
       end
@@ -37,11 +43,10 @@ defmodule ExWebRTC.SCTPTransport.DCEP do
 
     def encode(%__MODULE__{} = dco) do
       ch_type = from_channel_type(dco.reliability, dco.order)
-      param = from_reliability_param(dco)
       label_len = byte_size(dco.label)
       proto_len = byte_size(dco.protocol)
 
-      <<0x03::8, ch_type::8, dco.priority::16, param::32, label_len::16, proto_len::16,
+      <<0x03::8, ch_type::8, dco.priority::16, dco.param::32, label_len::16, proto_len::16,
         dco.label::binary-size(label_len), dco.protocol::binary-size(proto_len)>>
     end
 
@@ -61,18 +66,6 @@ defmodule ExWebRTC.SCTPTransport.DCEP do
     defp from_channel_type(:rexmit, :unordered), do: 0x81
     defp from_channel_type(:timed, :ordered), do: 0x02
     defp from_channel_type(:timed, :unordered), do: 0x82
-
-    defp to_reliability_param(%{reliability: :reliable} = params, _param), do: params
-
-    defp to_reliability_param(%{reliability: :rexmit} = params, param),
-      do: Map.put(params, :max_rtx, param)
-
-    defp to_reliability_param(%{reliability: :timed} = params, param),
-      do: Map.put(params, :lifetime, param)
-
-    defp from_reliability_param(%__MODULE__{reliability: :rexmit, max_rtx: val}), do: val
-    defp from_reliability_param(%__MODULE__{reliability: :timed, lifetime: val}), do: val
-    defp from_reliability_param(%__MODULE__{reliability: :reliable}), do: 0
   end
 
   def decode(<<0x03::8, rest::binary>>), do: DataChannelOpen.decode(rest)

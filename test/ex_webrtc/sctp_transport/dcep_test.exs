@@ -11,8 +11,7 @@ defmodule ExWebRTC.SCTPTransport.DCEPTest do
     label: "hello",
     protocol: "webrtc",
     priority: 5,
-    max_rtx: nil,
-    lifetime: 100
+    param: 100
   }
 
   @encoded_dca <<2>>
