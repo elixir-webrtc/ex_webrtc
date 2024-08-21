@@ -22,7 +22,7 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
     end
 
     test "start of stream starts timer that changes state", %{state: state} do
-      {:noreply, state} = JitterBuffer.handle_cast(:start_timer, state)
+      {:reply, :ok, state} = JitterBuffer.handle_call(:start_timer, nil, state)
       assert_receive message, state.latency + 5
       {:noreply, final_state} = JitterBuffer.handle_info(message, state)
       assert final_state.waiting? == false
@@ -134,7 +134,7 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
 
       {:ok, store} = PacketStore.insert_packet(store, packet)
       state = %{state | store: store}
-      {:noreply, state} = JitterBuffer.handle_cast(:flush, state)
+      {:reply, :ok, state} = JitterBuffer.handle_call(:flush, nil, state)
 
       assert_receive {:jitter_buffer, _pid, {:packet, ^packet}}
       assert state.store == %PacketStore{}

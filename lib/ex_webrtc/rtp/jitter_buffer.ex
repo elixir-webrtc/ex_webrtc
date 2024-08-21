@@ -21,12 +21,14 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   @type message() :: {:jitter_buffer, pid(), {:packet, ExRTP.Packet.t()}}
 
   @typedoc """
-  Options that can be passed to `#{inspect(__MODULE__)}.start_link/1`.
+  Options that can be passed to `start_link/1`.
 
   * `controlling_process` - a pid of a process where all messages will be sent. `self()` by default.
   * `latency` - latency introduced by the buffer, in milliseconds. `#{@default_latency_ms}` by default.
   """
-  @type options :: [{:controlling_process, Process.dest()}, {:latency, non_neg_integer()}]
+  @type options :: [controlling_process: Process.dest(), latency: non_neg_integer()]
+
+  @type jitter_buffer :: GenServer.server()
 
   @doc """
   Starts a new `#{inspect(__MODULE__)}` process.
@@ -35,7 +37,7 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   passing the generic `t:GenServer.options/0` as an argument.
 
   Note: The buffer *won't* output any packets
-  until `#{inspect(__MODULE__)}.start_timer/1` is called.
+  until `start_timer/1` is called.
   """
   @spec start(options(), GenServer.options()) :: GenServer.on_start()
   def start(opts \\ [], gen_server_opts \\ []) do
@@ -59,9 +61,9 @@ defmodule ExWebRTC.RTP.JitterBuffer do
 
   The buffer will start to output packets `latency` milliseconds after this function is called.
   """
-  @spec start_timer(GenServer.server()) :: :ok
+  @spec start_timer(jitter_buffer()) :: :ok
   def start_timer(buffer) do
-    GenServer.cast(buffer, :start_timer)
+    GenServer.call(buffer, :start_timer)
   end
 
   @doc """
@@ -69,7 +71,7 @@ defmodule ExWebRTC.RTP.JitterBuffer do
 
   Returns `:ok` even if the packet was rejected due to being late.
   """
-  @spec place_packet(GenServer.server(), ExRTP.Packet.t()) :: :ok
+  @spec place_packet(jitter_buffer(), ExRTP.Packet.t()) :: :ok
   def place_packet(buffer, packet) do
     GenServer.cast(buffer, {:packet, packet})
   end
@@ -78,11 +80,11 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   Flushes all remaining packets and resets the JitterBuffer.
 
   After flushing, the rollover counter is set to `0` and the buffer *won't* output any packets
-  until `#{inspect(__MODULE__)}.start_timer/1` is called again.
+  until `start_timer/1` is called again.
   """
-  @spec flush(GenServer.server()) :: :ok
+  @spec flush(jitter_buffer()) :: :ok
   def flush(buffer) do
-    GenServer.cast(buffer, :flush)
+    GenServer.call(buffer, :flush)
   end
 
   @impl true
@@ -102,9 +104,18 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   end
 
   @impl true
-  def handle_cast(:start_timer, state) do
+  def handle_call(:start_timer, _from, state) do
     Process.send_after(self(), :initial_latency_passed, state.latency)
-    {:noreply, state}
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_call(:flush, _from, %{store: store} = state) do
+    store
+    |> PacketStore.dump()
+    |> Enum.each(&process_flushed_record(&1, state.owner))
+
+    {:reply, :ok, %{state | store: %PacketStore{}, waiting?: true}}
   end
 
   @impl true
@@ -121,15 +132,6 @@ defmodule ExWebRTC.RTP.JitterBuffer do
       end
 
     {:noreply, state}
-  end
-
-  @impl true
-  def handle_cast(:flush, %{store: store} = state) do
-    store
-    |> PacketStore.dump()
-    |> Enum.each(&process_flushed_record(&1, state.owner))
-
-    {:noreply, %{state | store: %PacketStore{}, waiting?: true}}
   end
 
   @impl true
