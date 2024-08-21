@@ -74,7 +74,14 @@ defmodule ExWebRTC.MixProject do
 
   defp docs do
     intro_guides = ["intro", "negotiation", "forwarding", "consuming"]
-    advanced_guides = ["simulcast", "modifying", "mastering_transceivers", "debugging"]
+
+    advanced_guides = [
+      "simulcast",
+      "modifying",
+      "mastering_transceivers",
+      "deploying",
+      "debugging"
+    ]
 
     [
       main: "readme",
