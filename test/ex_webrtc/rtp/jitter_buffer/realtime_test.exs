@@ -14,7 +14,6 @@ defmodule ExWebRTC.RTP.JitterBuffer.RealtimeTest do
 
     @impl true
     def init(state) do
-      :ok = JitterBuffer.start_timer(state.buffer)
       {:ok, state, {:continue, :after_init}}
     end
 
@@ -51,8 +50,26 @@ defmodule ExWebRTC.RTP.JitterBuffer.RealtimeTest do
 
     @impl true
     def handle_info({:push_packet, n}, %{buffer: buffer} = state) do
-      :ok = JitterBuffer.place_packet(buffer, PacketFactory.sample_packet(n))
-      {:noreply, state}
+      buffer
+      |> JitterBuffer.place_packet(PacketFactory.sample_packet(n))
+      |> handle_jitter_buffer_result(state)
+    end
+
+    @impl true
+    def handle_info(:jitter_buffer_timer, %{buffer: buffer} = state) do
+      buffer
+      |> JitterBuffer.handle_timer()
+      |> handle_jitter_buffer_result(state)
+    end
+
+    defp handle_jitter_buffer_result({buffer, packets, timer}, state) do
+      for packet <- packets do
+        send(state.owner, packet)
+      end
+
+      unless is_nil(timer), do: Process.send_after(self(), :jitter_buffer_timer, timer)
+
+      {:noreply, %{state | buffer: buffer}}
     end
   end
 
@@ -71,11 +88,10 @@ defmodule ExWebRTC.RTP.JitterBuffer.RealtimeTest do
   end
 
   defp test_pipeline(packets, packet_delay_ms, latency_ms) do
-    {:ok, buffer} = JitterBuffer.start_link(latency: latency_ms)
-
     {:ok, _pid} =
       GenServer.start_link(PacketSource, %{
-        buffer: buffer,
+        owner: self(),
+        buffer: JitterBuffer.new(latency: latency_ms),
         packet_num: packets,
         packet_delay_ms: packet_delay_ms,
         max_latency: latency_ms
@@ -88,16 +104,13 @@ defmodule ExWebRTC.RTP.JitterBuffer.RealtimeTest do
 
       cond do
         rem(n, 50) >= 30 and rem(n, 50) <= 32 ->
-          refute_receive {:jitter_buffer, _pid, {:packet, %Packet{sequence_number: ^seq_num}}},
-                         timeout
+          refute_receive %Packet{sequence_number: ^seq_num}, timeout
 
         rem(n, 19) == 0 and rem(n, 15) != 0 ->
-          refute_receive {:jitter_buffer, _pid, {:packet, %Packet{sequence_number: ^seq_num}}},
-                         timeout
+          refute_receive %Packet{sequence_number: ^seq_num}, timeout
 
         true ->
-          assert_receive {:jitter_buffer, _pid, {:packet, %Packet{sequence_number: ^seq_num}}},
-                         timeout
+          assert_receive %Packet{sequence_number: ^seq_num}, timeout
       end
     end)
   end
