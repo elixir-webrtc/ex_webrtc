@@ -362,6 +362,7 @@ defmodule ExWebRTC.DTLSTransport do
         {:ok, state}
 
       {:error, reason} = error ->
+        # TODO: consider buffering DTLS packets that came out of order during the handshake
         Logger.debug("DTLS error: #{reason}")
         error
     end
@@ -393,7 +394,7 @@ defmodule ExWebRTC.DTLSTransport do
     They will be processed after the completion of the handshake.\
     """)
 
-    state = %{state | buffered_remote_rtp_packets: state.buffered_remote_rtp_packets ++ [data]}
+    state = %{state | buffered_remote_rtp_packets: [data | state.buffered_remote_rtp_packets]}
     {:ok, state}
   end
 
@@ -438,10 +439,8 @@ defmodule ExWebRTC.DTLSTransport do
     %{state | remote_cert: cert, remote_base64_cert: base64_cert, remote_fingerprint: fingerprint}
   end
 
-  defp flush_buffered_remote_rtp_packets(%{buffered_remote_rtp_packets: []} = state), do: state
-
   defp flush_buffered_remote_rtp_packets(state) do
-    for data <- state.buffered_remote_rtp_packets do
+    for data <- Enum.reverse(state.buffered_remote_rtp_packets) do
       send(self(), {:ex_ice, state.ice_pid, {:data, data}})
     end
 
