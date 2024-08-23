@@ -168,9 +168,9 @@ defmodule ExWebRTC.PeerConnection do
   @doc """
   TODO
   """
-  @spec send_data(peer_connection(), DataChannel.id(), binary()) :: :ok
-  def send_data(peer_connection, channel_id, data) do
-    GenServer.cast(peer_connection, {:send_data, channel_id, data})
+  @spec send_data(peer_connection(), DataChannel.ref(), binary()) :: :ok
+  def send_data(peer_connection, channel_ref, data) do
+    GenServer.cast(peer_connection, {:send_data, channel_ref, data})
   end
 
   #### MDN-API ####
@@ -1086,9 +1086,11 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_cast({:send_data, channel_id, data}, state) do
+  def handle_cast({:send_data, channel_ref, data}, state) do
     # TODO: allow for configuring the type of data
-    {events, sctp_transport} = SCTPTransport.send(state.sctp_transport, channel_id, :string, data)
+    {events, sctp_transport} =
+      SCTPTransport.send(state.sctp_transport, channel_ref, :string, data)
+
     handle_sctp_events(events, state)
 
     {:noreply, %{state | sctp_transport: sctp_transport}}
@@ -1395,7 +1397,8 @@ defmodule ExWebRTC.PeerConnection do
 
         cond do
           SDPUtils.data_channel?(local_mline) ->
-            generate_data_mline(local_mline.mid, opts)
+            {:mid, mid} = ExSDP.get_attribute(local_mline, :mid)
+            generate_data_mline(mid, opts)
 
           tr == nil ->
             %{local_mline | port: 0}
@@ -1437,6 +1440,7 @@ defmodule ExWebRTC.PeerConnection do
         {"sctp-port", "5000"}
       ]
 
+    # NOTICE: Media.new puts fmtp (`webrtc-datachannel`) into a list
     %ExSDP.Media{
       ExSDP.Media.new("application", 9, "UDP/DTLS/SCTP", "webrtc-datachannel")
       | # mline must be followed by a cline, which must contain
@@ -2019,8 +2023,11 @@ defmodule ExWebRTC.PeerConnection do
         {:transmit, packets} ->
           Enum.each(packets, &DTLSTransport.send_data(state.dtls_transport, &1))
 
-        {:channel_opened, channel} ->
+        {:channel, channel} ->
           notify(state.owner, {:data_channel, channel})
+
+        {:state_change, ref, new_state} ->
+          notify(state.owner, {:data_channel_state_change, ref, new_state})
 
         {:data, id, data} ->
           notify(state.owner, {:data, id, data})

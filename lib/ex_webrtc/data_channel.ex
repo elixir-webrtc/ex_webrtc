@@ -5,6 +5,8 @@ defmodule ExWebRTC.DataChannel do
 
   @type order() :: :ordered | :unordered
 
+  @type ref() :: reference()
+
   @type id() :: non_neg_integer()
 
   @type ready_state() :: :connecting | :open | :closing | :closed
@@ -17,6 +19,7 @@ defmodule ExWebRTC.DataChannel do
         ]
 
   @type t() :: %__MODULE__{
+          ref: ref(),
           id: non_neg_integer() | nil,
           label: String.t(),
           max_packet_life_time: non_neg_integer() | nil,
@@ -26,6 +29,6 @@ defmodule ExWebRTC.DataChannel do
           ready_state: ready_state()
         }
 
-  @enforce_keys [:id, :label, :ordered, :protocol, :ready_state]
+  @enforce_keys [:ref, :id, :label, :ordered, :protocol, :ready_state]
   defstruct @enforce_keys ++ [:max_packet_life_time, :max_retransmits]
 end

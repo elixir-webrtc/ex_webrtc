@@ -12,8 +12,9 @@ defmodule ExWebRTC.SCTPTransport do
 
   @type event() ::
           {:transmit, binary()}
-          | {:data, DataChannel.id(), binary()}
-          | {:channel_opened, DataChannel.t()}
+          | {:data, DataChannel.ref(), binary()}
+          | {:channel, DataChannel.t()}
+          | {:state_change, DataChannel.ref(), DataChannel.ready_state()}
 
   @spec new() :: t()
   def new do
@@ -22,7 +23,6 @@ defmodule ExWebRTC.SCTPTransport do
       connected: false,
       id_type: nil,
       timer: nil,
-      pending_channels: [],
       channels: %{}
     }
   end
@@ -36,12 +36,13 @@ defmodule ExWebRTC.SCTPTransport do
   end
 
   @spec set_role(t(), :active | :passive) :: t()
+  def set_role(%{id_type: t} = sctp_transport, _type) when t != nil, do: sctp_transport
   def set_role(sctp_transport, :active), do: %{sctp_transport | id_type: :even}
   def set_role(sctp_transport, :passive), do: %{sctp_transport | id_type: :odd}
 
   @spec data_channels?(t()) :: boolean()
   def data_channels?(sctp_transport) do
-    not (Enum.empty?(sctp_transport.channels) and Enum.empty?(sctp_transport.pending_channels))
+    not Enum.empty?(sctp_transport.channels)
   end
 
   @spec add_channel(
@@ -55,6 +56,7 @@ defmodule ExWebRTC.SCTPTransport do
           {[event()], DataChannel.t(), t()}
   def add_channel(sctp_transport, label, ordered, protocol, lifetime, max_rtx) do
     channel = %DataChannel{
+      ref: make_ref(),
       id: nil,
       label: label,
       ordered: ordered,
@@ -64,8 +66,8 @@ defmodule ExWebRTC.SCTPTransport do
       max_retransmits: max_rtx
     }
 
-    channels = [channel | sctp_transport.pending_channels]
-    sctp_transport = %{sctp_transport | pending_channels: channels}
+    channels = Map.put(sctp_transport.channels, channel.ref, channel)
+    sctp_transport = %{sctp_transport | channels: channels}
 
     {events, sctp_transport} =
       if sctp_transport.connected do
@@ -80,16 +82,16 @@ defmodule ExWebRTC.SCTPTransport do
 
   # TODO: close channel
 
-  @spec send(t(), DataChannel.id(), :string | :binary, binary()) :: {[event()], t()}
-  def send(sctp_transport, id, type, data) do
+  @spec send(t(), DataChannel.ref(), :string | :binary, binary()) :: {[event()], t()}
+  def send(sctp_transport, ref, type, data) do
     {ppi, data} = to_raw_data(data, type)
 
-    case Map.fetch(sctp_transport.channels, id) do
-      {:ok, %DataChannel{ready_state: :open}} ->
+    case Map.fetch(sctp_transport.channels, ref) do
+      {:ok, %DataChannel{ready_state: :open, id: id}} when id != nil ->
         :ok = ExSCTP.send(sctp_transport.ref, id, ppi, data)
         handle_events(sctp_transport)
 
-      {:ok, _other} ->
+      {:ok, %DataChannel{id: id}} ->
         Logger.warning(
           "Trying to send data over DataChannel with id #{id} that is not opened yet"
         )
@@ -97,14 +99,14 @@ defmodule ExWebRTC.SCTPTransport do
         {[], sctp_transport}
 
       :error ->
-        Logger.warning("Trying to send data over non-existing DataChannel with id #{id}")
+        Logger.warning("Trying to send data over non-existing DataChannel with ref #{ref}")
         {[], sctp_transport}
     end
   end
 
   @spec handle_timeout(t()) :: {[event()], t()}
   def handle_timeout(sctp_transport) do
-    :ok = ExSCTP.handle_timeout(sctp_transport.ref)
+    ExSCTP.handle_timeout(sctp_transport.ref)
     handle_events(sctp_transport)
   end
 
@@ -114,11 +116,16 @@ defmodule ExWebRTC.SCTPTransport do
     handle_events(sctp_transport)
   end
 
-  defp handle_pending_channels(%{pending_channels: []} = sctp_transport) do
-    sctp_transport
+  defp handle_pending_channels(sctp_transport) do
+    sctp_transport.channels
+    |> Map.values()
+    |> Enum.filter(fn channel -> channel.id == nil end)
+    |> Enum.reduce(sctp_transport, fn channel, transport ->
+      handle_pending_channel(transport, channel)
+    end)
   end
 
-  defp handle_pending_channels(%{pending_channels: [channel | rest]} = sctp_transport) do
+  defp handle_pending_channel(sctp_transport, channel) do
     id = new_id(sctp_transport)
     :ok = ExSCTP.open_stream(sctp_transport.ref, id)
 
@@ -140,17 +147,17 @@ defmodule ExWebRTC.SCTPTransport do
 
     :ok = ExSCTP.send(sctp_transport.ref, id, @dcep_ppi, DCEP.encode(dco))
 
-    channels = Map.put(sctp_transport.channels, id, channel)
-    handle_pending_channels(%{sctp_transport | pending_channels: rest, channels: channels})
+    channel = %DataChannel{channel | id: id}
+    %{sctp_transport | channels: Map.replace!(sctp_transport.channels, channel.ref, channel)}
   end
 
   defp handle_events(sctp_transport, events \\ []) do
     event = ExSCTP.poll(sctp_transport.ref)
 
     case handle_event(sctp_transport, event) do
-      {:none, sctp_transport} -> {Enum.reverse(events), sctp_transport}
-      {nil, sctp_transport} -> handle_events(sctp_transport, events)
-      {other, sctp_transport} -> handle_events(sctp_transport, [other | events])
+      {:none, transport} -> {Enum.reverse(events), transport}
+      {nil, transport} -> handle_events(transport, events)
+      {other, transport} -> handle_events(transport, [other | events])
     end
   end
 
@@ -159,8 +166,13 @@ defmodule ExWebRTC.SCTPTransport do
   defp handle_event(sctp_transport, :none), do: {:none, sctp_transport}
   defp handle_event(sctp_transport, {:transmit, _data} = event), do: {event, sctp_transport}
 
+  defp handle_event(sctp_transport, {:stream_opened, id}) do
+    Logger.debug("SCTP stream #{id} has been opened")
+    {nil, sctp_transport}
+  end
+
   defp handle_event(sctp_transport, {:stream_closed, _id}) do
-    # TODO
+    # TODO: handle closing channels
     {nil, sctp_transport}
   end
 
@@ -174,14 +186,11 @@ defmodule ExWebRTC.SCTPTransport do
     {nil, sctp_transport}
   end
 
-  defp handle_event(sctp_transport, {:stream_opened, id}) do
-    Logger.debug("SCTP stream #{id} has been opened")
-
-    channels = Map.put(sctp_transport.channels, id, nil)
-    {nil, %{sctp_transport | channels: channels}}
-  end
-
   defp handle_event(sctp_transport, {:timeout, val}) do
+    # TODO: this seems to work
+    # but sometimes the data is send after quite a substensial timeout
+    # calling `handle_timeout` periodically (i.e. every 50s) seems to work better
+    # which is wierd, to investigate
     if sctp_transport.timer != nil do
       Process.cancel_timer(sctp_transport.timer)
     end
@@ -209,30 +218,36 @@ defmodule ExWebRTC.SCTPTransport do
 
   defp handle_event(sctp_transport, {:data, id, ppi, data}) do
     with {:ok, data} <- from_raw_data(data, ppi),
-         {:ok, %DataChannel{ready_state: :open}} <- Map.fetch(sctp_transport.channels, id) do
-      {{:data, id, data}, sctp_transport}
+         {ref, %DataChannel{ready_state: :open}} <-
+           Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
+      {{:data, ref, data}, sctp_transport}
     else
-      {:ok, %DataChannel{}} ->
+      {_ref, %DataChannel{}} ->
         Logger.warning("Received data on DataChannel with id #{id} that is not open. Discarding")
         {nil, sctp_transport}
 
-      _other ->
+      nil ->
         Logger.warning(
           "Received data over non-existing DataChannel on stream with id #{id}. Discarding"
         )
 
         {nil, sctp_transport}
+
+      _other ->
+        Logger.warning("Received data in invalid format on stream with id #{id}. Discarding")
+        {nil, sctp_transport}
     end
   end
 
   defp handle_dcep(sctp_transport, id, %DCEP.DataChannelOpen{} = dco) do
-    with {:ok, nil} <- Map.fetch(sctp_transport.channels, id),
+    with false <- Enum.any?(sctp_transport.channels, fn {_k, v} -> v.id == id end),
          true <- valid_id?(sctp_transport, id) do
       :ok = ExSCTP.send(sctp_transport.ref, id, @dcep_ppi, DCEP.encode(%DCEP.DataChannelAck{}))
 
-      Logger.info("Remote opened DataChannel #{id} succesfull")
+      Logger.debug("Remote opened DataChannel #{id} succesfully")
 
       channel = %DataChannel{
+        ref: make_ref(),
         id: id,
         label: dco.label,
         ordered: dco.order == :ordered,
@@ -243,27 +258,26 @@ defmodule ExWebRTC.SCTPTransport do
       }
 
       # In theory, we should also send the :open event here (W3C 6.2.3)
-      channels = Map.put(sctp_transport.channels, id, channel)
-
-      {:ok, %{sctp_transport | channels: channels}, {:channel_opened, channel}}
+      channels = Map.put(sctp_transport.channels, channel.ref, channel)
+      {:ok, %{sctp_transport | channels: channels}, {:channel, channel}}
     else
       _other -> :error
     end
   end
 
   defp handle_dcep(sctp_transport, id, %DCEP.DataChannelAck{}) do
-    case Map.fetch(sctp_transport.channels, id) do
-      {:ok, %DataChannel{} = channel} ->
-        Logger.info("Locally opened DataChannel #{id} has been negotiated succesfully")
+    case Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
+      {ref, %DataChannel{ready_state: :connecting} = channel} ->
+        Logger.debug("Locally opened DataChannel #{id} has been negotiated succesfully")
         # TODO: set the parameters
-        # TODO: fire event that channel is open
-        channels =
-          Map.put(sctp_transport.channels, id, %DataChannel{channel | ready_state: :open})
+        channel = %DataChannel{channel | ready_state: :open}
+        channels = Map.put(sctp_transport.channels, ref, channel)
+        event = {:state_change, ref, :open}
 
-        {:ok, %{sctp_transport | channels: channels}, nil}
+        {:ok, %{sctp_transport | channels: channels}, event}
 
       _other ->
-        # TODO: should we close there?
+        # TODO: close the channel
         Logger.warning("Received DCEP Ack without sending the DCEP Open message on stream #{id}")
         {:ok, sctp_transport, nil}
     end
@@ -282,16 +296,16 @@ defmodule ExWebRTC.SCTPTransport do
   defp valid_id?(%{id_type: :even}, id), do: rem(id, 2) == 1
   defp valid_id?(%{id_type: :odd}, id), do: rem(id, 2) == 0
 
-  defp new_id(%{channels: %{}, id_type: :even}), do: 0
-  defp new_id(%{channels: %{}, id_type: :odd}), do: 1
-
   defp new_id(sctp_transport) do
     max_id =
       sctp_transport.channels
+      |> Enum.filter(fn {_k, v} -> v.id != nil end)
       |> Enum.map(fn {_k, v} -> v.id end)
-      |> Enum.max()
+      |> Enum.max(&>=/2, fn -> -1 end)
 
     case {sctp_transport.id_type, rem(max_id, 2)} do
+      {:even, -1} -> 0
+      {:odd, -1} -> 1
       {:even, 0} -> max_id + 2
       {:even, 1} -> max_id + 1
       {:odd, 0} -> max_id + 1

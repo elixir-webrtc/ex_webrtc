@@ -380,6 +380,7 @@ defmodule ExWebRTC.SDPUtils do
 
   @spec data_channel?(ExSDP.Media.t()) :: boolean()
   def data_channel?(%ExSDP.Media{fmt: "webrtc-datachannel"}), do: true
+  def data_channel?(%ExSDP.Media{fmt: ["webrtc-datachannel"]}), do: true
   def data_channel?(%ExSDP.Media{}), do: false
 
   defp do_get_ice_credentials(sdp_or_mline) do

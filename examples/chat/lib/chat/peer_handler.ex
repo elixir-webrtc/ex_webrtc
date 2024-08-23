@@ -21,7 +21,7 @@ defmodule Chat.PeerHandler do
 
     state = %{
       peer_connection: pc,
-      channel_id: nil
+      channel_ref: nil
     }
 
     {:ok, state}
@@ -41,7 +41,7 @@ defmodule Chat.PeerHandler do
 
   @impl true
   def handle_info({:chat_msg, msg}, state) do
-    :ok = PeerConnection.send_data(state.peer_connection, state.channel_id, msg)
+    :ok = PeerConnection.send_data(state.peer_connection, state.channel_ref, msg)
     {:ok, state}
   end
 
@@ -90,12 +90,12 @@ defmodule Chat.PeerHandler do
     {:push, {:text, msg}, state}
   end
 
-  defp handle_webrtc_msg({:data_channel, %DataChannel{id: id}}, state) do
-    state = %{state | channel_id: id}
+  defp handle_webrtc_msg({:data_channel, %DataChannel{ref: ref}}, state) do
+    state = %{state | channel_ref: ref}
     {:ok, state}
   end
 
-  defp handle_webrtc_msg({:data, id, data}, %{channel_id: id} = state) do
+  defp handle_webrtc_msg({:data, ref, data}, %{channel_ref: ref} = state) do
     Registry.dispatch(Chat.PubSub, "chat", fn entries ->
       for {pid, _} <- entries, do: send(pid, {:chat_msg, data})
     end)
