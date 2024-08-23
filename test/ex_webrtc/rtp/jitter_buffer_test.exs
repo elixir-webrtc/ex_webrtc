@@ -24,15 +24,15 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
 
     test "first packet starts timer that changes state", %{buffer: buffer, packet: packet} do
       assert buffer.state == :initial_wait
-      {buffer, [], timer} = JitterBuffer.place_packet(buffer, packet)
+      {[], timer, buffer} = JitterBuffer.place_packet(buffer, packet)
       assert timer == buffer.latency
-      {buffer, _packets, _timer} = JitterBuffer.handle_timer(buffer)
+      {_packets, _timer, buffer} = JitterBuffer.handle_timer(buffer)
       assert buffer.state != :initial_wait
     end
 
     test "any new packet is kept", %{buffer: buffer, packet: packet} do
       assert PacketStore.dump(buffer.store) == []
-      {buffer, [], _timer} = JitterBuffer.place_packet(buffer, packet)
+      {[], _timer, buffer} = JitterBuffer.place_packet(buffer, packet)
 
       %{store: store} = buffer
       {%Record{packet: ^packet}, new_store} = PacketStore.flush_one(store)
@@ -48,7 +48,7 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
     end
 
     test "outputs it immediately if it is in order", %{buffer: buffer, packet: packet} do
-      {buffer, [^packet], _timer} = JitterBuffer.place_packet(buffer, packet)
+      {[^packet], _timer, buffer} = JitterBuffer.place_packet(buffer, packet)
 
       %{store: store} = buffer
       assert PacketStore.dump(store) == []
@@ -56,7 +56,7 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
 
     test "refuses to add that packet when it comes too late", %{buffer: buffer} do
       late_packet = PacketFactory.sample_packet(@base_seq_number - 2)
-      {new_buffer, [], nil} = JitterBuffer.place_packet(buffer, late_packet)
+      {[], nil, new_buffer} = JitterBuffer.place_packet(buffer, late_packet)
       assert new_buffer == buffer
     end
 
@@ -78,7 +78,7 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
 
       buffer = %{buffer | store: store}
 
-      {%{store: result_store}, packets, _timer} = JitterBuffer.place_packet(buffer, first_packet)
+      {packets, _timer, %{store: result_store}} = JitterBuffer.place_packet(buffer, first_packet)
 
       assert packets == [first_packet, second_packet, third_packet]
 
@@ -98,12 +98,12 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
 
       buffer = %{buffer | store: store, state: :timer_not_set}
 
-      {buffer, [], timer} = JitterBuffer.place_packet(buffer, packet)
+      {[], timer, buffer} = JitterBuffer.place_packet(buffer, packet)
       assert timer != nil
       assert buffer.state == :timer_set
 
       Process.sleep(buffer.latency + 5)
-      {_buffer, [^packet], _timer} = JitterBuffer.handle_timer(buffer)
+      {[^packet], _timer, _buffer} = JitterBuffer.handle_timer(buffer)
     end
   end
 
@@ -119,7 +119,7 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
 
       {:ok, store} = PacketStore.insert_packet(store, packet)
       buffer = %{buffer | store: store}
-      {buffer, [^packet], nil} = JitterBuffer.flush(buffer)
+      {[^packet], nil, buffer} = JitterBuffer.flush(buffer)
 
       assert buffer.store == %PacketStore{}
     end

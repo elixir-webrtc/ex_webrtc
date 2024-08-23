@@ -28,13 +28,13 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   @typedoc """
   The 3-element tuple returned by all functions other than `new/1`.
 
-  * `buffer` - `t:#{inspect(__MODULE__)}.t/0`.
   * `packets` - a list with packets flushed from the buffer as a result of the function call. May be empty.
   * `timer_duration_ms` - see `t:timer/0`.
+  * `buffer` - `t:#{inspect(__MODULE__)}.t/0`.
 
   Generally speaking, all results of this type can be handled in the same way.
   """
-  @type result :: {buffer :: t(), packets :: [Packet.t()], timer_duration_ms :: timer()}
+  @type result :: {packets :: [Packet.t()], timer_duration_ms :: timer(), buffer :: t()}
 
   @opaque t :: %__MODULE__{
             latency: non_neg_integer(),
@@ -72,13 +72,13 @@ defmodule ExWebRTC.RTP.JitterBuffer do
     {buffer, timer} = maybe_set_timer(buffer)
     {_result, buffer} = try_insert_packet(buffer, packet)
 
-    {buffer, [], timer}
+    {[], timer, buffer}
   end
 
   def place_packet(buffer, packet) do
     case try_insert_packet(buffer, packet) do
       {:ok, buffer} -> send_packets(buffer)
-      {:error, buffer} -> {buffer, [], nil}
+      {:error, buffer} -> {[], nil, buffer}
     end
   end
 
@@ -94,7 +94,7 @@ defmodule ExWebRTC.RTP.JitterBuffer do
       |> PacketStore.dump()
       |> records_to_packets()
 
-    {%__MODULE__{latency: buffer.latency}, packets, nil}
+    {packets, nil, %__MODULE__{latency: buffer.latency}}
   end
 
   @doc """
@@ -127,7 +127,7 @@ defmodule ExWebRTC.RTP.JitterBuffer do
 
     {buffer, timer} = maybe_set_timer(%__MODULE__{buffer | store: store})
 
-    {buffer, packets, timer}
+    {packets, timer, buffer}
   end
 
   @spec records_to_packets(Enumerable.t(PacketStore.Record.t())) :: [Packet.t()]

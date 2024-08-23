@@ -62,7 +62,7 @@ defmodule ExWebRTC.RTP.JitterBuffer.RealtimeTest do
       |> handle_jitter_buffer_result(state)
     end
 
-    defp handle_jitter_buffer_result({buffer, packets, timer}, state) do
+    defp handle_jitter_buffer_result({packets, timer, buffer}, state) do
       for packet <- packets do
         send(state.owner, packet)
       end

@@ -208,7 +208,7 @@ defmodule SaveToFile.PeerHandler do
 
   defp handle_webrtc_msg(_msg, state), do: {:ok, state}
 
-  defp handle_jitter_buffer_result({buffer, packets, timer}, kind, state) do
+  defp handle_jitter_buffer_result({packets, timer, buffer}, kind, state) do
     state =
       case kind do
         :video -> %{state | video_buffer: buffer}
