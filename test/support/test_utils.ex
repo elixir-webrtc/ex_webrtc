@@ -1,7 +1,7 @@
 defmodule ExWebRTC.Support.TestUtils do
   @moduledoc false
 
-  import ExUnit.Assertions
+  use ExUnit.Case
 
   alias ExWebRTC.PeerConnection
 
