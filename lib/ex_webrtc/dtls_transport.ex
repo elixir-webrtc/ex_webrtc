@@ -108,6 +108,7 @@ defmodule ExWebRTC.DTLSTransport do
       ice_connected: false,
       buffered_local_packets: nil,
       buffered_remote_packets: nil,
+      buffered_remote_rtp_packets: [],
       cert: cert,
       base64_cert: Base.encode64(cert),
       pkey: pkey,
@@ -341,6 +342,7 @@ defmodule ExWebRTC.DTLSTransport do
         if peer_fingerprint == state.peer_fingerprint do
           :ok = setup_srtp(state, lkm, rkm, profile)
           state = update_dtls_state(state, :connected)
+          state = flush_buffered_remote_rtp_packets(state)
           {:ok, state}
         else
           Logger.debug("Non-matching peer cert fingerprint.")
@@ -352,6 +354,7 @@ defmodule ExWebRTC.DTLSTransport do
         Logger.debug("DTLS handshake finished")
         :ok = setup_srtp(state, lkm, rkm, profile)
         state = update_dtls_state(state, :connected)
+        state = flush_buffered_remote_rtp_packets(state)
         state = update_remote_cert_info(state)
         {:ok, state}
 
@@ -359,6 +362,7 @@ defmodule ExWebRTC.DTLSTransport do
         {:ok, state}
 
       {:error, reason} = error ->
+        # TODO: consider buffering DTLS packets that came out of order during the handshake
         Logger.debug("DTLS error: #{reason}")
         error
     end
@@ -384,11 +388,13 @@ defmodule ExWebRTC.DTLSTransport do
     {:ok, state}
   end
 
-  defp handle_ice_data({:data, _data}, state) do
-    Logger.warning(
-      "Received RTP/RTCP packets, but DTLS handshake hasn't been finished yet. Ignoring."
-    )
+  defp handle_ice_data({:data, data}, state) do
+    Logger.debug("""
+    Received RTP/RTCP packets, but DTLS handshake hasn't been finished yet. \
+    They will be processed after the completion of the handshake.\
+    """)
 
+    state = %{state | buffered_remote_rtp_packets: [data | state.buffered_remote_rtp_packets]}
     {:ok, state}
   end
 
@@ -431,6 +437,14 @@ defmodule ExWebRTC.DTLSTransport do
     base64_cert = Base.encode64(cert)
 
     %{state | remote_cert: cert, remote_base64_cert: base64_cert, remote_fingerprint: fingerprint}
+  end
+
+  defp flush_buffered_remote_rtp_packets(state) do
+    for data <- Enum.reverse(state.buffered_remote_rtp_packets) do
+      send(self(), {:ex_ice, state.ice_pid, {:data, data}})
+    end
+
+    %{state | buffered_remote_rtp_packets: []}
   end
 
   defp notify(dst, msg), do: send(dst, {:dtls_transport, self(), msg})
