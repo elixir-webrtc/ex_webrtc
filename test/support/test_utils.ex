@@ -17,18 +17,16 @@ defmodule ExWebRTC.Support.TestUtils do
   @spec connect(PeerConnection.peer_connection(), PeerConnection.peer_connection()) :: :ok
   def connect(pc1, pc2) do
     # exchange ICE candidates
-    receive do
-      {:ex_webrtc, ^pc1, {:ice_candidate, candidate}} ->
-        :ok = PeerConnection.add_ice_candidate(pc2, candidate)
-    after
-      2000 -> raise "Unable to negotiate"
-    end
+    for _ <- 1..2 do
+      receive do
+        {:ex_webrtc, ^pc1, {:ice_candidate, candidate}} ->
+          :ok = PeerConnection.add_ice_candidate(pc2, candidate)
 
-    receive do
-      {:ex_webrtc, ^pc2, {:ice_candidate, candidate}} ->
-        :ok = PeerConnection.add_ice_candidate(pc1, candidate)
-    after
-      2000 -> raise "Unable to negotiate"
+        {:ex_webrtc, ^pc2, {:ice_candidate, candidate}} ->
+          :ok = PeerConnection.add_ice_candidate(pc1, candidate)
+      after
+        2000 -> raise "Unable to connect"
+      end
     end
 
     for pc <- [pc1, pc2] do
