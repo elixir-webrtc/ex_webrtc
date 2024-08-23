@@ -65,6 +65,7 @@ defmodule ExWebRTC.PeerConnection do
   Most of the messages match the [RTCPeerConnection events](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection#events),
   except for:
   * `:track_muted`, `:track_ended` - these match the [MediaStreamTrack events](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack#events).
+  * `:data` - data received from DataChannel identified by its `ref`.
   * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection. The third element of `:rtp` tuple is a simulcast RID and is set to `nil` if simulcast
   is not used.
   * each of the packets in `:rtcp` message is in the form of `{track_id, packet}` tuple, where `track_id` is the id of the corrsponding track.
@@ -79,9 +80,12 @@ defmodule ExWebRTC.PeerConnection do
            | {:ice_gathering_state_change, ice_gathering_state()}
            | :negotiation_needed
            | {:signaling_state_change, signaling_state()}
+           | {:data_channel_state_change, DataChannel.ref(), DataChannel.ready_state()}
+           | {:data_channel, DataChannel.t()}
            | {:track, MediaStreamTrack.t()}
            | {:track_muted, MediaStreamTrack.id()}
            | {:track_ended, MediaStreamTrack.id()}
+           | {:data, DataChannel.ref(), binary()}
            | {:rtp, MediaStreamTrack.id(), String.t() | nil, ExRTP.Packet.t()}}
           | {:rtcp, [{MediaStreamTrack.id() | nil, ExRTCP.Packet.packet()}]}
 
@@ -166,7 +170,9 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
-  TODO
+  Sends data over DataChannel, using channel identified by `ref`.
+
+  Requires the channel to be in `:open` state.
   """
   @spec send_data(peer_connection(), DataChannel.ref(), binary()) :: :ok
   def send_data(peer_connection, channel_ref, data) do
@@ -419,7 +425,9 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
-  TODO
+  Creates a new DataChannel.
+
+  For more information, refer to the [RTCPeerConnection: createDataChannel() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createDataChannel).
   """
   @spec create_data_channel(peer_connection(), String.t(), DataChannel.options()) ::
           {:ok, DataChannel.t()} | {:error, atom()}
@@ -895,10 +903,10 @@ defmodule ExWebRTC.PeerConnection do
           max_rtx
         )
 
-      # TODO: negotiation needed
+      state = update_negotiation_needed(%{state | sctp_transport: sctp_transport})
 
       handle_sctp_events(events, state)
-      {:reply, {:ok, channel}, %{state | sctp_transport: sctp_transport}}
+      {:reply, {:ok, channel}, state}
     else
       _other -> {:reply, :error, state}
     end
@@ -1892,7 +1900,17 @@ defmodule ExWebRTC.PeerConnection do
     do: state
 
   defp update_negotiation_needed(state) do
-    negotiation_needed = negotiation_needed?(state.transceivers, state)
+    has_channels =
+      case state.current_local_desc do
+        nil -> false
+        {_, desc} -> Enum.any?(desc.media, &SDPUtils.data_channel?(&1))
+      end
+
+    first_channel = map_size(state.sctp_transport.channels) == 1
+
+    negotiation_needed =
+      negotiation_needed?(state.transceivers, state) ||
+        (first_channel and not has_channels)
 
     cond do
       negotiation_needed == true and state.negotiation_needed == true ->
@@ -2029,8 +2047,8 @@ defmodule ExWebRTC.PeerConnection do
         {:state_change, ref, new_state} ->
           notify(state.owner, {:data_channel_state_change, ref, new_state})
 
-        {:data, id, data} ->
-          notify(state.owner, {:data, id, data})
+        {:data, ref, data} ->
+          notify(state.owner, {:data, ref, data})
       end
     end
   end
