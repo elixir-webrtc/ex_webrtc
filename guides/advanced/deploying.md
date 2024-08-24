@@ -1,7 +1,7 @@
 # Deploying
 
 Deploying WebRTC applications can be cumbersome.
-Here are a couple of details you should keep in mind when trying to push your project into production.
+Here are a few details you should keep in mind when trying to push your project into production.
 
 ## Allow UDP traffic in your firewall
 
