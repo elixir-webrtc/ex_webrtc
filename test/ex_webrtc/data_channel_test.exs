@@ -45,6 +45,32 @@ defmodule ExWebRTC.DataChannelTest do
     assert_receive {:ex_webrtc, ^pc2, {:data_channel_state_change, ^ref3, :open}}
   end
 
+  describe "closing the channel" do
+    setup do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      {:ok, %DataChannel{ref: ref1}} = PeerConnection.create_data_channel(pc1, "label")
+
+      :ok = negotiate(pc1, pc2)
+      :ok = connect(pc1, pc2)
+
+      assert_receive {:ex_webrtc, ^pc2, {:data_channel, %DataChannel{ref: ref2}}}
+      assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, ^ref1, :open}}
+
+      %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2}
+    end
+
+    test "by initiating peer", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
+      assert :ok = PeerConnection.close_data_channel(pc1, ref1)
+      assert_receive {:ex_webrtc, ^pc2, {:data_channel_state_change, ^ref2, :closed}}
+    end
+
+    test "by receiving peer", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
+      assert :ok = PeerConnection.close_data_channel(pc2, ref2)
+      assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, ^ref1, :closed}}
+    end
+  end
+
   describe "negotiating" do
     test "with only channel added" do
       {:ok, pc1} = PeerConnection.start_link()
