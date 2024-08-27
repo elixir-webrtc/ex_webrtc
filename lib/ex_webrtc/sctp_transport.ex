@@ -42,7 +42,7 @@ defmodule ExWebRTC.SCTPTransport do
 
   @spec data_channels?(t()) :: boolean()
   def data_channels?(sctp_transport) do
-    not Enum.empty?(sctp_transport.channels)
+    sctp_transport.channels != %{}
   end
 
   @spec add_channel(
@@ -211,7 +211,7 @@ defmodule ExWebRTC.SCTPTransport do
     else
       :error ->
         # TODO: close the channel
-        Logger.warning("Received invalid DECP message. Closing the stream with id #{id}")
+        Logger.warning("Received invalid DCEP message. Closing the stream with id #{id}")
         {nil, sctp_transport}
     end
   end

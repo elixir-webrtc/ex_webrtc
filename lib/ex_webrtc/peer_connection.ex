@@ -908,7 +908,7 @@ defmodule ExWebRTC.PeerConnection do
       handle_sctp_events(events, state)
       {:reply, {:ok, channel}, state}
     else
-      _other -> {:reply, :error, state}
+      _other -> {:reply, {:error, :invalid_option}, state}
     end
   end
 
@@ -1147,20 +1147,12 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:dtls_transport, _pid, {:state_change, new_dtls_state}}, state) do
-    state = %{state | dtls_state: new_dtls_state}
     next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
-    state = update_conn_state(state, next_conn_state)
 
     state =
-      case state.current_remote_desc do
-        {:answer, _} when new_dtls_state == :connected ->
-          {events, sctp_transport} = SCTPTransport.connect(state.sctp_transport)
-          handle_sctp_events(events, state)
-          %{state | sctp_transport: sctp_transport}
-
-        _other ->
-          state
-      end
+      %{state | dtls_state: new_dtls_state}
+      |> update_conn_state(next_conn_state)
+      |> maybe_connect_sctp()
 
     {:noreply, state}
   end
@@ -1589,6 +1581,7 @@ defmodule ExWebRTC.PeerConnection do
         |> update_signaling_state(next_sig_state)
         |> Map.replace!(:sctp_transport, sctp_transport)
         |> Map.update!(:demuxer, &Demuxer.update(&1, sdp))
+        |> maybe_connect_sctp()
 
       if state.signaling_state == :stable do
         state = %{state | negotiation_needed: false}
@@ -1900,17 +1893,9 @@ defmodule ExWebRTC.PeerConnection do
     do: state
 
   defp update_negotiation_needed(state) do
-    has_channels =
-      case state.current_local_desc do
-        nil -> false
-        {_, desc} -> Enum.any?(desc.media, &SDPUtils.data_channel?(&1))
-      end
-
-    first_channel = map_size(state.sctp_transport.channels) == 1
-
     negotiation_needed =
-      negotiation_needed?(state.transceivers, state) ||
-        (first_channel and not has_channels)
+      tr_negotiation_needed?(state.transceivers, state) or
+        dc_negotiation_needed?(state)
 
     cond do
       negotiation_needed == true and state.negotiation_needed == true ->
@@ -1929,14 +1914,26 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
+  defp dc_negotiation_needed?(state) do
+    first_channel = map_size(state.sctp_transport.channels) == 1
+
+    has_channels =
+      case state.current_local_desc do
+        nil -> false
+        {_, desc} -> Enum.any?(desc.media, &SDPUtils.data_channel?(&1))
+      end
+
+    first_channel and not has_channels
+  end
+
   # We don't support MSIDs and stopping transceivers so
   # we only check 5.2 and 5.3 from 4.7.3#check-if-negotiation-is-needed
   # https://www.w3.org/TR/webrtc/#dfn-check-if-negotiation-is-needed
-  defp negotiation_needed?([], _), do: false
+  defp tr_negotiation_needed?([], _), do: false
 
-  defp negotiation_needed?([tr | _transceivers], _state) when tr.mid == nil, do: true
+  defp tr_negotiation_needed?([tr | _transceivers], _state) when tr.mid == nil, do: true
 
-  defp negotiation_needed?([tr | transceivers], state) do
+  defp tr_negotiation_needed?([tr | transceivers], state) do
     {local_desc_type, local_desc} = state.current_local_desc
     {_, remote_desc} = state.current_remote_desc
 
@@ -1961,9 +1958,24 @@ defmodule ExWebRTC.PeerConnection do
         true
 
       true ->
-        negotiation_needed?(transceivers, state)
+        tr_negotiation_needed?(transceivers, state)
     end
   end
+
+  defp maybe_connect_sctp(%{current_remote_desc: {:answer, sdp}} = state) do
+    has_channel? = Enum.any?(sdp.media, &SDPUtils.data_channel?(&1))
+    connected? = state.dtls_state == :connected
+
+    if has_channel? and connected? do
+      {events, sctp_transport} = SCTPTransport.connect(state.sctp_transport)
+      handle_sctp_events(events, state)
+      %{state | sctp_transport: sctp_transport}
+    else
+      state
+    end
+  end
+
+  defp maybe_connect_sctp(state), do: state
 
   defp handle_rtcp_packet(state, %ExRTCP.Packet.ReceiverReport{} = report) do
     with true <- :rtcp_reports in state.config.features,

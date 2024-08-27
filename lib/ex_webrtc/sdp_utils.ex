@@ -13,7 +13,7 @@ defmodule ExWebRTC.SDPUtils do
     with :ok <- ensure_non_empty(sdp),
          :ok <- ensure_mid(sdp),
          :ok <- ensure_bundle(sdp),
-         :ok <- ensure_data_channel(sdp) do
+         :ok <- ensure_data_channel_valid(sdp) do
       ensure_rtcp_mux(sdp)
     end
   end
@@ -66,7 +66,7 @@ defmodule ExWebRTC.SDPUtils do
     Enum.filter(groups, fn %ExSDP.Attribute.Group{semantics: name} -> name == to_filter end)
   end
 
-  defp ensure_data_channel(sdp) do
+  defp ensure_data_channel_valid(sdp) do
     with [data_mline] <- Enum.filter(sdp.media, &data_channel?/1),
          "webrtc-datachannel" <- data_mline.fmt,
          sctp_port when not is_nil(sctp_port) <- ExSDP.get_attribute(data_mline, "sctp-port") do

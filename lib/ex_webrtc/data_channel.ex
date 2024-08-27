@@ -14,6 +14,8 @@ defmodule ExWebRTC.DataChannel do
   @typedoc """
   Options used when creating a new DataChannel.
 
+  For more information refer to `ExWebRTC.PeerConnection.create_data_channel/3`.
+
   As of now, Elixir WebRTC does not support `negotiated: true` option, all DataChannels need to be
   negotiated in-band.
   """

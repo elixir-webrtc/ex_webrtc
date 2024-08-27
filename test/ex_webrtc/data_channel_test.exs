@@ -97,9 +97,7 @@ defmodule ExWebRTC.DataChannelTest do
       label = "my label"
       {:ok, %DataChannel{ref: ref}} = PeerConnection.create_data_channel(pc2, label)
 
-      # NOTICE: in theory, this should be true, but as of now, we perform the SCTP handshake
-      # even if the SDP did not contain any data lines
-      # refute_receive {:ex_webrtc, ^pc1, {:data_channel, _}}
+      refute_receive {:ex_webrtc, ^pc1, {:data_channel, _}}
 
       :ok = negotiate(pc2, pc1)
 
@@ -128,7 +126,7 @@ defmodule ExWebRTC.DataChannelTest do
       :ok = PeerConnection.send_data(pc1, ref1, data1)
       assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, ^data1}}
 
-      data2 = for i <- 1..1024, into: <<>>, do: <<i>>
+      data2 = for i <- 1..2000, into: <<>>, do: <<i>>
       :ok = PeerConnection.send_data(pc1, ref1, data2)
       assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, ^data2}}
 

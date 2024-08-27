@@ -2,7 +2,7 @@
 
 Receive text chat messages using DataChannel and send them to other peers.
 
-While in `examples/chatt` directory
+While in `examples/chat` directory
 
 1. Run `mix deps.get`
 2. Run `mix run --no-halt`
