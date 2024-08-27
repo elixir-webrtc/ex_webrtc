@@ -12,7 +12,8 @@ defmodule ExWebRTC.SDPUtils do
   def ensure_valid(sdp) do
     with :ok <- ensure_non_empty(sdp),
          :ok <- ensure_mid(sdp),
-         :ok <- ensure_bundle(sdp) do
+         :ok <- ensure_bundle(sdp),
+         :ok <- ensure_data_channel_valid(sdp) do
       ensure_rtcp_mux(sdp)
     end
   end
@@ -65,10 +66,23 @@ defmodule ExWebRTC.SDPUtils do
     Enum.filter(groups, fn %ExSDP.Attribute.Group{semantics: name} -> name == to_filter end)
   end
 
+  defp ensure_data_channel_valid(sdp) do
+    with [data_mline] <- Enum.filter(sdp.media, &data_channel?/1),
+         "webrtc-datachannel" <- data_mline.fmt,
+         sctp_port when not is_nil(sctp_port) <- ExSDP.get_attribute(data_mline, "sctp-port") do
+      :ok
+    else
+      [] -> :ok
+      mlines when is_list(mlines) -> {:error, :multiple_data_mlines}
+      fmt when is_binary(fmt) -> {:error, :invalid_datachannel_format}
+      nil -> {:error, :no_sctp_port}
+    end
+  end
+
   defp ensure_rtcp_mux(sdp) do
     # Firefox does not add `rtcp_mux` in rejected mlines
     sdp.media
-    |> Enum.reject(&rejected?/1)
+    |> Enum.reject(&(rejected?(&1) or data_channel?(&1)))
     |> Enum.all?(&(ExSDP.get_attribute(&1, :rtcp_mux) == :rtcp_mux))
     |> case do
       true -> :ok
@@ -363,6 +377,11 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   def rejected?(%ExSDP.Media{}), do: false
+
+  @spec data_channel?(ExSDP.Media.t()) :: boolean()
+  def data_channel?(%ExSDP.Media{fmt: "webrtc-datachannel"}), do: true
+  def data_channel?(%ExSDP.Media{fmt: ["webrtc-datachannel"]}), do: true
+  def data_channel?(%ExSDP.Media{}), do: false
 
   defp do_get_ice_credentials(sdp_or_mline) do
     ice_ufrag =

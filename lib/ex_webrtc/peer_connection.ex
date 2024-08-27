@@ -12,12 +12,14 @@ defmodule ExWebRTC.PeerConnection do
   alias __MODULE__.{Configuration, Demuxer, TWCCRecorder}
 
   alias ExWebRTC.{
+    DataChannel,
     DefaultICETransport,
     DTLSTransport,
     ICECandidate,
     MediaStreamTrack,
     RTPTransceiver,
     RTPSender,
+    SCTPTransport,
     SDPUtils,
     SessionDescription,
     Utils
@@ -63,6 +65,7 @@ defmodule ExWebRTC.PeerConnection do
   Most of the messages match the [RTCPeerConnection events](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection#events),
   except for:
   * `:track_muted`, `:track_ended` - these match the [MediaStreamTrack events](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack#events).
+  * `:data` - data received from DataChannel identified by its `ref`.
   * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection. The third element of `:rtp` tuple is a simulcast RID and is set to `nil` if simulcast
   is not used.
   * each of the packets in `:rtcp` message is in the form of `{track_id, packet}` tuple, where `track_id` is the id of the corrsponding track.
@@ -77,9 +80,12 @@ defmodule ExWebRTC.PeerConnection do
            | {:ice_gathering_state_change, ice_gathering_state()}
            | :negotiation_needed
            | {:signaling_state_change, signaling_state()}
+           | {:data_channel_state_change, DataChannel.ref(), DataChannel.ready_state()}
+           | {:data_channel, DataChannel.t()}
            | {:track, MediaStreamTrack.t()}
            | {:track_muted, MediaStreamTrack.id()}
            | {:track_ended, MediaStreamTrack.id()}
+           | {:data, DataChannel.ref(), binary()}
            | {:rtp, MediaStreamTrack.id(), String.t() | nil, ExRTP.Packet.t()}}
           | {:rtcp, [{MediaStreamTrack.id() | nil, ExRTCP.Packet.packet()}]}
 
@@ -161,6 +167,16 @@ defmodule ExWebRTC.PeerConnection do
   @spec send_pli(peer_connection(), MediaStreamTrack.id(), String.t() | nil) :: :ok
   def send_pli(peer_connection, track_id, rid \\ nil) do
     GenServer.cast(peer_connection, {:send_pli, track_id, rid})
+  end
+
+  @doc """
+  Sends data over DataChannel, using channel identified by `ref`.
+
+  Requires the channel to be in `:open` state.
+  """
+  @spec send_data(peer_connection(), DataChannel.ref(), binary()) :: :ok
+  def send_data(peer_connection, channel_ref, data) do
+    GenServer.cast(peer_connection, {:send_data, channel_ref, data})
   end
 
   #### MDN-API ####
@@ -409,6 +425,17 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
+  Creates a new DataChannel.
+
+  For more information, refer to the [RTCPeerConnection: createDataChannel() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createDataChannel).
+  """
+  @spec create_data_channel(peer_connection(), String.t(), DataChannel.options()) ::
+          {:ok, DataChannel.t()} | {:error, atom()}
+  def create_data_channel(peer_connection, label, opts \\ []) do
+    GenServer.call(peer_connection, {:create_data_channel, label, opts})
+  end
+
+  @doc """
   Closes the PeerConnection.
 
   This function kills the `peer_connection` process.
@@ -455,6 +482,7 @@ defmodule ExWebRTC.PeerConnection do
       current_remote_desc: nil,
       pending_remote_desc: nil,
       negotiation_needed: false,
+      sctp_transport: SCTPTransport.new(),
       ice_transport: DefaultICETransport,
       ice_pid: ice_pid,
       dtls_transport: dtls_transport,
@@ -591,8 +619,13 @@ defmodule ExWebRTC.PeerConnection do
     mlines =
       Enum.map(remote_offer.media, fn mline ->
         {:mid, mid} = ExSDP.get_attribute(mline, :mid)
-        {_ix, transceiver} = find_transceiver(state.transceivers, mid)
-        RTPTransceiver.to_answer_mline(transceiver, mline, opts)
+
+        if SDPUtils.data_channel?(mline) do
+          generate_data_mline(mid, opts)
+        else
+          {_ix, transceiver} = find_transceiver(state.transceivers, mid)
+          RTPTransceiver.to_answer_mline(transceiver, mline, opts)
+        end
       end)
 
     mids = SDPUtils.get_bundle_mids(mlines)
@@ -852,6 +885,34 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_call({:create_data_channel, label, opts}, _from, state) do
+    ordered = Keyword.get(opts, :ordered, true)
+    lifetime = Keyword.get(opts, :max_packet_life_time)
+    max_rtx = Keyword.get(opts, :max_retransmits)
+    protocol = Keyword.get(opts, :protocol, "")
+
+    with true <- byte_size(label) < 65_535,
+         true <- lifetime == nil or max_rtx == nil do
+      {events, channel, sctp_transport} =
+        SCTPTransport.add_channel(
+          state.sctp_transport,
+          label,
+          ordered,
+          protocol,
+          lifetime,
+          max_rtx
+        )
+
+      state = update_negotiation_needed(%{state | sctp_transport: sctp_transport})
+
+      handle_sctp_events(events, state)
+      {:reply, {:ok, channel}, state}
+    else
+      _other -> {:reply, {:error, :invalid_option}, state}
+    end
+  end
+
+  @impl true
   def handle_call(:get_stats, _from, state) do
     timestamp = System.os_time(:millisecond)
 
@@ -1033,6 +1094,17 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_cast({:send_data, channel_ref, data}, state) do
+    # TODO: allow for configuring the type of data
+    {events, sctp_transport} =
+      SCTPTransport.send(state.sctp_transport, channel_ref, :string, data)
+
+    handle_sctp_events(events, state)
+
+    {:noreply, %{state | sctp_transport: sctp_transport}}
+  end
+
+  @impl true
   def handle_info({:ex_ice, _from, {:connection_state_change, new_ice_state}}, state) do
     state = %{state | ice_state: new_ice_state}
     next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
@@ -1075,9 +1147,13 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:dtls_transport, _pid, {:state_change, new_dtls_state}}, state) do
-    state = %{state | dtls_state: new_dtls_state}
     next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
-    state = update_conn_state(state, next_conn_state)
+
+    state =
+      %{state | dtls_state: new_dtls_state}
+      |> update_conn_state(next_conn_state)
+      |> maybe_connect_sctp()
+
     {:noreply, state}
   end
 
@@ -1160,6 +1236,14 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_info({:dtls_transport, _pid, {:data, data}}, state) do
+    {events, sctp_transport} = SCTPTransport.handle_data(state.sctp_transport, data)
+    handle_sctp_events(events, state)
+
+    {:noreply, %{state | sctp_transport: sctp_transport}}
+  end
+
+  @impl true
   def handle_info(:send_twcc_feedback, %{twcc_recorder: twcc_recorder} = state) do
     Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
 
@@ -1230,6 +1314,14 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_info(:sctp_timeout, state) do
+    {events, sctp_transport} = SCTPTransport.handle_timeout(state.sctp_transport)
+    handle_sctp_events(events, state)
+
+    {:noreply, %{state | sctp_transport: sctp_transport}}
+  end
+
+  @impl true
   def handle_info(msg, state) do
     Logger.info("Received unexpected message: #{inspect(msg)}")
     {:noreply, state}
@@ -1248,7 +1340,7 @@ defmodule ExWebRTC.PeerConnection do
     # converting them into mlines
     next_mid = find_next_mid(state)
 
-    {transceivers, _next_mid} =
+    {transceivers, next_mid} =
       Enum.map_reduce(state.transceivers, next_mid, fn
         # In the initial offer, we can't have stopped transceivers, only stopping ones.
         # Also, stopped transceivers are immediately removed.
@@ -1267,7 +1359,14 @@ defmodule ExWebRTC.PeerConnection do
       |> Enum.reject(fn tr -> tr.stopping == true end)
       |> Enum.map(&RTPTransceiver.to_offer_mline(&1, opts))
 
-    {transceivers, mlines}
+    data_mline =
+      if SCTPTransport.data_channels?(state.sctp_transport) do
+        [generate_data_mline(next_mid, opts)]
+      else
+        []
+      end
+
+    {transceivers, mlines ++ data_mline}
   end
 
   defp generate_offer_mlines(state, opts) do
@@ -1275,7 +1374,8 @@ defmodule ExWebRTC.PeerConnection do
     next_mid = find_next_mid(state)
     next_mline_idx = Enum.count(last_answer.media)
 
-    transceivers = assign_mlines(state.transceivers, last_answer, next_mid, next_mline_idx)
+    {transceivers, next_mid} =
+      assign_mlines(state.transceivers, last_answer, next_mid, next_mline_idx)
 
     # The idea is as follows:
     # * Iterate over current local mlines
@@ -1293,13 +1393,17 @@ defmodule ExWebRTC.PeerConnection do
       current_local_desc.media
       |> Stream.with_index()
       |> Enum.map(fn {local_mline, idx} ->
-        case Enum.find(transceivers, &(&1.mline_idx == idx)) do
-          # if there is no transceiver, the mline must have been rejected
-          # in the past (in the offer or answer) so we always set the port to 0
-          nil ->
+        tr = Enum.find(transceivers, &(&1.mline_idx == idx))
+
+        cond do
+          SDPUtils.data_channel?(local_mline) ->
+            {:mid, mid} = ExSDP.get_attribute(local_mline, :mid)
+            generate_data_mline(mid, opts)
+
+          tr == nil ->
             %{local_mline | port: 0}
 
-          tr ->
+          true ->
             RTPTransceiver.to_offer_mline(tr, opts)
         end
       end)
@@ -1313,7 +1417,37 @@ defmodule ExWebRTC.PeerConnection do
 
     final_mlines = final_mlines ++ rem_mlines
 
-    {transceivers, final_mlines}
+    data_mline =
+      if SCTPTransport.data_channels?(state.sctp_transport) and
+           not Enum.any?(final_mlines, &SDPUtils.data_channel?(&1)) do
+        [generate_data_mline(next_mid, opts)]
+      else
+        []
+      end
+
+    {transceivers, final_mlines ++ data_mline}
+  end
+
+  def generate_data_mline(mid, opts) do
+    attributes =
+      [
+        {:mid, mid},
+        {:ice_ufrag, Keyword.fetch!(opts, :ice_ufrag)},
+        {:ice_pwd, Keyword.fetch!(opts, :ice_pwd)},
+        {:ice_options, Keyword.fetch!(opts, :ice_options)},
+        {:fingerprint, Keyword.fetch!(opts, :fingerprint)},
+        {:setup, Keyword.fetch!(opts, :setup)},
+        {"sctp-port", "5000"}
+      ]
+
+    # NOTICE: Media.new puts fmtp (`webrtc-datachannel`) into a list
+    %ExSDP.Media{
+      ExSDP.Media.new("application", 9, "UDP/DTLS/SCTP", "webrtc-datachannel")
+      | # mline must be followed by a cline, which must contain
+        # the default value "IN IP4 0.0.0.0" (as there are no candidates yet)
+        connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
+    }
+    |> ExSDP.add_attributes(attributes)
   end
 
   # next_mline_idx is future mline idx to use if there are no mlines to recycle
@@ -1327,7 +1461,7 @@ defmodule ExWebRTC.PeerConnection do
          result \\ []
        )
 
-  defp assign_mlines([], _, _, _, _, result), do: Enum.reverse(result)
+  defp assign_mlines([], _, next_mid, _, _, result), do: {Enum.reverse(result), next_mid}
 
   defp assign_mlines(
          [%{mid: nil, mline_idx: nil, stopped: false} = tr | trs],
@@ -1369,7 +1503,10 @@ defmodule ExWebRTC.PeerConnection do
         state.ice_transport.gather_candidates(state.ice_pid)
       end
 
-      transceivers = process_mlines_local(sdp.media, state.transceivers, type, state.owner)
+      transceivers =
+        sdp.media
+        |> Enum.reject(&SDPUtils.data_channel?/1)
+        |> process_mlines_local(state.transceivers, type, state.owner)
 
       # TODO re-think order of those functions
       # and demuxer update
@@ -1412,11 +1549,14 @@ defmodule ExWebRTC.PeerConnection do
       state = %{state | config: config, twcc_extension_id: twcc_id}
 
       transceivers =
-        process_mlines_remote(sdp.media, state.transceivers, type, state.config, state.owner)
+        sdp.media
+        |> Enum.reject(&SDPUtils.data_channel?/1)
+        |> process_mlines_remote(state.transceivers, type, state.config, state.owner)
 
       # infer our role from the remote role
       dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
       DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
+      sctp_transport = SCTPTransport.set_role(state.sctp_transport, dtls_role)
 
       # ice_creds will be nil if all of the mlines in the description are rejected
       # in such case, if this is the first remote description, connection won't be established
@@ -1439,7 +1579,9 @@ defmodule ExWebRTC.PeerConnection do
         |> Map.replace!(:transceivers, transceivers)
         |> remove_stopped_transceivers(type, sdp)
         |> update_signaling_state(next_sig_state)
+        |> Map.replace!(:sctp_transport, sctp_transport)
         |> Map.update!(:demuxer, &Demuxer.update(&1, sdp))
+        |> maybe_connect_sctp()
 
       if state.signaling_state == :stable do
         state = %{state | negotiation_needed: false}
@@ -1751,7 +1893,9 @@ defmodule ExWebRTC.PeerConnection do
     do: state
 
   defp update_negotiation_needed(state) do
-    negotiation_needed = negotiation_needed?(state.transceivers, state)
+    negotiation_needed =
+      tr_negotiation_needed?(state.transceivers, state) or
+        dc_negotiation_needed?(state)
 
     cond do
       negotiation_needed == true and state.negotiation_needed == true ->
@@ -1770,14 +1914,26 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
+  defp dc_negotiation_needed?(state) do
+    first_channel = map_size(state.sctp_transport.channels) == 1
+
+    has_channels =
+      case state.current_local_desc do
+        nil -> false
+        {_, desc} -> Enum.any?(desc.media, &SDPUtils.data_channel?(&1))
+      end
+
+    first_channel and not has_channels
+  end
+
   # We don't support MSIDs and stopping transceivers so
   # we only check 5.2 and 5.3 from 4.7.3#check-if-negotiation-is-needed
   # https://www.w3.org/TR/webrtc/#dfn-check-if-negotiation-is-needed
-  defp negotiation_needed?([], _), do: false
+  defp tr_negotiation_needed?([], _), do: false
 
-  defp negotiation_needed?([tr | _transceivers], _state) when tr.mid == nil, do: true
+  defp tr_negotiation_needed?([tr | _transceivers], _state) when tr.mid == nil, do: true
 
-  defp negotiation_needed?([tr | transceivers], state) do
+  defp tr_negotiation_needed?([tr | transceivers], state) do
     {local_desc_type, local_desc} = state.current_local_desc
     {_, remote_desc} = state.current_remote_desc
 
@@ -1802,9 +1958,24 @@ defmodule ExWebRTC.PeerConnection do
         true
 
       true ->
-        negotiation_needed?(transceivers, state)
+        tr_negotiation_needed?(transceivers, state)
     end
   end
+
+  defp maybe_connect_sctp(%{current_remote_desc: {:answer, sdp}} = state) do
+    has_channel? = Enum.any?(sdp.media, &SDPUtils.data_channel?(&1))
+    connected? = state.dtls_state == :connected
+
+    if has_channel? and connected? do
+      {events, sctp_transport} = SCTPTransport.connect(state.sctp_transport)
+      handle_sctp_events(events, state)
+      %{state | sctp_transport: sctp_transport}
+    else
+      state
+    end
+  end
+
+  defp maybe_connect_sctp(state), do: state
 
   defp handle_rtcp_packet(state, %ExRTCP.Packet.ReceiverReport{} = report) do
     with true <- :rtcp_reports in state.config.features,
@@ -1875,6 +2046,24 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp handle_rtcp_packet(state, _packet), do: {nil, state}
+
+  defp handle_sctp_events(events, state) do
+    for event <- events do
+      case event do
+        {:transmit, packets} ->
+          Enum.each(packets, &DTLSTransport.send_data(state.dtls_transport, &1))
+
+        {:channel, channel} ->
+          notify(state.owner, {:data_channel, channel})
+
+        {:state_change, ref, new_state} ->
+          notify(state.owner, {:data_channel_state_change, ref, new_state})
+
+        {:data, ref, data} ->
+          notify(state.owner, {:data, ref, data})
+      end
+    end
+  end
 
   defp do_get_description(nil, _candidates), do: nil
 

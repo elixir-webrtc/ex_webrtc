@@ -91,6 +91,11 @@ defmodule ExWebRTC.DTLSTransport do
     GenServer.cast(dtls_transport, {:send_rtcp, data})
   end
 
+  @spec send_data(dtls_transport(), binary()) :: :ok
+  def send_data(dtls_transport, data) do
+    GenServer.cast(dtls_transport, {:send_data, data})
+  end
+
   @spec stop(dtls_transport()) :: :ok
   def stop(dtls_transport) do
     GenServer.stop(dtls_transport)
@@ -255,6 +260,16 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
+  def handle_cast({:send_data, data}, state) do
+    case ExDTLS.write_data(state.dtls, data) do
+      {:ok, protected} -> state.ice_transport.send_data(state.ice_pid, protected)
+      {:error, reason} -> Logger.warning("Unable to protect data: #{inspect(reason)}")
+    end
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(:dtls_timeout, %{buffered_local_packets: buffered_local_packets} = state) do
     case ExDTLS.handle_timeout(state.dtls) do
       {:retransmit, packets, timeout} when state.ice_connected ->
@@ -309,7 +324,7 @@ defmodule ExWebRTC.DTLSTransport do
     {:ok, state}
   end
 
-  defp handle_ice_data({:data, <<f, _rest::binary>> = data}, state) when f in 20..64 do
+  defp handle_ice_data({:data, <<f, _rest::binary>> = data}, state) when f in 20..63 do
     case ExDTLS.handle_data(state.dtls, data) do
       {:handshake_packets, packets, timeout} when state.ice_connected ->
         :ok = state.ice_transport.send_data(state.ice_pid, packets)
@@ -359,6 +374,10 @@ defmodule ExWebRTC.DTLSTransport do
         {:ok, state}
 
       :handshake_want_read ->
+        {:ok, state}
+
+      {:ok, data} ->
+        notify(state.owner, {:data, data})
         {:ok, state}
 
       {:error, reason} = error ->

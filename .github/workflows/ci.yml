@@ -14,8 +14,8 @@ jobs:
     name: CI on OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}}
     strategy:
       matrix:
-        otp: ['26']
-        elixir: ['1.16']
+        otp: ['27']
+        elixir: ['1.17']
     steps:
     - name: Set up Elixir
       uses: erlef/setup-beam@v1

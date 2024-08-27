@@ -1390,18 +1390,4 @@ defmodule ExWebRTC.PeerConnectionTest do
     refute_receive {:ex_webrtc, ^pc1, :negotiation_needed}
     refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
   end
-
-  defp connect(pc1, pc2) do
-    # exchange ICE candidates
-    assert_receive {:ex_webrtc, ^pc1, {:ice_candidate, candidate}}
-    :ok = PeerConnection.add_ice_candidate(pc2, candidate)
-    assert_receive {:ex_webrtc, ^pc2, {:ice_candidate, candidate}}
-    :ok = PeerConnection.add_ice_candidate(pc1, candidate)
-
-    # wait to establish connection
-    assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}
-    assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :connected}}
-
-    :ok
-  end
 end
