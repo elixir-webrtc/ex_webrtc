@@ -10,7 +10,7 @@ defmodule ExWebRTC.DataChannelTest do
     {:ok, pc2} = PeerConnection.start_link()
 
     label1 = "my label 1"
-    {:ok, %DataChannel{ref: ref1}} = PeerConnection.create_data_channel(pc1, label1)
+    {:ok, %DataChannel{ref: ref1, id: nil}} = PeerConnection.create_data_channel(pc1, label1)
     assert_receive {:ex_webrtc, ^pc1, :negotiation_needed}
 
     :ok = negotiate(pc1, pc2)
@@ -23,6 +23,8 @@ defmodule ExWebRTC.DataChannelTest do
     assert %DataChannel{ref: rem_ref1, id: 1, label: ^label1, ordered: true} = chan1
     assert_receive {:ex_webrtc, ^pc2, {:data_channel_state_change, ^rem_ref1, :open}}
     assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, ^ref1, :open}}
+
+    assert %DataChannel{id: 1} = PeerConnection.get_data_channel(pc1, ref1)
 
     label2 = "my label 2"
     protocol = "my proto"

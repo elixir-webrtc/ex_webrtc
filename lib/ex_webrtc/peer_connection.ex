@@ -452,6 +452,19 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
+  Returns `t:ExWebRTC.DataChannel.t()` identified by `channel_ref` if it exists, `nil` otherwise.
+
+  This function can be especially helpful when you want to obtain DataChannel `id`. Normally,
+  before SCTP connection is established, `create_data_channel/3` will return DataChannel struct
+  with `id` set to `nil`. After receiving `{:data_channel_state_change, ref, :open}` message,
+  you can call this function to obtain the same struct, but with `id` set to proper value.
+  """
+  @spec get_data_channel(peer_connection(), DataChannel.ref()) :: DataChannel.t() | nil
+  def get_data_channel(peer_connection, channel_ref) do
+    GenServer.call(peer_connection, {:get_data_channel, channel_ref})
+  end
+
+  @doc """
   Closes the PeerConnection.
 
   This function kills the `peer_connection` process.
@@ -934,6 +947,12 @@ defmodule ExWebRTC.PeerConnection do
     handle_sctp_events(events, state)
 
     {:reply, :ok, %{state | sctp_transport: sctp_transport}}
+  end
+
+  @impl true
+  def handle_call({:get_data_channel, channel_ref}, _from, state) do
+    channel = SCTPTransport.get_channel(state.sctp_transport, channel_ref)
+    {:reply, channel, state}
   end
 
   @impl true

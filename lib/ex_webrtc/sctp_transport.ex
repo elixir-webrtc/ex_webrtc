@@ -105,6 +105,9 @@ defmodule ExWebRTC.SCTPTransport do
     end
   end
 
+  @spec get_channel(t(), DataChannel.ref()) :: DataChannel.t() | nil
+  def get_channel(sctp_transport, ref), do: Map.get(sctp_transport.channels, ref)
+
   @spec send(t(), DataChannel.ref(), :string | :binary, binary()) :: {[event()], t()}
   def send(sctp_transport, ref, type, data) do
     {ppi, data} = to_raw_data(data, type)
