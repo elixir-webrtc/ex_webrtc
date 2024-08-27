@@ -32,6 +32,12 @@ defmodule ExWebRTC.DataChannel do
   All of the fields have the same meaning as in [RTCDataChannel](https://developer.mozilla.org/en-US/docs/Web/API/RTCDataChannel)
   except for `ref` which is a local identifier used when refering to this DataChannel in
   received messages or when calling `ExWebRTC.PeerConnection.send_data/3` function.
+
+  It's worth to mention that `id` and `label` can be used by the other peer to identify the data
+  channel, althought be careful as:
+  * `label` does not have to be unique, channels can share a single label,
+  * `id` is only assigned after the SCTP connection has been established (which means
+  that DataChannels created before first negotiation will have `id` set to `nil`)
   """
   @type t() :: %__MODULE__{
           ref: ref(),
