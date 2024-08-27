@@ -302,8 +302,24 @@ defmodule ExWebRTC.SCTPTransport do
       }
 
       # In theory, we should also send the :open event here (W3C 6.2.3)
+      # TODO
       channels = Map.put(sctp_transport.channels, channel.ref, channel)
-      {:ok, %{sctp_transport | channels: channels}, {:channel, channel}}
+      sctp_transport = %{sctp_transport | channels: channels}
+
+      case ExSCTP.configure_stream(
+             sctp_transport.ref,
+             id,
+             channel.ordered,
+             dco.reliability,
+             dco.param
+           ) do
+        :ok ->
+          {:ok, sctp_transport, {:channel, channel}}
+
+        {:error, _res} ->
+          Logger.warning("Unable to set stream #{id} parameters")
+          :error
+      end
     else
       _other ->
         Logger.warning("Received invalid DCEP Open on stream #{id}")
@@ -315,12 +331,26 @@ defmodule ExWebRTC.SCTPTransport do
     case Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
       {ref, %DataChannel{ready_state: :connecting} = channel} ->
         Logger.debug("Locally opened DataChannel #{id} has been negotiated succesfully")
-        # TODO: set the parameters
+
         channel = %DataChannel{channel | ready_state: :open}
         channels = Map.put(sctp_transport.channels, ref, channel)
-        event = {:state_change, ref, :open}
+        sctp_transport = %{sctp_transport | channels: channels}
 
-        {:ok, %{sctp_transport | channels: channels}, event}
+        {rel_type, rel_param} =
+          case channel do
+            %DataChannel{max_packet_life_time: nil, max_retransmits: nil} -> {:reliable, 0}
+            %DataChannel{max_retransmits: v} when v != nil -> {:rexmit, v}
+            %DataChannel{max_packet_life_time: v} when v != nil -> {:timed, v}
+          end
+
+        case ExSCTP.configure_stream(sctp_transport.ref, id, channel.ordered, rel_type, rel_param) do
+          :ok ->
+            {:ok, sctp_transport, {:state_change, ref, :open}}
+
+          {:error, _res} ->
+            Logger.warning("Unable to set stream #{id} parameters")
+            :error
+        end
 
       _other ->
         Logger.warning("Received DCEP Ack without sending the DCEP Open message on stream #{id}")
