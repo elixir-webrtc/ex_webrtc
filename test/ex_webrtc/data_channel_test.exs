@@ -20,7 +20,8 @@ defmodule ExWebRTC.DataChannelTest do
     :ok = connect(pc1, pc2)
 
     assert_receive {:ex_webrtc, ^pc2, {:data_channel, chan1}}
-    assert %DataChannel{id: 1, label: ^label1, ordered: true} = chan1
+    assert %DataChannel{ref: rem_ref1, id: 1, label: ^label1, ordered: true} = chan1
+    assert_receive {:ex_webrtc, ^pc2, {:data_channel_state_change, ^rem_ref1, :open}}
     assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, ^ref1, :open}}
 
     label2 = "my label 2"
@@ -32,7 +33,11 @@ defmodule ExWebRTC.DataChannelTest do
     refute_receive {:ex_webrtc, ^pc1, :negotiation_needed}
 
     assert_receive {:ex_webrtc, ^pc2, {:data_channel, chan2}}
-    assert %DataChannel{id: 3, label: ^label2, protocol: ^protocol, ordered: false} = chan2
+
+    assert %DataChannel{ref: rem_ref2, id: 3, label: ^label2, protocol: ^protocol, ordered: false} =
+             chan2
+
+    assert_receive {:ex_webrtc, ^pc2, {:data_channel_state_change, ^rem_ref2, :open}}
     assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, ^ref2, :open}}
 
     label3 = "my label 3"
@@ -41,8 +46,9 @@ defmodule ExWebRTC.DataChannelTest do
     refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}
 
     assert_receive {:ex_webrtc, ^pc1, {:data_channel, chan3}}
-    assert %DataChannel{id: 4, label: ^label3} = chan3
+    assert %DataChannel{ref: rem_ref3, id: 4, label: ^label3} = chan3
     assert_receive {:ex_webrtc, ^pc2, {:data_channel_state_change, ^ref3, :open}}
+    assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, ^rem_ref3, :open}}
   end
 
   describe "closing the channel" do
@@ -62,12 +68,14 @@ defmodule ExWebRTC.DataChannelTest do
 
     test "by initiating peer", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
       assert :ok = PeerConnection.close_data_channel(pc1, ref1)
+      assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, ^ref1, :closed}}
       assert_receive {:ex_webrtc, ^pc2, {:data_channel_state_change, ^ref2, :closed}}
     end
 
     test "by receiving peer", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
       assert :ok = PeerConnection.close_data_channel(pc2, ref2)
       assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, ^ref1, :closed}}
+      assert_receive {:ex_webrtc, ^pc2, {:data_channel_state_change, ^ref2, :closed}}
     end
   end
 

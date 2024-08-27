@@ -183,6 +183,7 @@ defmodule ExWebRTC.SCTPTransport do
     case handle_event(sctp_transport, event) do
       {:none, transport} -> {Enum.reverse(events), transport}
       {nil, transport} -> handle_events(transport, events)
+      {other, transport} when is_list(other) -> handle_events(transport, other ++ events)
       {other, transport} -> handle_events(transport, [other | events])
     end
   end
@@ -241,8 +242,9 @@ defmodule ExWebRTC.SCTPTransport do
 
   defp handle_event(sctp_transport, {:data, id, @dcep_ppi, data}) do
     with {:ok, dcep} <- DCEP.decode(data),
-         {:ok, sctp_transport, event} <- handle_dcep(sctp_transport, id, dcep) do
-      {event, sctp_transport}
+         {:ok, sctp_transport, events} <- handle_dcep(sctp_transport, id, dcep) do
+      # events is either list or a single event
+      {events, sctp_transport}
     else
       :error ->
         Logger.warning("Received invalid DCEP message. Closing the stream with id #{id}")
@@ -314,7 +316,11 @@ defmodule ExWebRTC.SCTPTransport do
              dco.param
            ) do
         :ok ->
-          {:ok, sctp_transport, {:channel, channel}}
+          # remote channels also result in open event
+          # even tho they already have ready_state open in the {:data_channel, ...} message
+          # W3C 6.2.3
+          events = [{:state_change, channel.ref, :open}, {:channel, channel}]
+          {:ok, sctp_transport, events}
 
         {:error, _res} ->
           Logger.warning("Unable to set stream #{id} parameters")
