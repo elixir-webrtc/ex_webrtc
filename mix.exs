@@ -1,7 +1,7 @@
 defmodule ExWebRTC.MixProject do
   use Mix.Project
 
-  @version "0.4.0"
+  @version "0.4.1"
   @source_url "https://github.com/elixir-webrtc/ex_webrtc"
 
   def project do
@@ -75,7 +75,14 @@ defmodule ExWebRTC.MixProject do
 
   defp docs do
     intro_guides = ["intro", "negotiation", "forwarding", "consuming"]
-    advanced_guides = ["simulcast", "modifying", "mastering_transceivers", "debugging"]
+
+    advanced_guides = [
+      "simulcast",
+      "modifying",
+      "mastering_transceivers",
+      "deploying",
+      "debugging"
+    ]
 
     [
       main: "readme",
