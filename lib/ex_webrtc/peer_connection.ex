@@ -1018,6 +1018,11 @@ defmodule ExWebRTC.PeerConnection do
       |> Enum.flat_map(&RTPTransceiver.get_stats(&1, timestamp))
       |> Map.new(fn stats -> {stats.id, stats} end)
 
+    data_channel_stats =
+      state.sctp_transport
+      |> SCTPTransport.get_stats(timestamp)
+      |> Map.new(fn stats -> {stats.id, stats} end)
+
     stats = %{
       peer_connection: %{
         id: :peer_connection,
@@ -1057,6 +1062,7 @@ defmodule ExWebRTC.PeerConnection do
       |> Map.merge(local_cands)
       |> Map.merge(remote_cands)
       |> Map.merge(rtp_stats)
+      |> Map.merge(data_channel_stats)
 
     {:reply, stats, state}
   end

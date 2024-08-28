@@ -23,7 +23,8 @@ defmodule ExWebRTC.SCTPTransport do
       connected: false,
       id_type: nil,
       timer: nil,
-      channels: %{}
+      channels: %{},
+      stats: %{}
     }
   end
 
@@ -43,6 +44,24 @@ defmodule ExWebRTC.SCTPTransport do
   @spec data_channels?(t()) :: boolean()
   def data_channels?(sctp_transport) do
     sctp_transport.channels != %{}
+  end
+
+  @spec get_stats(t(), non_neg_integer()) :: [map()]
+  def get_stats(sctp_transport, timestamp) do
+    Enum.map(sctp_transport.channels, fn {ref, channel} ->
+      stats = Map.fetch!(sctp_transport.stats, ref)
+
+      %{
+        id: inspect(channel.ref),
+        type: :data_channel,
+        timestamp: timestamp,
+        data_channel_identifier: channel.id,
+        label: channel.label,
+        protocol: channel.protocol,
+        state: channel.ready_state
+      }
+      |> Map.merge(stats)
+    end)
   end
 
   @spec add_channel(
@@ -67,7 +86,8 @@ defmodule ExWebRTC.SCTPTransport do
     }
 
     channels = Map.put(sctp_transport.channels, channel.ref, channel)
-    sctp_transport = %{sctp_transport | channels: channels}
+    stats = Map.put(sctp_transport.stats, channel.ref, initial_stats())
+    sctp_transport = %{sctp_transport | channels: channels, stats: stats}
 
     {events, sctp_transport} =
       if sctp_transport.connected do
@@ -90,7 +110,8 @@ defmodule ExWebRTC.SCTPTransport do
         {[], sctp_transport}
 
       {%DataChannel{id: id}, channels} ->
-        sctp_transport = %{sctp_transport | channels: channels}
+        stats = Map.delete(sctp_transport.stats, ref)
+        sctp_transport = %{sctp_transport | channels: channels, stats: stats}
 
         {events, sctp_transport} =
           if id != nil do
@@ -114,8 +135,9 @@ defmodule ExWebRTC.SCTPTransport do
 
     case Map.fetch(sctp_transport.channels, ref) do
       {:ok, %DataChannel{ready_state: :open, id: id}} when id != nil ->
+        stats = update_stats(sctp_transport.stats, ref, data, :sent)
         :ok = ExSCTP.send(sctp_transport.ref, id, ppi, data)
-        handle_events(sctp_transport)
+        handle_events(%{sctp_transport | stats: stats})
 
       {:ok, %DataChannel{id: id}} ->
         Logger.warning(
@@ -207,8 +229,9 @@ defmodule ExWebRTC.SCTPTransport do
     case Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
       {ref, %DataChannel{ref: ref}} ->
         channels = Map.delete(sctp_transport.channels, ref)
+        stats = Map.delete(sctp_transport.stats, ref)
         event = {:state_change, ref, :closed}
-        {event, %{sctp_transport | channels: channels}}
+        {event, %{sctp_transport | channels: channels, stats: stats}}
 
       _other ->
         {nil, sctp_transport}
@@ -257,7 +280,9 @@ defmodule ExWebRTC.SCTPTransport do
         case Enum.find_value(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
           {ref, %DataChannel{}} ->
             channels = Map.delete(sctp_transport.channels, ref)
-            {{:state_change, ref, :closed}, %{sctp_transport | channels: channels}}
+            stats = Map.delete(sctp_transport.stats, ref)
+            sctp_transport = %{sctp_transport | channels: channels, stats: stats}
+            {{:state_change, ref, :closed}, sctp_transport}
 
           nil ->
             {nil, sctp_transport}
@@ -269,7 +294,8 @@ defmodule ExWebRTC.SCTPTransport do
     with {:ok, data} <- from_raw_data(data, ppi),
          {ref, %DataChannel{ready_state: :open}} <-
            Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
-      {{:data, ref, data}, sctp_transport}
+      stats = update_stats(sctp_transport.stats, ref, data, :received)
+      {{:data, ref, data}, %{sctp_transport | stats: stats}}
     else
       {_ref, %DataChannel{}} ->
         Logger.warning("Received data on DataChannel with id #{id} that is not open. Discarding")
@@ -309,7 +335,8 @@ defmodule ExWebRTC.SCTPTransport do
       # In theory, we should also send the :open event here (W3C 6.2.3)
       # TODO
       channels = Map.put(sctp_transport.channels, channel.ref, channel)
-      sctp_transport = %{sctp_transport | channels: channels}
+      stats = Map.put(sctp_transport.stats, channel.ref, initial_stats())
+      sctp_transport = %{sctp_transport | channels: channels, stats: stats}
 
       case ExSCTP.configure_stream(
              sctp_transport.ref,
@@ -395,5 +422,32 @@ defmodule ExWebRTC.SCTPTransport do
       {:odd, 0} -> max_id + 1
       {:odd, 1} -> max_id + 2
     end
+  end
+
+  defp initial_stats() do
+    %{
+      messages_sent: 0,
+      messages_received: 0,
+      bytes_sent: 0,
+      bytes_received: 0
+    }
+  end
+
+  defp update_stats(stats, ref, data, type) do
+    Map.update!(stats, ref, fn stat ->
+      if type == :sent do
+        %{
+          stat
+          | messages_sent: stat.messages_sent + 1,
+            bytes_sent: stat.bytes_sent + byte_size(data)
+        }
+      else
+        %{
+          stat
+          | messages_received: stat.messages_received + 1,
+            bytes_received: stat.bytes_received + byte_size(data)
+        }
+      end
+    end)
   end
 end
