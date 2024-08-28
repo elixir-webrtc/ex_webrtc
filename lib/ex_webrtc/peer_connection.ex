@@ -173,6 +173,8 @@ defmodule ExWebRTC.PeerConnection do
   Sends data over DataChannel, using channel identified by `ref`.
 
   Requires the channel to be in `:open` state.
+
+  If `ref` does not identify any DataChannel, this function behaves like no-op.
   """
   @spec send_data(peer_connection(), DataChannel.ref(), binary()) :: :ok
   def send_data(peer_connection, channel_ref, data) do
@@ -433,6 +435,33 @@ defmodule ExWebRTC.PeerConnection do
           {:ok, DataChannel.t()} | {:error, atom()}
   def create_data_channel(peer_connection, label, opts \\ []) do
     GenServer.call(peer_connection, {:create_data_channel, label, opts})
+  end
+
+  @doc """
+  Closes a DataChannel identified by `ref`.
+
+  As of now, the closed channel directly transitions to closed state,
+  which is signaled with `{:data_channel_state_change, ref, :closed}` message.
+  For more information, refer to the [RTCDataChannel: close() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCDataChannel/close).
+
+  If `ref` does not identify any DataChannel, this function behaves like no-op.
+  """
+  @spec close_data_channel(peer_connection(), DataChannel.ref()) :: :ok
+  def close_data_channel(peer_connection, channel_ref) do
+    GenServer.call(peer_connection, {:close_data_channel, channel_ref})
+  end
+
+  @doc """
+  Returns `t:ExWebRTC.DataChannel.t()` identified by `channel_ref` if it exists, `nil` otherwise.
+
+  This function can be especially helpful when you want to obtain DataChannel `id`. Normally,
+  before SCTP connection is established, `create_data_channel/3` will return DataChannel struct
+  with `id` set to `nil`. After receiving `{:data_channel_state_change, ref, :open}` message,
+  you can call this function to obtain the same struct, but with `id` set to proper value.
+  """
+  @spec get_data_channel(peer_connection(), DataChannel.ref()) :: DataChannel.t() | nil
+  def get_data_channel(peer_connection, channel_ref) do
+    GenServer.call(peer_connection, {:get_data_channel, channel_ref})
   end
 
   @doc """
@@ -910,6 +939,20 @@ defmodule ExWebRTC.PeerConnection do
     else
       _other -> {:reply, {:error, :invalid_option}, state}
     end
+  end
+
+  @impl true
+  def handle_call({:close_data_channel, channel_ref}, _from, state) do
+    {events, sctp_transport} = SCTPTransport.close_channel(state.sctp_transport, channel_ref)
+    handle_sctp_events(events, state)
+
+    {:reply, :ok, %{state | sctp_transport: sctp_transport}}
+  end
+
+  @impl true
+  def handle_call({:get_data_channel, channel_ref}, _from, state) do
+    channel = SCTPTransport.get_channel(state.sctp_transport, channel_ref)
+    {:reply, channel, state}
   end
 
   @impl true

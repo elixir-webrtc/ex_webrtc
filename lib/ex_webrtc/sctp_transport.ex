@@ -80,7 +80,33 @@ defmodule ExWebRTC.SCTPTransport do
     {events, channel, sctp_transport}
   end
 
-  # TODO: close channel
+  @spec close_channel(t(), DataChannel.ref()) :: {[event()], t()}
+  def close_channel(sctp_transport, ref) do
+    # TODO: according to spec, this should move to `closing` state
+    # and only then be closed, but oh well...
+    case Map.pop(sctp_transport.channels, ref) do
+      {nil, _channels} ->
+        Logger.warning("Trying to close non-existent channel with ref #{inspect(ref)}")
+        {[], sctp_transport}
+
+      {%DataChannel{id: id}, channels} ->
+        sctp_transport = %{sctp_transport | channels: channels}
+
+        {events, sctp_transport} =
+          if id != nil do
+            :ok = ExSCTP.close_stream(sctp_transport.ref, id)
+            handle_events(sctp_transport)
+          else
+            {[], sctp_transport}
+          end
+
+        event = {:state_change, ref, :closed}
+        {[event | events], sctp_transport}
+    end
+  end
+
+  @spec get_channel(t(), DataChannel.ref()) :: DataChannel.t() | nil
+  def get_channel(sctp_transport, ref), do: Map.get(sctp_transport.channels, ref)
 
   @spec send(t(), DataChannel.ref(), :string | :binary, binary()) :: {[event()], t()}
   def send(sctp_transport, ref, type, data) do
@@ -99,7 +125,10 @@ defmodule ExWebRTC.SCTPTransport do
         {[], sctp_transport}
 
       :error ->
-        Logger.warning("Trying to send data over non-existing DataChannel with ref #{ref}")
+        Logger.warning(
+          "Trying to send data over non-existent DataChannel with ref #{inspect(ref)}"
+        )
+
         {[], sctp_transport}
     end
   end
@@ -157,6 +186,7 @@ defmodule ExWebRTC.SCTPTransport do
     case handle_event(sctp_transport, event) do
       {:none, transport} -> {Enum.reverse(events), transport}
       {nil, transport} -> handle_events(transport, events)
+      {other, transport} when is_list(other) -> handle_events(transport, other ++ events)
       {other, transport} -> handle_events(transport, [other | events])
     end
   end
@@ -171,9 +201,18 @@ defmodule ExWebRTC.SCTPTransport do
     {nil, sctp_transport}
   end
 
-  defp handle_event(sctp_transport, {:stream_closed, _id}) do
-    # TODO: handle closing channels
-    {nil, sctp_transport}
+  defp handle_event(sctp_transport, {:stream_closed, id}) do
+    Logger.debug("SCTP stream #{id} has been closed")
+
+    case Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
+      {ref, %DataChannel{ref: ref}} ->
+        channels = Map.delete(sctp_transport.channels, ref)
+        event = {:state_change, ref, :closed}
+        {event, %{sctp_transport | channels: channels}}
+
+      _other ->
+        {nil, sctp_transport}
+    end
   end
 
   defp handle_event(sctp_transport, :connected) do
@@ -206,13 +245,23 @@ defmodule ExWebRTC.SCTPTransport do
 
   defp handle_event(sctp_transport, {:data, id, @dcep_ppi, data}) do
     with {:ok, dcep} <- DCEP.decode(data),
-         {:ok, sctp_transport, event} <- handle_dcep(sctp_transport, id, dcep) do
-      {event, sctp_transport}
+         {:ok, sctp_transport, events} <- handle_dcep(sctp_transport, id, dcep) do
+      # events is either list or a single event
+      {events, sctp_transport}
     else
       :error ->
-        # TODO: close the channel
         Logger.warning("Received invalid DCEP message. Closing the stream with id #{id}")
-        {nil, sctp_transport}
+
+        ExSCTP.close_stream(sctp_transport.ref, id)
+
+        case Enum.find_value(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
+          {ref, %DataChannel{}} ->
+            channels = Map.delete(sctp_transport.channels, ref)
+            {{:state_change, ref, :closed}, %{sctp_transport | channels: channels}}
+
+          nil ->
+            {nil, sctp_transport}
+        end
     end
   end
 
@@ -228,7 +277,7 @@ defmodule ExWebRTC.SCTPTransport do
 
       nil ->
         Logger.warning(
-          "Received data over non-existing DataChannel on stream with id #{id}. Discarding"
+          "Received data over non-existent DataChannel on stream with id #{id}. Discarding"
         )
 
         {nil, sctp_transport}
@@ -258,10 +307,32 @@ defmodule ExWebRTC.SCTPTransport do
       }
 
       # In theory, we should also send the :open event here (W3C 6.2.3)
+      # TODO
       channels = Map.put(sctp_transport.channels, channel.ref, channel)
-      {:ok, %{sctp_transport | channels: channels}, {:channel, channel}}
+      sctp_transport = %{sctp_transport | channels: channels}
+
+      case ExSCTP.configure_stream(
+             sctp_transport.ref,
+             id,
+             channel.ordered,
+             dco.reliability,
+             dco.param
+           ) do
+        :ok ->
+          # remote channels also result in open event
+          # even tho they already have ready_state open in the {:data_channel, ...} message
+          # W3C 6.2.3
+          events = [{:state_change, channel.ref, :open}, {:channel, channel}]
+          {:ok, sctp_transport, events}
+
+        {:error, _res} ->
+          Logger.warning("Unable to set stream #{id} parameters")
+          :error
+      end
     else
-      _other -> :error
+      _other ->
+        Logger.warning("Received invalid DCEP Open on stream #{id}")
+        :error
     end
   end
 
@@ -269,17 +340,30 @@ defmodule ExWebRTC.SCTPTransport do
     case Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
       {ref, %DataChannel{ready_state: :connecting} = channel} ->
         Logger.debug("Locally opened DataChannel #{id} has been negotiated succesfully")
-        # TODO: set the parameters
+
         channel = %DataChannel{channel | ready_state: :open}
         channels = Map.put(sctp_transport.channels, ref, channel)
-        event = {:state_change, ref, :open}
+        sctp_transport = %{sctp_transport | channels: channels}
 
-        {:ok, %{sctp_transport | channels: channels}, event}
+        {rel_type, rel_param} =
+          case channel do
+            %DataChannel{max_packet_life_time: nil, max_retransmits: nil} -> {:reliable, 0}
+            %DataChannel{max_retransmits: v} when v != nil -> {:rexmit, v}
+            %DataChannel{max_packet_life_time: v} when v != nil -> {:timed, v}
+          end
+
+        case ExSCTP.configure_stream(sctp_transport.ref, id, channel.ordered, rel_type, rel_param) do
+          :ok ->
+            {:ok, sctp_transport, {:state_change, ref, :open}}
+
+          {:error, _res} ->
+            Logger.warning("Unable to set stream #{id} parameters")
+            :error
+        end
 
       _other ->
-        # TODO: close the channel
         Logger.warning("Received DCEP Ack without sending the DCEP Open message on stream #{id}")
-        {:ok, sctp_transport, nil}
+        :error
     end
   end
 

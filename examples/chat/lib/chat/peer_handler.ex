@@ -103,5 +103,10 @@ defmodule Chat.PeerHandler do
     {:ok, state}
   end
 
+  defp handle_webrtc_msg({:data_channel_state_change, ref, :closed}, %{channel_ref: ref} = state) do
+    Logger.warning("Channel #{inspect(ref)} has been closed")
+    {:stop, :channel_closed, state}
+  end
+
   defp handle_webrtc_msg(_msg, state), do: {:ok, state}
 end
