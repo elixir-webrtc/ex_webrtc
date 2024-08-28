@@ -157,7 +157,7 @@ defmodule ExWebRTC.DataChannelTest do
       %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2}
     end
 
-    test "message from initiating peer", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
+    test "from initiating peer", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
       data1 = <<1, 2, 3>>
       :ok = PeerConnection.send_data(pc1, ref1, data1)
       assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, ^data1}}
@@ -199,6 +199,22 @@ defmodule ExWebRTC.DataChannelTest do
       assert_receive {:ex_webrtc, ^pc2, {:data, ^ref3, msg}}
       :ok = PeerConnection.send_data(pc2, ref2, msg)
       assert_receive {:ex_webrtc, ^pc1, {:data, ^ref1, ^data}}
+    end
+
+    test "and collecting stats about it", %{pc1: pc1, pc2: pc2, ref1: ref1} do
+      for _ <- 1..10 do
+        :ok = PeerConnection.send_data(pc1, ref1, <<1, 2, 3>>)
+      end
+
+      stats1 = PeerConnection.get_stats(pc1)
+      assert {_ref, channel_stats1} = Enum.find(stats1, fn {_, v} -> v.type == :data_channel end)
+      assert channel_stats1.bytes_sent == 30
+      assert channel_stats1.messages_sent == 10
+
+      stats2 = PeerConnection.get_stats(pc2)
+      assert {_ref, channel_stats2} = Enum.find(stats2, fn {_, v} -> v.type == :data_channel end)
+      assert channel_stats2.bytes_received == 30
+      assert channel_stats2.messages_received == 10
     end
   end
 end
