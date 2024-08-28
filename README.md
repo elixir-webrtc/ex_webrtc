@@ -23,6 +23,20 @@ def deps do
 end
 ```
 
+Elixir WebRTC comes with optional support for DataChannels, but it must be explicitely turned on by
+adding optional `ex_sctp` dependency
+
+```elixir
+def deps do
+  [
+    {:ex_webrtc, "~> 0.4.1"},
+    {:ex_sctp, "~> 0.1.0"}
+  ]
+end
+```
+
+Please note that `ex_sctp` requires you to have Rust installed in order to compile.
+
 ## Getting started
 
 To get started with Elixir WebRTC, check out:
