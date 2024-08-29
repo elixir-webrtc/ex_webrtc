@@ -1964,7 +1964,7 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp dc_negotiation_needed?(state) do
-    first_channel = map_size(state.sctp_transport.channels) == 1
+    first_channel = SCTPTransport.channel_count(state.sctp_transport) == 1
 
     has_channels =
       case state.current_local_desc do
