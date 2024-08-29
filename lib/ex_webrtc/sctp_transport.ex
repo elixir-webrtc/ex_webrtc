@@ -477,6 +477,7 @@ else
     def set_role(_, _), do: nil
     def data_channels?(_), do: false
     def channel_count(_), do: 0
+    def get_stats(_, _), do: []
 
     def add_channel(_, _, _, _, _, _), do: error()
     def close_channel(_, _), do: error()
