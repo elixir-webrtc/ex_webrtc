@@ -164,6 +164,69 @@ receive do {:ex_webrtc, ^pc1, {:track, _track}} = msg -> IO.inspect(msg) end
 
 <!-- tabs-close -->
 
+## Offer to receive data
+
+Offering to receive media tracks is a bit tricky as we can't force the other side to send something.
+Therefore, when we send an offer with the mline's direction set to `recvonly`, the other side will,
+by default, set such a track to inactive.
+To make things work, we have to manually set the direction to `sendonly`.
+
+<!-- tabs-open -->
+
+### JavaScript
+
+[![JS FIDDLE](https://img.shields.io/badge/-JS%20FIDDLE-blueviolet)](https://jsfiddle.net/mickel8/bhv8ds03/)
+
+```js
+pc1 = new RTCPeerConnection();
+pc2 = new RTCPeerConnection();
+
+tr = pc1.addTransceiver("audio", { direction: "recvonly" });
+
+offer = await pc1.createOffer();
+
+await pc1.setLocalDescription(offer);
+await pc2.setRemoteDescription(offer);
+
+// change direction from default "recvonly" to "sendonly"
+// in other case, when negotiation finishes,
+// currentDirection of this transceiver will be inactive
+pc2.getTransceivers()[0].direction = "sendonly";
+
+answer = await pc2.createAnswer();
+await pc2.setLocalDescription(answer);
+await pc1.setRemoteDescription(answer);
+
+console.log(pc2.getTransceivers()[0].direction);
+console.log(pc2.getTransceivers()[0].currentDirection);
+```
+
+### Elixir WebRTC
+
+```elixir
+{:ok, pc1} = PeerConnection.start_link()
+{:ok, pc2} = PeerConnection.start_link()
+
+{:ok, _tr} = PeerConnection.add_transceiver(pc1, :audio, direction: :recvonly)
+
+{:ok, offer} = PeerConnection.create_offer(pc1)
+:ok = PeerConnection.set_local_description(pc1, offer)
+:ok = PeerConnection.set_remote_description(pc2, offer)
+
+[pc2_tr] = PeerConnection.get_transceivers(pc2)
+:ok = PeerConnection.set_transceiver_direction(pc2, pc2_tr.id, :sendonly)
+
+{:ok, answer} = PeerConnection.create_answer(pc2)
+:ok = PeerConnection.set_local_description(pc2, answer)
+:ok = PeerConnection.set_remote_description(pc1, answer)
+
+[pc2_tr] = PeerConnection.get_transceivers(pc2)
+IO.inspect(pc2_tr.direction)
+IO.inspect(pc2_tr.current_direction)
+```
+
+<!-- tabs-close -->
+
 ## Rejecting Incoming Track
 
 To reject incoming track, we simply change the transceiver's direction to "inactive".
