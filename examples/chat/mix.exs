@@ -25,7 +25,7 @@ defmodule Chat.MixProject do
       {:websock_adapter, "~> 0.5.0"},
       {:jason, "~> 1.4.0"},
       {:ex_webrtc, path: "../../."},
-      {:ex_sctp, github: "elixir-webrtc/ex_sctp"}
+      {:ex_sctp, "~> 0.1.0"}
     ]
   end
 end
