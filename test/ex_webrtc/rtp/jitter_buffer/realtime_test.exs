@@ -51,14 +51,14 @@ defmodule ExWebRTC.RTP.JitterBuffer.RealtimeTest do
     @impl true
     def handle_info({:push_packet, n}, %{buffer: buffer} = state) do
       buffer
-      |> JitterBuffer.place_packet(PacketFactory.sample_packet(n))
+      |> JitterBuffer.insert(PacketFactory.sample_packet(n))
       |> handle_jitter_buffer_result(state)
     end
 
     @impl true
     def handle_info(:jitter_buffer_timer, %{buffer: buffer} = state) do
       buffer
-      |> JitterBuffer.handle_timer()
+      |> JitterBuffer.handle_timeout()
       |> handle_jitter_buffer_result(state)
     end
 

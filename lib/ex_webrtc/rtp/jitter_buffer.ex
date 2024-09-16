@@ -20,7 +20,7 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   @type options :: [latency: non_neg_integer()]
 
   @typedoc """
-  Time (in milliseconds) after which `handle_timer/1` should be called.
+  Time (in milliseconds) after which `handle_timeout/1` should be called.
   Can be `nil`, in which case no timer needs to be set.
   """
   @type timer :: non_neg_integer() | nil
@@ -63,19 +63,19 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   Places a packet in the JitterBuffer.
 
   Note: The initial latency timer will be set after the first packet is inserted into the buffer.
-  If you want to start it at your own discretion, schedule a `handle_timer/1` call prior to that.
+  If you want to start it at your own discretion, schedule a `handle_timeout/1` call prior to that.
   """
-  @spec place_packet(t(), Packet.t()) :: result()
-  def place_packet(buffer, packet)
+  @spec insert(t(), Packet.t()) :: result()
+  def insert(buffer, packet)
 
-  def place_packet(%{state: :initial_wait} = buffer, packet) do
+  def insert(%{state: :initial_wait} = buffer, packet) do
     {buffer, timer} = maybe_set_timer(buffer)
     {_result, buffer} = try_insert_packet(buffer, packet)
 
     {[], timer, buffer}
   end
 
-  def place_packet(buffer, packet) do
+  def insert(buffer, packet) do
     case try_insert_packet(buffer, packet) do
       {:ok, buffer} -> send_packets(buffer)
       {:error, buffer} -> {[], nil, buffer}
@@ -92,7 +92,7 @@ defmodule ExWebRTC.RTP.JitterBuffer do
     packets =
       buffer.store
       |> PacketStore.dump()
-      |> records_to_packets()
+      |> handle_missing_packets()
 
     {packets, nil, %__MODULE__{latency: buffer.latency}}
   end
@@ -100,14 +100,14 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   @doc """
   Handles the end of a previously set timer.
   """
-  @spec handle_timer(t()) :: result()
-  def handle_timer(buffer) do
+  @spec handle_timeout(t()) :: result()
+  def handle_timeout(buffer) do
     %__MODULE__{buffer | state: :timer_not_set} |> send_packets()
   end
 
   @spec try_insert_packet(t(), Packet.t()) :: {:ok | :error, t()}
   defp try_insert_packet(buffer, packet) do
-    case PacketStore.insert_packet(buffer.store, packet) do
+    case PacketStore.insert(buffer.store, packet) do
       {:ok, store} -> {:ok, %__MODULE__{buffer | store: store}}
       {:error, :late_packet} -> {:error, buffer}
     end
@@ -116,33 +116,31 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   @spec send_packets(t()) :: result()
   defp send_packets(%{store: store} = buffer) do
     # Flush packets that stayed in queue longer than latency and any gaps before them
-    {too_old_records, store} = PacketStore.flush_older_than(store, buffer.latency)
+    {too_old_packets, store} = PacketStore.flush_older_than(store, buffer.latency)
     # Additionally, flush packets as long as there are no gaps
-    {gapless_records, store} = PacketStore.flush_ordered(store)
+    {gapless_packets, store} = PacketStore.flush_ordered(store)
 
     packets =
-      too_old_records
-      |> Stream.concat(gapless_records)
-      |> records_to_packets()
+      too_old_packets
+      |> Stream.concat(gapless_packets)
+      |> handle_missing_packets()
 
     {buffer, timer} = maybe_set_timer(%__MODULE__{buffer | store: store})
 
     {packets, timer, buffer}
   end
 
-  @spec records_to_packets(Enumerable.t(PacketStore.Record.t())) :: [Packet.t()]
-  defp records_to_packets(records) do
-    records
+  @spec handle_missing_packets(Enumerable.t(Packet.t() | nil)) :: [Packet.t()]
+  defp handle_missing_packets(packets) do
     # TODO: nil -- missing packet (maybe owner should be notified about that)
-    |> Stream.reject(&is_nil/1)
-    |> Enum.map(& &1.packet)
+    Enum.reject(packets, &is_nil/1)
   end
 
   @spec maybe_set_timer(t()) :: {t(), timer()}
   defp maybe_set_timer(buffer)
 
   defp maybe_set_timer(%{state: :initial_wait} = buffer) do
-    case PacketStore.first_record_timestamp(buffer.store) do
+    case PacketStore.first_entry_timestamp(buffer.store) do
       # If we're inserting the very first packet, set the initial latency timer
       nil -> {buffer, buffer.latency}
       _ts -> {buffer, nil}
@@ -150,7 +148,7 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   end
 
   defp maybe_set_timer(%{state: :timer_not_set} = buffer) do
-    case PacketStore.first_record_timestamp(buffer.store) do
+    case PacketStore.first_entry_timestamp(buffer.store) do
       nil ->
         {buffer, nil}
 
