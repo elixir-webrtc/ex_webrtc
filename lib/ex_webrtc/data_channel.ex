@@ -3,13 +3,24 @@ defmodule ExWebRTC.DataChannel do
   Implementation of the [RTCDataChannel](https://developer.mozilla.org/en-US/docs/Web/API/RTCDataChannel).
   """
 
+  @typedoc """
+  Possible data channel order configurations.
+
+  For the exact meaning, refer to the [RTCDataChannel: order property](https://developer.mozilla.org/en-US/docs/Web/API/RTCDataChannel/readyState).
+  """
   @type order() :: :ordered | :unordered
 
   @type ref() :: reference()
 
-  @type id() :: non_neg_integer()
+  @typedoc """
+  Possible data channel states.
 
-  @type ready_state() :: :connecting | :open | :closing | :closed
+  Right now, Elixir WebRTC does not support `:closing` state.
+  When you close the data channel, it goes from `:open` directly to `:closed`.
+
+  For the exact meaning, refer to the [RTCDataChannel: readyState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCDataChannel/readyState).
+  """
+  @type ready_state() :: :connecting | :open | :closed
 
   @typedoc """
   Options used when creating a new DataChannel.
