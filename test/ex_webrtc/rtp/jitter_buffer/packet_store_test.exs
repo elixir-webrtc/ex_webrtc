@@ -3,7 +3,7 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStoreTest do
 
   alias ExWebRTC.RTP.PacketFactory
   alias ExWebRTC.RTP.JitterBuffer.PacketStore.Entry
-  alias ExWebRTC.RTP.JitterBuffer.PacketStore
+  alias ExWebRTC.RTP.JitterBuffer.{Heap, PacketStore}
 
   @seq_number_limit 65_536
   @base_index 65_505
@@ -147,7 +147,7 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStoreTest do
     test "returns the root packet and initializes it", %{store: store, packet: packet} do
       assert {%Entry{} = record, empty_store} = PacketStore.flush_one(store)
       assert record.packet == packet
-      assert empty_store.heap.size == 0
+      assert Heap.size(empty_store.heap) == 0
       assert empty_store.flush_index == record.index
     end
 

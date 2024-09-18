@@ -6,6 +6,8 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStore do
 
   import Bitwise
 
+  alias ExWebRTC.RTP.JitterBuffer.Heap
+
   defmodule Entry do
     @moduledoc false
     # Describes a structure that is stored in the PacketStore.
@@ -34,7 +36,7 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStore do
     Returns true if the first entry is older than the second one.
     """
     @spec comparator(t(), t()) :: boolean()
-    # Designed to be used with Heap: https://gitlab.com/jimsy/heap/blob/master/lib/heap.ex#L71
+    # Designed to be used with `JitterBuffer.Heap`
     def comparator(%__MODULE__{index: l_index}, %__MODULE__{index: r_index}),
       do: l_index < r_index
   end
@@ -148,8 +150,8 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStore do
   @doc """
   Returns timestamp (time of insertion) of the packet with the lowest index
   """
-  @spec first_entry_timestamp(t()) :: integer() | nil
-  def first_entry_timestamp(%__MODULE__{heap: heap}) do
+  @spec first_packet_timestamp(t()) :: integer() | nil
+  def first_packet_timestamp(%__MODULE__{heap: heap}) do
     case Heap.root(heap) do
       %Entry{timestamp_ms: time} -> time
       nil -> nil

@@ -69,10 +69,10 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
           highest_incoming_index: flush_index
       }
 
-      {:ok, store} = PacketStore.insert(store, second_packet)
-      {:ok, store} = PacketStore.insert(store, third_packet)
-
       buffer = %{buffer | store: store}
+
+      {[], _timer, buffer} = JitterBuffer.insert(buffer, second_packet)
+      {[], _timer, buffer} = JitterBuffer.insert(buffer, third_packet)
 
       {packets, _timer, buffer} = JitterBuffer.insert(buffer, first_packet)
 
@@ -113,8 +113,9 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
           highest_incoming_index: flush_index
       }
 
-      {:ok, store} = PacketStore.insert(store, packet)
       buffer = %{buffer | store: store}
+      {[], _timer, buffer} = JitterBuffer.insert(buffer, packet)
+
       {[^packet], nil, buffer} = JitterBuffer.flush(buffer)
 
       assert buffer.store == %PacketStore{}

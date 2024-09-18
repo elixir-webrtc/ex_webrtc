@@ -140,7 +140,7 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   defp maybe_set_timer(buffer)
 
   defp maybe_set_timer(%{state: :initial_wait} = buffer) do
-    case PacketStore.first_entry_timestamp(buffer.store) do
+    case PacketStore.first_packet_timestamp(buffer.store) do
       # If we're inserting the very first packet, set the initial latency timer
       nil -> {buffer, buffer.latency}
       _ts -> {buffer, nil}
@@ -148,7 +148,7 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   end
 
   defp maybe_set_timer(%{state: :timer_not_set} = buffer) do
-    case PacketStore.first_entry_timestamp(buffer.store) do
+    case PacketStore.first_packet_timestamp(buffer.store) do
       nil ->
         {buffer, nil}
 
