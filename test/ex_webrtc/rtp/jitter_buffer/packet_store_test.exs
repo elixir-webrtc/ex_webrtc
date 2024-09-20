@@ -90,21 +90,21 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStoreTest do
       assert {:ok, store} = PacketStore.insert(store, packet)
 
       packet = PacketFactory.sample_packet(1)
-      assert {:ok, _store} = PacketStore.insert(store, packet)
+      assert {:ok, store} = PacketStore.insert(store, packet)
 
-      # seq_numbers =
-      #   store
-      #   |> PacketStore.dump()
-      #   |> Enum.map(& &1.packet.sequence_number)
+      seq_numbers =
+        store
+        |> dump_store()
+        |> Enum.map(& &1.packet.sequence_number)
 
-      # assert seq_numbers == [65_535, 0, 1]
+      assert seq_numbers == [65_535, 0, 1]
 
-      # indexes =
-      #   store
-      #   |> PacketStore.dump()
-      #   |> Enum.map(& &1.index)
+      indexes =
+        store
+        |> dump_store()
+        |> Enum.map(& &1.index)
 
-      # assert indexes == [@seq_number_limit - 1, @seq_number_limit, @seq_number_limit + 1]
+      assert indexes == [@seq_number_limit - 1, @seq_number_limit, @seq_number_limit + 1]
     end
 
     test "handles late packet after rollover" do
@@ -124,12 +124,12 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStoreTest do
       packet = PacketFactory.sample_packet(@seq_number_limit - 2)
       assert {:error, :late_packet} = PacketStore.insert(store, packet)
 
-      # seq_numbers =
-      #   store
-      #   |> PacketStore.dump()
-      #   |> Enum.map(& &1.packet.sequence_number)
+      seq_numbers =
+        store
+        |> dump_store()
+        |> Enum.map(& &1.packet.sequence_number)
 
-      # assert seq_numbers == [1]
+      assert seq_numbers == [1]
     end
   end
 
@@ -278,5 +278,16 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStoreTest do
     |> Enum.to_list()
     |> Enum.map(& &1.packet.sequence_number)
     |> Enum.member?(seq_num)
+  end
+
+  defp dump_store(store, acc \\ []) do
+    case PacketStore.first_packet_timestamp(store) do
+      nil ->
+        Enum.reverse(acc)
+
+      _ts ->
+        {entry, store} = PacketStore.flush_one(store)
+        dump_store(store, [entry | acc])
+    end
   end
 end
