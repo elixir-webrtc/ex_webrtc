@@ -5,6 +5,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   require Logger
 
+  alias ExICE.ICEAgent
   alias ExWebRTC.{RTPCodecParameters, SDPUtils}
   alias ExSDP.Attribute.{Extmap, FMTP, RTCPFeedback}
 
@@ -148,7 +149,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           controlling_process: Process.dest(),
           ice_servers: [ice_server()],
           ice_transport_policy: :relay | :all,
-          ice_ip_filter: (:inet.ip_address() -> boolean()),
+          ice_ip_filter: ICEAgent.ip_filter(),
           ice_port_range: Enumerable.t(non_neg_integer()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],

@@ -57,7 +57,7 @@ defmodule ExWebRTC.MixProject do
   defp deps do
     [
       {:ex_sdp, "~> 1.0"},
-      {:ex_ice, "~> 0.8.0"},
+      {:ex_ice, github: "elixir-webrtc/ex_ice"},
       {:ex_dtls, "~> 0.16.0"},
       {:ex_libsrtp, "~> 0.7.1"},
       {:ex_rtp, "~> 0.4.0"},
@@ -80,9 +80,10 @@ defmodule ExWebRTC.MixProject do
       "simulcast",
       "modifying",
       "mastering_transceivers",
-      "deploying",
       "debugging"
     ]
+
+    deploying_guides = ["bare", "fly"]
 
     [
       main: "readme",
@@ -90,7 +91,8 @@ defmodule ExWebRTC.MixProject do
       extras:
         ["README.md"] ++
           Enum.map(intro_guides, &"guides/introduction/#{&1}.md") ++
-          Enum.map(advanced_guides, &"guides/advanced/#{&1}.md"),
+          Enum.map(advanced_guides, &"guides/advanced/#{&1}.md") ++
+          Enum.map(deploying_guides, &"guides/deploying/#{&1}.md"),
       assets: "guides/assets",
       source_ref: "v#{@version}",
       formatters: ["html"],
@@ -98,7 +100,8 @@ defmodule ExWebRTC.MixProject do
       nest_modules_by_prefix: [ExWebRTC],
       groups_for_extras: [
         Introduction: Path.wildcard("guides/introduction/*.md"),
-        Advanced: Path.wildcard("guides/advanced/*.md")
+        Advanced: Path.wildcard("guides/advanced/*.md"),
+        Deploying: Path.wildcard("guides/deploying/*.md")
       ],
       groups_for_modules: [
         MEDIA: ~r"ExWebRTC\.Media\..*",
