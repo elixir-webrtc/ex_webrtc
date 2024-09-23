@@ -2,8 +2,9 @@ defmodule ExWebRTC.ICE.FlyIpFilter do
   @moduledoc """
   ICE IP filter for Fly.io deployments.
 
-  This module defines a single function, which filters out IP addresses,
+  This module defines a single function, which filters IP addresses,
   which ICE Agent will use as its host candidates.
+  It accepts only the IPv4 address that `fly-global-services` resolves to.
   """
 
   @spec ip_filter(:inet.ip_address()) :: boolean()

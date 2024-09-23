@@ -163,7 +163,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           controlling_process: Process.dest(),
           ice_servers: [ice_server()],
           ice_transport_policy: :relay | :all,
-          ice_ip_filter: (:inet.ip_address() -> boolean()),
+          ice_ip_filter: (:inet.ip_address() -> boolean()) | nil,
           ice_port_range: Enumerable.t(non_neg_integer()),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
@@ -240,7 +240,6 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     feedbacks = Keyword.get(options, :rtcp_feedbacks, @default_rtcp_feedbacks)
 
     options
-    |> Keyword.put_new(:ice_ip_filter, fn _ -> true end)
     |> Keyword.put(:audio_extensions, Enum.map(audio_extensions, fn {_, ext} -> ext end))
     |> Keyword.put(:video_extensions, Enum.map(video_extensions, fn {_, ext} -> ext end))
     |> then(&struct(__MODULE__, &1))
