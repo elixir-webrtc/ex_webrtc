@@ -162,4 +162,4 @@ You can also configure PeerConnection to use a specific port range by doing
 
 Otherwise, the connection won't be established at all, or just in one direction.
 
-Read more in our [Deploying tutorial](./deploying.md#allow-udp-traffic-in-your-firewall)!
+Read more in our [Deploying tutorial](../deploying/bare.md#allow-udp-traffic-in-your-firewall)!

@@ -1,7 +1,7 @@
-# Deploying
+# Deploying on bare machines
 
 Deploying WebRTC applications can be cumbersome.
-Here are a few details you should keep in mind when trying to push your project into production.
+Here are a few details you should keep in mind when trying to push your project into production on a bare machine.
 
 ## Allow UDP traffic in your firewall
 
@@ -37,12 +37,6 @@ docker run -p 50000-50010/udp myapp
 Keep in mind that exporting a lot of ports might take a lot of time or even cause the Docker daemon to timeout.
 That's why we recommend using host's network.
 
-## Choose your cloud provider wisely
-
-Many cloud providers do not offer good support for UDP traffic.
-In such cases, deploying a WebRTC-based application might be impossible.
-We recommend using bare machines that you can configure as you need.
-
 ## Enable HTTPS in your frontend
 
 The server hosting your frontend site must have HTTPS enabled.
@@ -66,7 +60,7 @@ Read more [here](https://nginx.org/en/docs/http/websocket.html).
 
 ## Configure STUN servers
 
-If you are deploying your application behind a NAT, you have to configure a STUN 
+If you are deploying your application behind a NAT, you have to configure a STUN
 server that will allow it to discover its public IP address.
 In Elixir WebRTC this will be:
 
@@ -86,6 +80,6 @@ And as a TURN server, you can always use our [Rel](https://github.com/elixir-web
 
 If your application is deployed behind a very restrictive NAT, which should be very rare (e.g. a symmetric NAT),
 you will need to configure a TURN server.
-In most cases, TURN servers are needed on the client side as you don't have any control 
+In most cases, TURN servers are needed on the client side as you don't have any control
 over a network your clients connect from.
 For testing and experimental purposes, you can use our publicly available TURN called [Rel](https://github.com/elixir-webrtc/rel)!
