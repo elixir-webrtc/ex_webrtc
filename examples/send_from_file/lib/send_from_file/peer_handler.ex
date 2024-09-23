@@ -199,8 +199,16 @@ defmodule SendFromFile.PeerHandler do
   end
 
   @impl true
+  def handle_info({:EXIT, pc, reason}, %{peer_connection: pc} = state) do
+    # Bandit traps exits under the hood so our PeerConnection.start_link
+    # won't automatically bring this process down.
+    Logger.info("Peer connection process exited, reason: #{inspect(reason)}")
+    {:stop, {:shutdown, :pc_closed}, state}
+  end
+
+  @impl true
   def terminate(reason, _state) do
-    Logger.warning("WebSocket connection was terminated, reason: #{inspect(reason)}")
+    Logger.info("WebSocket connection was terminated, reason: #{inspect(reason)}")
   end
 
   defp handle_ws_msg(%{"type" => "answer", "data" => data}, state) do

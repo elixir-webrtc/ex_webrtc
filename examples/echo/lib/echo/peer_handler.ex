@@ -72,8 +72,16 @@ defmodule Echo.PeerHandler do
   end
 
   @impl true
+  def handle_info({:EXIT, pc, reason}, %{peer_connection: pc} = state) do
+    # Bandit traps exits under the hood so our PeerConnection.start_link
+    # won't automatically bring this process down.
+    Logger.info("Peer connection process exited, reason: #{inspect(reason)}")
+    {:stop, {:shutdown, :pc_closed}, state}
+  end
+
+  @impl true
   def terminate(reason, _state) do
-    Logger.warning("WebSocket connection was terminated, reason: #{inspect(reason)}")
+    Logger.info("WebSocket connection was terminated, reason: #{inspect(reason)}")
   end
 
   defp handle_ws_msg(%{"type" => "offer", "data" => data}, state) do
@@ -131,7 +139,7 @@ defmodule Echo.PeerHandler do
   defp handle_webrtc_msg({:rtcp, packets}, state) do
     for packet <- packets do
       case packet do
-        {track_id, %ExRTCP.Packet.PayloadFeedback.PLI{}} when state.in_video_track_id != nil ->
+        {_track_id, %ExRTCP.Packet.PayloadFeedback.PLI{}} when state.in_video_track_id != nil ->
           Logger.info("Received keyframe request. Sending PLI.")
           :ok = PeerConnection.send_pli(state.peer_connection, state.in_video_track_id, "h")
 

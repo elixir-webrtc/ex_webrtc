@@ -83,13 +83,21 @@ defmodule SaveToFile.PeerHandler do
       :video -> state.video_buffer
       :audio -> state.audio_buffer
     end
-    |> JitterBuffer.handle_timer()
+    |> JitterBuffer.handle_timeout()
     |> handle_jitter_buffer_result(kind, state)
   end
 
   @impl true
+  def handle_info({:EXIT, pc, reason}, %{peer_connection: pc} = state) do
+    # Bandit traps exits under the hood so our PeerConnection.start_link
+    # won't automatically bring this process down.
+    Logger.info("Peer connection process exited, reason: #{inspect(reason)}")
+    {:stop, {:shutdown, :pc_closed}, state}
+  end
+
+  @impl true
   def terminate(reason, state) do
-    Logger.warning("WebSocket connection was terminated, reason: #{inspect(reason)}")
+    Logger.info("WebSocket connection was terminated, reason: #{inspect(reason)}")
 
     state = flush_jitter_buffers(state)
 
@@ -196,13 +204,13 @@ defmodule SaveToFile.PeerHandler do
 
   defp handle_webrtc_msg({:rtp, id, nil, packet}, %{video_track_id: id} = state) do
     state.video_buffer
-    |> JitterBuffer.place_packet(packet)
+    |> JitterBuffer.insert(packet)
     |> handle_jitter_buffer_result(:video, state)
   end
 
   defp handle_webrtc_msg({:rtp, id, nil, packet}, %{audio_track_id: id} = state) do
     state.audio_buffer
-    |> JitterBuffer.place_packet(packet)
+    |> JitterBuffer.insert(packet)
     |> handle_jitter_buffer_result(:audio, state)
   end
 

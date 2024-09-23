@@ -46,8 +46,21 @@ defmodule Chat.PeerHandler do
   end
 
   @impl true
+  def handle_info({:EXIT, pc, reason}, %{peer_connection: pc} = state) do
+    # Bandit traps exits under the hood so our PeerConnection.start_link
+    # won't automatically bring this process down.
+    Logger.info("Peer connection process exited, reason: #{inspect(reason)}")
+    {:stop, {:shutdown, :pc_closed}, state}
+  end
+
+  @impl true
+  def handle_info(_, state) do
+    {:ok, state}
+  end
+
+  @impl true
   def terminate(reason, _state) do
-    Logger.warning("WebSocket connection was terminated, reason: #{inspect(reason)}")
+    Logger.info("WebSocket connection was terminated, reason: #{inspect(reason)}")
   end
 
   defp handle_ws_msg(%{"type" => "offer", "data" => data}, state) do
@@ -104,8 +117,8 @@ defmodule Chat.PeerHandler do
   end
 
   defp handle_webrtc_msg({:data_channel_state_change, ref, :closed}, %{channel_ref: ref} = state) do
-    Logger.warning("Channel #{inspect(ref)} has been closed")
-    {:stop, :channel_closed, state}
+    Logger.info("Channel #{inspect(ref)} has been closed")
+    {:stop, {:shutdown, :channel_closed}, state}
   end
 
   defp handle_webrtc_msg(_msg, state), do: {:ok, state}
