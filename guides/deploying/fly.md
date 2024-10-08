@@ -6,7 +6,7 @@ There are just three things you need to do:
 
 * configure a STUN server both on the client and server side
 * use a custom Fly.io IP filter on the server side
-* slightly modify auto-generated Dockerfile 
+* slightly modify the auto-generated Dockerfile 
 
 In JavaScript code:
 
@@ -48,6 +48,7 @@ Now:
     + ARG OTP_VERSION=27.0.1
     + ARG DEBIAN_VERSION=bookworm-20240701-slim
 
+    # when building on arm64, you will also need to add libsrtp2-dev
     - RUN apt-get update -y && apt-get install -y build-essential git \
     -     && apt-get clean && rm -f /var/lib/apt/lists/*_*
     + RUN apt-get update -y && apt-get install -y build-essential git pkg-config libssl-dev \
