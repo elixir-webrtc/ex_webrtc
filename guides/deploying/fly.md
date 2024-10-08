@@ -2,12 +2,11 @@
 
 Elixir WebRTC-based apps can be easily deployed on [Fly.io](https://fly.io)!
 
-There are just two things you need to do:
+There are just three things you need to do:
 
 * configure a STUN server both on the client and server side
 * use a custom Fly.io IP filter on the server side
-
-In theory, configuring a STUN server just on one side should be enough but we recommend doing it on both sides.
+* slightly modify the auto-generated Dockerfile 
 
 In JavaScript code:
 
@@ -32,19 +31,31 @@ ip_filter = Application.get_env(:your_app, :ice_ip_filter)
 In `runtime.exs`:
 
 ```elixir
-if System.get_env("FLY_IO") do
+if System.get_env("FLY_APP_NAME") do
   config :your_app, ice_ip_filter: &ExWebRTC.ICE.FlyIpFilter.ip_filter/1
 end
 ```
 
-In fly.toml:
+Now:
+1. Run `fly launch`. It will generate a Dockerfile that will fail to build.
+2. Introduce the following changes 
 
-```toml
-[env]
-  # add one additional env
-  FLY_IO = 'true'
-```
+    ```diff
+    - ARG ELIXIR_VERSION=1.16.0
+    - ARG OTP_VERSION=26.2.1
+    - ARG DEBIAN_VERSION=bullseye-20231009-slim
+    + ARG ELIXIR_VERSION=1.17.2
+    + ARG OTP_VERSION=27.0.1
+    + ARG DEBIAN_VERSION=bookworm-20240701-slim
+
+    # when building on arm64, you will also need to add libsrtp2-dev
+    - RUN apt-get update -y && apt-get install -y build-essential git \
+    -     && apt-get clean && rm -f /var/lib/apt/lists/*_*
+    + RUN apt-get update -y && apt-get install -y build-essential git pkg-config libssl-dev \
+    +     && apt-get clean && rm -f /var/lib/apt/lists/*_*
+    ```
+
+3. Run `fly deploy` to retry.
 
 That's it!
-No special UDP port exports or dedicated IP address are needed.
-Just run `fly launch` and enjoy your deployment :)
+No special UDP port exports or dedicated IP address are needed :)
