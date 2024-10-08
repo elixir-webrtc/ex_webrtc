@@ -2087,6 +2087,9 @@ defmodule ExWebRTC.PeerConnection do
       nil ->
         {nil, state}
 
+      {%{sender: %{track: nil}}, _idx} ->
+        {nil, state}
+
       {tr, idx} ->
         tr = RTPTransceiver.receive_pli(tr, pli)
         transceivers = List.replace_at(state.transceivers, idx, tr)
