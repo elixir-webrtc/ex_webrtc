@@ -2063,6 +2063,9 @@ defmodule ExWebRTC.PeerConnection do
         nil ->
           {nil, state}
 
+        {%{sender: %{track: nil}}, _idx} ->
+          {nil, state}
+
         # in case NACK was received, but RTX was not negotiated
         # as NACK and RTX are negotiated independently
         {%{sender: %{rtx_pt: nil}} = tr, _idx} ->
