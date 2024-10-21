@@ -18,7 +18,7 @@ Add `ex_webrtc` to the list of dependencies in `mix.exs`
 ```elixir
 def deps do
   [
-    {:ex_webrtc, "~> 0.5.0"}
+    {:ex_webrtc, "~> 0.5.1"}
   ]
 end
 ```
@@ -29,7 +29,7 @@ adding optional `ex_sctp` dependency
 ```elixir
 def deps do
   [
-    {:ex_webrtc, "~> 0.5.0"},
+    {:ex_webrtc, "~> 0.5.1"},
     {:ex_sctp, "~> 0.1.0"}
   ]
 end
