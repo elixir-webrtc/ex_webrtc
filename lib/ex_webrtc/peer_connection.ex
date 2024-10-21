@@ -479,6 +479,15 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def init(config) do
+    # FIXME: Spawning a lot of peer connections simultaneously, often takes a lot of time.
+    # This does not happen when spawning a single peer connection.
+    # Moving actual initialization to handle_continue at least does not block
+    # supervisor/dynamic supervisor under which those peer connections are spawned.
+    {:ok, nil, {:continue, config}}
+  end
+
+  @impl true
+  def handle_continue(config, _state) do
     {:ok, _} = Registry.register(ExWebRTC.Registry, self(), self())
 
     ice_config = [
@@ -533,7 +542,7 @@ defmodule ExWebRTC.PeerConnection do
     notify(state.owner, {:connection_state_change, :new})
     notify(state.owner, {:signaling_state_change, :stable})
 
-    {:ok, state}
+    {:noreply, state}
   end
 
   @impl true
@@ -1374,6 +1383,12 @@ defmodule ExWebRTC.PeerConnection do
   def handle_info(msg, state) do
     Logger.info("Received unexpected message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  @impl true
+  def terminate(reason, nil) do
+    # we exit before finishing handle_continue
+    Logger.debug("Closing peer connection with reason: #{inspect(reason)}")
   end
 
   @impl true
