@@ -47,6 +47,13 @@ To get started with Elixir WebRTC, check out:
 
 If you have any questions, ideas or topics to discuss about Elixir WebRTC, head to the [discussions page](https://github.com/orgs/elixir-webrtc/discussions).
 
+## Elixir WebRTC vs Membrane
+
+Elixir WebRTC is the W3C WebRTC standard implementation written in almost pure Elixir.
+It does not use Membrane under the hood, and it aims to be as close to the W3C (and hence JavaScript) API as possible.
+
+Membrane, on the other hand, is a multimedia framework. It supports a lot of diffrent protocols, codecs and containers.
+Membrane uses Elixir WebRTC in its [membrane_webrtc_plugin](https://github.com/membraneframework/membrane_webrtc_plugin) making it possible to use WebRTC with other Membrane elements.
 
 ## Credits
 
