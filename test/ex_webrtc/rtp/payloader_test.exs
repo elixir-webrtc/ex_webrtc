@@ -32,6 +32,30 @@ defmodule ExWebRTC.RTP.PayloaderTest do
     assert Payloader.payload(payloader, @frame) == Payloader.Opus.payload(payloader, @frame)
   end
 
+  test "creates a G711 payloader and dispatches calls to its module" do
+    assert {:ok, payloader} =
+             %RTPCodecParameters{
+               payload_type: 0,
+               mime_type: "audio/PCMU",
+               clock_rate: 8000,
+               channels: 1
+             }
+             |> Payloader.new()
+
+    assert Payloader.payload(payloader, @frame) == Payloader.G711.payload(payloader, @frame)
+
+    assert {:ok, payloader} =
+             %RTPCodecParameters{
+               payload_type: 8,
+               mime_type: "audio/PCMA",
+               clock_rate: 8000,
+               channels: 1
+             }
+             |> Payloader.new()
+
+    assert Payloader.payload(payloader, @frame) == Payloader.G711.payload(payloader, @frame)
+  end
+
   test "returns error if no payloader exists for given codec" do
     assert {:error, :no_payloader_for_codec} =
              %RTPCodecParameters{payload_type: 97, mime_type: "video/H264", clock_rate: 90_000}

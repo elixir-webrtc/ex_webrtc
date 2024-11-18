@@ -35,6 +35,32 @@ defmodule ExWebRTC.RTP.DepayloaderTest do
              Depayloader.Opus.depayload(depayloader, @packet)
   end
 
+  test "creates a G711 depayloader and dispatches calls to its module" do
+    assert {:ok, depayloader} =
+             %RTPCodecParameters{
+               payload_type: 0,
+               mime_type: "audio/PCMU",
+               clock_rate: 8000,
+               channels: 1
+             }
+             |> Depayloader.new()
+
+    assert Depayloader.depayload(depayloader, @packet) ==
+             Depayloader.G711.depayload(depayloader, @packet)
+
+    assert {:ok, depayloader} =
+             %RTPCodecParameters{
+               payload_type: 8,
+               mime_type: "audio/PCMA",
+               clock_rate: 8000,
+               channels: 1
+             }
+             |> Depayloader.new()
+
+    assert Depayloader.depayload(depayloader, @packet) ==
+             Depayloader.G711.depayload(depayloader, @packet)
+  end
+
   test "returns error if no depayloader exists for given codec" do
     assert {:error, :no_depayloader_for_codec} =
              %RTPCodecParameters{payload_type: 97, mime_type: "video/H264", clock_rate: 90_000}

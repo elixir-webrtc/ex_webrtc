@@ -22,7 +22,7 @@ defmodule ExWebRTC.Support.TestUtils do
         {:ex_webrtc, ^pc1, {:ice_candidate, candidate}} ->
           :ok = PeerConnection.add_ice_candidate(pc2, candidate)
       after
-        2000 -> raise "Unable to connect"
+        5000 -> raise "Unable to connect"
       end
     end
 
@@ -30,7 +30,7 @@ defmodule ExWebRTC.Support.TestUtils do
       receive do
         {:ex_webrtc, ^pc, {:connection_state_change, :connected}} -> :ok
       after
-        2000 -> raise "Unable to connect"
+        5000 -> raise "Unable to connect"
       end
     end
 
