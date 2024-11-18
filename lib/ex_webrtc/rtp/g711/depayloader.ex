@@ -1,8 +1,8 @@
-defmodule ExWebRTC.RTP.Depayloader.Opus do
+defmodule ExWebRTC.RTP.Depayloader.G711 do
   @moduledoc false
-  # Decapsulates Opus audio out of RTP packet.
+  # Decapsulates G.711 audio out of RTP packet.
   #
-  # Based on [RFC 7587: RTP Payload Format for the Opus Speech and Audio Codec](https://datatracker.ietf.org/doc/html/rfc7587).
+  # Based in [RFC 3551: RTP Profile for Audio and Video Conferences with Minimal Control, section 4.5.14](https://datatracker.ietf.org/doc/html/rfc3551#section-4.5.14)
 
   alias ExRTP.Packet
 

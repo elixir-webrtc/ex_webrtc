@@ -36,6 +36,8 @@ defmodule ExWebRTC.RTP.Depayloader do
     case String.downcase(mime_type) do
       "video/vp8" -> {:ok, ExWebRTC.RTP.Depayloader.VP8}
       "audio/opus" -> {:ok, ExWebRTC.RTP.Depayloader.Opus}
+      "audio/pcma" -> {:ok, ExWebRTC.RTP.Depayloader.G711}
+      "audio/pcmu" -> {:ok, ExWebRTC.RTP.Depayloader.G711}
       _other -> {:error, :no_depayloader_for_codec}
     end
   end
