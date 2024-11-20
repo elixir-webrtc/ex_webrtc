@@ -1193,7 +1193,7 @@ defmodule ExWebRTC.PeerConnection do
   def handle_info({:ex_ice, _from, {:new_candidate, candidate}}, state) do
     candidate = %ICECandidate{
       candidate: "candidate:" <> candidate,
-      sdp_mid: 0,
+      sdp_mid: "0",
       sdp_m_line_index: 0
       # username_fragment: "vx/1"
     }
