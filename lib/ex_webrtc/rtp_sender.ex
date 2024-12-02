@@ -225,7 +225,8 @@ defmodule ExWebRTC.RTPSender do
     %{
       timestamp: timestamp,
       type: :outbound_rtp,
-      id: sender.track.id,
+      id: sender.id,
+      track_identifier: get_in(sender.track.id),
       ssrc: sender.ssrc,
       packets_sent: sender.packets_sent,
       bytes_sent: sender.bytes_sent,

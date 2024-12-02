@@ -262,6 +262,7 @@ defmodule ExWebRTC.RTPReceiver do
 
       %{
         id: id,
+        track_identifier: id,
         rid: rid,
         codec: codec,
         type: :inbound_rtp,

@@ -60,7 +60,8 @@ defmodule ExWebRTC.RTPSenderTest do
     assert %{
              timestamp: timestamp,
              type: :outbound_rtp,
-             id: sender.track.id,
+             id: sender.id,
+             track_identifier: sender.track.id,
              ssrc: sender.ssrc,
              packets_sent: 0,
              bytes_sent: 0,
@@ -77,7 +78,8 @@ defmodule ExWebRTC.RTPSenderTest do
     assert %{
              timestamp: timestamp,
              type: :outbound_rtp,
-             id: sender.track.id,
+             id: sender.id,
+             track_identifier: sender.track.id,
              ssrc: sender.ssrc,
              packets_sent: 1,
              bytes_sent: byte_size(data1),
@@ -94,7 +96,8 @@ defmodule ExWebRTC.RTPSenderTest do
     assert %{
              timestamp: timestamp,
              type: :outbound_rtp,
-             id: sender.track.id,
+             id: sender.id,
+             track_identifier: sender.track.id,
              ssrc: sender.ssrc,
              packets_sent: 2,
              bytes_sent: byte_size(data1) + byte_size(data2),
