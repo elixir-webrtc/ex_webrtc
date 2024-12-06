@@ -12,7 +12,7 @@ defmodule ExWebRTC.RTPCodecParameters do
   Keep in mind that the actual payload type depends on who sends the SDP offer first.
   If the browser sends it first and uses a different payload type for the same codec, 
   Elixir WebRTC will override its settings and use the payload type provided by the browser.
-  If Elixir WebRTC sends the offert first and uses a different payload type for the same codec, 
+  If Elixir WebRTC sends the offer first and uses a different payload type for the same codec, 
   the browser will override its settings and use the payload type provided by Elixir WebRTC.
 
   For the meanings of the other fields, refer to the [MDN documentation](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpSender/getParameters#codecs)
