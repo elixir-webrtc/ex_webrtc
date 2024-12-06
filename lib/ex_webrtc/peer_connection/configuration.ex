@@ -35,8 +35,19 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       clock_rate: 90_000,
       sdp_fmtp_line: %FMTP{
         pt: 98,
-        level_asymmetry_allowed: 1,
+        level_asymmetry_allowed: true,
         packetization_mode: 0,
+        profile_level_id: 0x42E01F
+      }
+    },
+    %RTPCodecParameters{
+      payload_type: 99,
+      mime_type: "video/H264",
+      clock_rate: 90_000,
+      sdp_fmtp_line: %FMTP{
+        pt: 99,
+        level_asymmetry_allowed: true,
+        packetization_mode: 1,
         profile_level_id: 0x42E01F
       }
     },
@@ -454,11 +465,12 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     {codecs, {free_pts, mapping}} =
       Enum.map_reduce(codecs, {free_pts, %{}}, fn codec, {free_pts, mapping} ->
         sdp_codecs
-        |> Enum.find(
-          &(String.downcase(&1.mime_type) == String.downcase(codec.mime_type) and
-              &1.clock_rate == codec.clock_rate and
-              &1.channels == codec.channels)
-        )
+        |> Enum.find(fn sdp_codec ->
+          String.downcase(sdp_codec.mime_type) == String.downcase(codec.mime_type) and
+            sdp_codec.clock_rate == codec.clock_rate and
+            sdp_codec.channels == codec.channels and
+            compare_fmtp(sdp_codec.sdp_fmtp_line, codec.sdp_fmtp_line)
+        end)
         |> case do
           nil ->
             [pt | rest] = free_pts
@@ -522,7 +534,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         &(String.downcase(&1.mime_type) == String.downcase(sdp_codec.mime_type) and
             &1.payload_type == sdp_codec.payload_type and
             &1.clock_rate == sdp_codec.clock_rate and
-            &1.channels == sdp_codec.channels)
+            &1.channels == sdp_codec.channels and
+            compare_fmtp(&1.sdp_fmtp_line, sdp_codec.sdp_fmtp_line))
       )
       |> case do
         nil ->
@@ -534,6 +547,16 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       end
     end)
   end
+
+  # compare H264 FMTP as profile_level_id compatibility is crucial for proper decoding;
+  # in other cases, accept everything
+  defp compare_fmtp(sdp_fmtp, conf_fmtp) when sdp_fmtp != nil and conf_fmtp != nil do
+    sdp_fmtp.profile_level_id == conf_fmtp.profile_level_id and
+      sdp_fmtp.packetization_mode == conf_fmtp.packetization_mode and
+      sdp_fmtp.level_asymmetry_allowed == conf_fmtp.level_asymmetry_allowed
+  end
+
+  defp compare_fmtp(_sdp_fmtp, _codec_fmtp), do: true
 
   @doc false
   @spec intersect_extensions(t(), ExSDP.Media.t()) :: [Extmap.t()]
