@@ -110,7 +110,7 @@ defmodule WhipWhep.PeerSupervisor do
     receive do
       {:ex_webrtc, ^pc, {:ice_gathering_state_change, :complete}} -> :ok
     after
-      1000 -> {:error, :timeout}
+      1000 -> :ok
     end
   end
 
