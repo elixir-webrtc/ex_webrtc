@@ -96,6 +96,11 @@ defmodule ExWebRTC.DTLSTransport do
     GenServer.cast(dtls_transport, {:send_data, data})
   end
 
+  @spec set_packet_loss(dtls_transport(), 0..100) :: :ok
+  def set_packet_loss(dtls_transport, packet_loss) do
+    GenServer.cast(dtls_transport, {:set_packet_loss, packet_loss})
+  end
+
   @spec stop(dtls_transport()) :: :ok
   def stop(dtls_transport) do
     GenServer.stop(dtls_transport)
@@ -127,7 +132,8 @@ defmodule ExWebRTC.DTLSTransport do
       peer_fingerprint: nil,
       dtls_state: :new,
       dtls: nil,
-      mode: nil
+      mode: nil,
+      packet_loss: 0
     }
 
     notify(state.owner, {:state_change, :new})
@@ -236,8 +242,23 @@ defmodule ExWebRTC.DTLSTransport do
   @impl true
   def handle_cast({:send_rtp, data}, %{dtls_state: :connected, ice_connected: true} = state) do
     case ExLibSRTP.protect(state.out_srtp, data) do
-      {:ok, protected} -> state.ice_transport.send_data(state.ice_pid, protected)
-      {:error, reason} -> Logger.warning("Unable to protect RTP: #{inspect(reason)}")
+      {:ok, protected} ->
+        case state.packet_loss do
+          0 ->
+            state.ice_transport.send_data(state.ice_pid, protected)
+
+          _ ->
+            r = Enum.random(1..100)
+
+            if r <= state.packet_loss do
+              {:noreply, state}
+            else
+              state.ice_transport.send_data(state.ice_pid, protected)
+            end
+        end
+
+      {:error, reason} ->
+        Logger.warning("Unable to protect RTP: #{inspect(reason)}")
     end
 
     {:noreply, state}
@@ -266,6 +287,12 @@ defmodule ExWebRTC.DTLSTransport do
       {:error, reason} -> Logger.warning("Unable to protect data: #{inspect(reason)}")
     end
 
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:set_packet_loss, value}, state) do
+    state = %{state | packet_loss: value}
     {:noreply, state}
   end
 

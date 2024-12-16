@@ -181,6 +181,16 @@ defmodule ExWebRTC.PeerConnection do
     GenServer.cast(peer_connection, {:send_data, channel_ref, data})
   end
 
+  @doc """
+  Sets very simple packet loss.
+
+  Can be used for experimental purposes.
+  """
+  @spec set_packet_loss(peer_connection(), 0..100) :: :ok
+  def set_packet_loss(peer_connection, value) when value in 0..100 do
+    GenServer.cast(peer_connection, {:set_packet_loss, value})
+  end
+
   #### MDN-API ####
 
   @doc """
@@ -1160,6 +1170,12 @@ defmodule ExWebRTC.PeerConnection do
     handle_sctp_events(events, state)
 
     {:noreply, %{state | sctp_transport: sctp_transport}}
+  end
+
+  @impl true
+  def handle_cast({:set_packet_loss, packet_loss}, state) do
+    DTLSTransport.set_packet_loss(state.dtls_transport, packet_loss)
+    {:noreply, state}
   end
 
   @impl true
