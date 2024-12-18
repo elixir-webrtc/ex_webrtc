@@ -7,7 +7,7 @@ defmodule ExWebRTC.Media.Opus do
 
   Returns the duration in milliseconds.
   """
-  @spec duration(binary()) :: {:ok, float()} | {:error, term()}
+  @spec duration(binary()) :: {:ok, number()} | {:error, term()}
   def duration(<<config::5, rest::bitstring>>) do
     with {:ok, frame_count} <- get_frame_count(rest) do
       {:ok, frame_count * get_frame_duration(config)}
