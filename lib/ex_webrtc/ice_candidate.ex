@@ -23,27 +23,12 @@ defmodule ExWebRTC.ICECandidate do
   end
 
   @spec from_json(%{String.t() => String.t() | non_neg_integer() | nil}) :: t()
-  def from_json(
-        %{
-          "candidate" => c,
-          "sdpMid" => mid,
-          "sdpMLineIndex" => mline_idx
-        } = json
-      ) do
-    from_json(Map.put(json, "usernameFragment", nil))
-  end
-
-  def from_json(%{
-        "candidate" => c,
-        "sdpMid" => mid,
-        "sdpMLineIndex" => mline_idx,
-        "usernameFragment" => ufrag
-      }) do
+  def from_json(json) when is_map(json) do
     %__MODULE__{
-      candidate: c,
-      sdp_mid: mid,
-      sdp_m_line_index: mline_idx,
-      username_fragment: ufrag
+      candidate: Map.fetch!(json, "candidate"),
+      sdp_mid: Map.fetch!(json, "sdpMid"),
+      sdp_m_line_index: Map.fetch!(json, "sdpMLineIndex"),
+      username_fragment: Map.get(json, "usernameFragment")
     }
   end
 end
