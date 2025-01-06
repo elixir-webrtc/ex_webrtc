@@ -9,6 +9,14 @@ defmodule ExWebRTC.DTLSTransportTest do
                |> ExDTLS.get_cert_fingerprint()
                |> Utils.hex_dump()
 
+  @rtp_header <<1::1, 0::1, 0::1, 0::1, 0::4, 0::1, 96::7, 1::16, 1::32, 1::32>>
+  @rtp_payload <<0>>
+  @rtp_packet <<@rtp_header::binary, @rtp_payload::binary>>
+
+  # empty rr packet
+  @rtcp_rr_header <<2::2, 0::1, 0::5, 201::8, 1::16, 1::32>>
+  @rtcp_rr_packet <<@rtcp_rr_header::binary>>
+
   defmodule MockICETransport do
     @behaviour ExWebRTC.ICETransport
 
@@ -87,7 +95,7 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   test "cannot send data when handshake not finished", %{dtls: dtls} do
-    DTLSTransport.send_rtp(dtls, <<1, 2, 3>>)
+    DTLSTransport.send_rtp(dtls, @rtp_packet)
 
     refute_receive {:mock_ice, _data}
   end
@@ -175,6 +183,14 @@ defmodule ExWebRTC.DTLSTransportTest do
     assert :ok = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
+
+    # assert we can send data
+    assert :ok = DTLSTransport.send_rtp(dtls, @rtp_packet)
+    assert_receive {:mock_ice, <<@rtp_header::binary, _payload::binary>>}
+    assert :ok = DTLSTransport.send_rtcp(dtls, @rtcp_rr_packet)
+    assert_receive {:mock_ice, <<@rtcp_rr_header::binary, _payload::binary>>}
+    assert :ok = DTLSTransport.send_data(dtls, <<1, 2, 3>>)
+    assert_receive {:mock_ice, _datachannel_packet}
   end
 
   test "finishes handshake in passive mode", %{
@@ -200,6 +216,46 @@ defmodule ExWebRTC.DTLSTransportTest do
     assert :ok == check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
+
+    # assert we can send data
+    assert :ok = DTLSTransport.send_rtp(dtls, @rtp_packet)
+    assert_receive {:mock_ice, <<@rtp_header::binary, _payload::binary>>}
+    assert :ok = DTLSTransport.send_rtcp(dtls, @rtcp_rr_packet)
+    assert_receive {:mock_ice, <<@rtcp_rr_header::binary, _payload::binary>>}
+    assert :ok = DTLSTransport.send_data(dtls, <<1, 2, 3>>)
+    assert_receive {:mock_ice, _datachannel_packet}
+  end
+
+  test "drops packets when packet loss is set", %{
+    dtls: dtls,
+    ice_transport: ice_transport,
+    ice_pid: ice_pid
+  } do
+    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
+    remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
+
+    :ok = DTLSTransport.set_ice_connected(dtls)
+
+    assert :ok = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
+
+    # assert we can send data
+    DTLSTransport.send_rtp(dtls, @rtp_packet)
+    assert_receive {:mock_ice, <<@rtp_header::binary, _payload::binary>>}
+    DTLSTransport.send_rtcp(dtls, @rtcp_rr_packet)
+    assert_receive {:mock_ice, <<@rtcp_rr_packet::binary, _rest::binary>>}
+    DTLSTransport.send_data(dtls, <<1, 2, 3>>)
+    assert_receive {:mock_ice, _datachannel_packet}
+
+    # now set packet-loss
+    DTLSTransport.set_packet_loss(dtls, 100)
+    DTLSTransport.send_rtp(dtls, @rtp_packet)
+    refute_receive {:mock_ice, _rtp_packet}
+    DTLSTransport.send_rtcp(dtls, @rtcp_rr_packet)
+    refute_receive {:mock_ice, _rtcp_rr_packet}
+    DTLSTransport.send_data(dtls, <<1, 2, 3>>)
+    refute_receive {:mock_ice, _datachannel_packet}
   end
 
   defp check_handshake(dtls, ice_transport, ice_pid, remote_dtls) do
