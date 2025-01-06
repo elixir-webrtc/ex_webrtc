@@ -224,7 +224,11 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     extensions = Keyword.get(options, :rtp_header_extensions, @default_rtp_header_extensions)
 
     unless %{type: :all, uri: @mid_uri} in extensions do
-      raise "Mandatory MID RTP header extensions was not found in #{inspect(extensions)}"
+      Logger.warning("""
+      MID RTP header extension was not found in #{inspect(extensions)}.
+      While this is correct, it is strongly recommended to include \
+      MID RTP header extension to avoid any difficulties with packet demultiplexing.
+      """)
     end
 
     {audio_extensions, video_extensions} =

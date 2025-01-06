@@ -134,12 +134,6 @@ defmodule ExWebRTC.RTPSender do
   @doc false
   @spec send_packet(sender(), ExRTP.Packet.t(), boolean()) :: {binary(), sender()}
   def send_packet(sender, packet, rtx?) do
-    %Extmap{} = mid_extmap = Map.fetch!(sender.rtp_hdr_exts, @mid_uri)
-
-    mid_ext =
-      %ExRTP.Packet.Extension.SourceDescription{text: sender.mid}
-      |> ExRTP.Packet.Extension.SourceDescription.to_raw(mid_extmap.id)
-
     {pt, ssrc} =
       if rtx? do
         {sender.rtx_pt, sender.rtx_ssrc}
@@ -147,10 +141,25 @@ defmodule ExWebRTC.RTPSender do
         {sender.pt, sender.ssrc}
       end
 
+    packet = %{packet | payload_type: pt, ssrc: ssrc}
+
+    # Add mid header extension only if it was negotiated.
+    # The receiver can still demux packets based
+    # on ssrc (if it was included in sdp) or payload type.
     packet =
-      %{packet | payload_type: pt, ssrc: ssrc}
-      |> ExRTP.Packet.remove_extension(mid_extmap.id)
-      |> ExRTP.Packet.add_extension(mid_ext)
+      case Map.get(sender.rtp_hdr_exts, @mid_uri) do
+        %Extmap{} = mid_extmap ->
+          mid_ext =
+            %ExRTP.Packet.Extension.SourceDescription{text: sender.mid}
+            |> ExRTP.Packet.Extension.SourceDescription.to_raw(mid_extmap.id)
+
+          packet
+          |> ExRTP.Packet.remove_extension(mid_extmap.id)
+          |> ExRTP.Packet.add_extension(mid_ext)
+
+        nil ->
+          packet
+      end
 
     report_recorder =
       if sender.reports? do
