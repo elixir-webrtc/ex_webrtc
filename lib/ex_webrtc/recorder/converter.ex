@@ -79,13 +79,7 @@ defmodule ExWebRTC.Recorder.Converter do
           convert_video_track(id, rid_map, output_path, packets)
 
         "audio" ->
-          {:ok, writer} =
-            output_path
-            |> Path.join("#{id}.ogg")
-            |> Ogg.Writer.open()
-
-          {:ok, depayloader} = Depayloader.new(@audio_codec_params)
-          do_convert_audio_track(packets |> Map.values() |> hd(), depayloader, writer)
+          convert_audio_track(id, output_path, packets |> Map.values() |> hd())
       end
     end
 
@@ -121,6 +115,16 @@ defmodule ExWebRTC.Recorder.Converter do
     end
   end
 
+  defp convert_audio_track(id, output_path, packets) do
+    {:ok, writer} =
+      output_path
+      |> Path.join("#{id}.ogg")
+      |> Ogg.Writer.open()
+
+    {:ok, depayloader} = Depayloader.new(@audio_codec_params)
+    do_convert_audio_track(packets, depayloader, writer)
+  end
+
   defp do_convert_audio_track([], _depayloader, writer), do: Ogg.Writer.close(writer)
 
   defp do_convert_audio_track([packet | rest], depayloader, writer) do
@@ -135,8 +139,8 @@ defmodule ExWebRTC.Recorder.Converter do
         stores = Map.update!(stores, rid_idx, &insert_packet_to_store(&1, packet))
         read_packets(file, stores)
 
-      {:error, :not_enough_data} ->
-        Logger.warning("Error decoding RTP packet")
+      {:error, reason} ->
+        Logger.warning("Error decoding RTP packet: #{inspect(reason)}")
         read_packets(file, stores)
 
       :eof ->
@@ -147,14 +151,21 @@ defmodule ExWebRTC.Recorder.Converter do
   end
 
   defp read_packet(file) do
-    case IO.binread(file, 13) do
-      <<rid_idx::8, _recv_time::64, packet_size::32>> ->
-        with {:ok, packet} <- file |> IO.binread(packet_size) |> ExRTP.Packet.decode() do
-          {:ok, rid_idx, packet}
-        end
+    with {:ok, <<rid_idx::8, _recv_time::64, packet_size::32>>} <- read_exactly_n_bytes(file, 13),
+         {:ok, packet_data} <- read_exactly_n_bytes(file, packet_size),
+         {:ok, packet} <- ExRTP.Packet.decode(packet_data) do
+      {:ok, rid_idx, packet}
+    end
+  end
 
-      :eof ->
-        :eof
+  defp read_exactly_n_bytes(file, byte_cnt) do
+    with data when is_binary(data) <- IO.binread(file, byte_cnt),
+         true <- byte_cnt == byte_size(data) do
+      {:ok, data}
+    else
+      :eof -> :eof
+      false -> {:error, :not_enough_data}
+      {:error, _reason} = error -> error
     end
   end
 

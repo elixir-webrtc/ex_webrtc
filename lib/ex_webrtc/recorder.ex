@@ -60,16 +60,9 @@ defmodule ExWebRTC.Recorder do
   @doc """
   Adds new tracks to the recording.
   """
-  @spec add_tracks(GenServer.server(), [MediaStreamTrack.t()]) :: :ok | :error
+  @spec add_tracks(GenServer.server(), [MediaStreamTrack.t()]) :: :ok
   def add_tracks(recorder, tracks) do
-    # XXX need?
-    try do
-      GenServer.call(recorder, {:add_tracks, tracks})
-    catch
-      _exit_or_error, _e ->
-        Logger.error("Recorder is down, not adding tracks")
-        :error
-    end
+    GenServer.call(recorder, {:add_tracks, tracks})
   end
 
   @doc """
@@ -90,7 +83,7 @@ defmodule ExWebRTC.Recorder do
   def init(config) do
     base_dir =
       (config[:base_dir] || @default_base_dir)
-      |> Path.join(UUID.uuid4())
+      |> Path.join(current_datetime())
       |> Path.expand()
 
     :ok = File.mkdir_p!(base_dir)
@@ -101,22 +94,24 @@ defmodule ExWebRTC.Recorder do
       tracks: %{}
     }
 
-    if config[:on_start] == nil do
-      {:ok, state}
-    else
-      {:ok, state, {:continue, {:on_start, config[:on_start]}}}
+    case config[:on_start] do
+      nil ->
+        {:ok, state}
+
+      callback ->
+        {:ok, state, {:continue, {:on_start, callback}}}
     end
   end
 
   @impl true
   def handle_continue({:on_start, on_start}, state) do
-    tracks = on_start.()
+    case on_start.() do
+      [] ->
+        {:noreply, state}
 
-    if Enum.empty?(tracks) do
-      {:noreply, state}
-    else
-      state = do_add_tracks(tracks, state)
-      {:noreply, state}
+      tracks ->
+        state = do_add_tracks(tracks, state)
+        {:noreply, state}
     end
   end
 
@@ -189,5 +184,13 @@ defmodule ExWebRTC.Recorder do
     packet = ExRTP.Packet.encode(packet)
     packet_size = byte_size(packet)
     <<rid_idx::8, recv_time::64, packet_size::32, packet::binary>>
+  end
+
+  defp current_datetime() do
+    {{y, mo, d}, {h, m, s}} = :calendar.local_time()
+
+    # e.g. 20240130-120315
+    :io_lib.format("~4..0w~2..0w~2..0w-~2..0w~2..0w~2..0w", [y, mo, d, h, m, s])
+    |> to_string()
   end
 end
