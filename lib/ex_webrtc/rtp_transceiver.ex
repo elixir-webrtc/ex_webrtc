@@ -174,8 +174,14 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec from_mline(ExSDP.Media.t(), non_neg_integer(), Configuration.t()) :: transceiver()
-  def from_mline(mline, mline_idx, config) do
+  @spec from_mline(
+          ExSDP.Media.t(),
+          non_neg_integer(),
+          non_neg_integer(),
+          non_neg_integer(),
+          Configuration.t()
+        ) :: transceiver()
+  def from_mline(mline, mline_idx, ssrc, rtx_ssrc, config) do
     header_extensions = Configuration.intersect_extensions(config, mline)
     codecs = Configuration.intersect_codecs(config, mline)
 
@@ -205,7 +211,16 @@ defmodule ExWebRTC.RTPTransceiver do
     receiver = RTPReceiver.new(track, codec, header_extensions, config.features)
 
     sender =
-      RTPSender.new(nil, codec, codec_rtx, header_extensions, mid, nil, nil, config.features)
+      RTPSender.new(
+        nil,
+        codec,
+        codec_rtx,
+        header_extensions,
+        mid,
+        ssrc,
+        rtx_ssrc,
+        config.features
+      )
 
     %{
       id: id,
@@ -281,10 +296,9 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec add_track(transceiver(), MediaStreamTrack.t(), non_neg_integer(), non_neg_integer()) ::
-          transceiver()
-  def add_track(transceiver, track, ssrc, rtx_ssrc) do
-    sender = %{transceiver.sender | track: track, ssrc: ssrc, rtx_ssrc: rtx_ssrc}
+  @spec add_track(transceiver(), MediaStreamTrack.t()) :: transceiver()
+  def add_track(transceiver, track) do
+    sender = %{transceiver.sender | track: track}
 
     direction =
       case transceiver.direction do
@@ -297,11 +311,9 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  @spec replace_track(transceiver(), MediaStreamTrack.t(), non_neg_integer(), non_neg_integer()) ::
-          transceiver()
-  def replace_track(transceiver, track, ssrc, rtx_ssrc) do
-    ssrc = transceiver.sender.ssrc || ssrc
-    sender = %{transceiver.sender | track: track, ssrc: ssrc, rtx_ssrc: rtx_ssrc}
+  @spec replace_track(transceiver(), MediaStreamTrack.t()) :: transceiver()
+  def replace_track(transceiver, track) do
+    sender = %{transceiver.sender | track: track}
     %{transceiver | sender: sender}
   end
 
@@ -526,23 +538,13 @@ defmodule ExWebRTC.RTPTransceiver do
         [rtp_mapping, codec.sdp_fmtp_line, codec.rtcp_fbs]
       end)
 
-    msids =
-      case transceiver.sender.track do
-        nil ->
-          []
-
-        %MediaStreamTrack{id: id, streams: streams} ->
-          case Enum.map(streams, &ExSDP.Attribute.MSID.new(&1, id)) do
-            [] -> [ExSDP.Attribute.MSID.new("-", id)]
-            other -> other
-          end
-      end
+    direction = Keyword.get(opts, :direction, transceiver.direction)
 
     attributes =
       if(Keyword.get(opts, :rtcp, false), do: [{"rtcp", "9 IN IP4 0.0.0.0"}], else: []) ++
         Keyword.get(opts, :simulcast, []) ++
         [
-          Keyword.get(opts, :direction, transceiver.direction),
+          direction,
           {:mid, transceiver.mid},
           {:ice_ufrag, Keyword.fetch!(opts, :ice_ufrag)},
           {:ice_pwd, Keyword.fetch!(opts, :ice_pwd)},
@@ -550,7 +552,15 @@ defmodule ExWebRTC.RTPTransceiver do
           {:fingerprint, Keyword.fetch!(opts, :fingerprint)},
           {:setup, Keyword.fetch!(opts, :setup)},
           :rtcp_mux
-        ] ++ transceiver.header_extensions ++ msids
+        ] ++ transceiver.header_extensions
+
+    # add sender attrs only if we send
+    sender_attrs =
+      if direction in [:sendonly, :sendrecv] do
+        RTPSender.get_mline_attrs(transceiver.sender)
+      else
+        []
+      end
 
     %ExSDP.Media{
       ExSDP.Media.new(transceiver.kind, 9, "UDP/TLS/RTP/SAVPF", pt)
@@ -558,7 +568,7 @@ defmodule ExWebRTC.RTPTransceiver do
         # the default value "IN IP4 0.0.0.0" (as there are no candidates yet)
         connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
     }
-    |> ExSDP.add_attributes(attributes ++ media_formats)
+    |> ExSDP.add_attributes(attributes ++ media_formats ++ sender_attrs)
   end
 
   # RFC 3264 (6.1) + RFC 8829 (5.3.1)
