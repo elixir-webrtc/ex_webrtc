@@ -21,7 +21,7 @@ defmodule ExWebRTC.RTPSender do
           mid: String.t() | nil,
           pt: non_neg_integer() | nil,
           rtx_pt: non_neg_integer() | nil,
-          # ssrc and rtx_ssrc are always present, even if there is no track
+          # ssrc and rtx_ssrc are always present, even if there is no track,
           # or transceiver direction is recvonly.
           # We preallocate them so they can be included in SDP when needed.
           ssrc: non_neg_integer(),
@@ -140,8 +140,8 @@ defmodule ExWebRTC.RTPSender do
     msid_attrs =
       case sender.track do
         nil ->
-          # In theory, we should do this "for each MediaStream that was associated with the transceiver"
-          # but web browsers (chrome, ff), include MSID even when there aren't any MediaStreams
+          # In theory, we should do this "for each MediaStream that was associated with the transceiver",
+          # but web browsers (chrome, ff) include MSID even when there aren't any MediaStreams
           [ExSDP.Attribute.MSID.new("-", nil)]
 
         %MediaStreamTrack{streams: streams} ->
@@ -192,13 +192,10 @@ defmodule ExWebRTC.RTPSender do
       streams ->
         {ssrc_attrs, rtx_ssrc_attrs} =
           Enum.reduce(streams, {[], []}, fn stream, {ssrc_attrs, rtx_ssrc_attrs} ->
-            ssrc_attr = [%ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}]
+            ssrc_attr = %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
             ssrc_attrs = [ssrc_attr | ssrc_attrs]
 
-            rtx_ssrc_attr = [
-              %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: stream}
-            ]
-
+            rtx_ssrc_attr = %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: stream}
             rtx_ssrc_attrs = [rtx_ssrc_attr | rtx_ssrc_attrs]
 
             {ssrc_attrs, rtx_ssrc_attrs}

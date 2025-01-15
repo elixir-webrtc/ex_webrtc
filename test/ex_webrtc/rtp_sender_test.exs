@@ -9,20 +9,28 @@ defmodule ExWebRTC.RTPSenderTest do
   @ssrc 354_947
   @rtx_ssrc 123_455
 
-  setup do
-    track = MediaStreamTrack.new(:audio)
+  @rtp_hdr_exts [%Extmap{id: 1, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}]
 
-    codec = %RTPCodecParameters{
-      payload_type: 111,
-      mime_type: "audio/opus",
-      clock_rate: 48_000,
-      channels: 2,
-      sdp_fmtp_line: %FMTP{pt: 111, minptime: 10, useinbandfec: true}
+  @codec %RTPCodecParameters{
+    payload_type: 96,
+    mime_type: "video/VP8",
+    clock_rate: 90_000
+  }
+
+  @rtx_codec %ExWebRTC.RTPCodecParameters{
+    payload_type: 124,
+    mime_type: "video/rtx",
+    clock_rate: 90_000,
+    sdp_fmtp_line: %ExSDP.Attribute.FMTP{
+      pt: 124,
+      apt: 96
     }
+  }
 
-    rtp_hdr_exts = [%Extmap{id: 1, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}]
+  setup do
+    track = MediaStreamTrack.new(:video)
 
-    sender = RTPSender.new(track, codec, nil, rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+    sender = RTPSender.new(track, @codec, nil, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
     %{sender: sender}
   end
@@ -36,7 +44,7 @@ defmodule ExWebRTC.RTPSenderTest do
 
     assert packet.ssrc == @ssrc
     assert packet.marker == false
-    assert packet.payload_type == 111
+    assert packet.payload_type == 96
     # timestamp and sequence number shouldn't be overwritten
     assert packet.timestamp == 0
     assert packet.sequence_number == 0
@@ -51,6 +59,66 @@ defmodule ExWebRTC.RTPSenderTest do
     assert packet.sequence_number == 1
     # marker flag shouldn't be overwritten
     assert packet.marker == true
+  end
+
+  describe "get_mline_attrs/1" do
+    test "without rtx" do
+      stream_id = MediaStreamTrack.generate_stream_id()
+      track = MediaStreamTrack.new(:video, [stream_id])
+
+      sender = RTPSender.new(track, @codec, nil, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+
+      assert [
+               %ExSDP.Attribute.MSID{id: ^stream_id, app_data: nil},
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ^stream_id}
+             ] = RTPSender.get_mline_attrs(sender)
+    end
+
+    test "with rtx" do
+      stream_id = MediaStreamTrack.generate_stream_id()
+      track = MediaStreamTrack.new(:video, [stream_id])
+
+      sender = RTPSender.new(track, @codec, @rtx_codec, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+
+      assert [
+               %ExSDP.Attribute.MSID{id: ^stream_id, app_data: nil},
+               %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]},
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ^stream_id},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: ^stream_id}
+             ] = RTPSender.get_mline_attrs(sender)
+    end
+
+    test "without media stream" do
+      track = MediaStreamTrack.new(:video)
+
+      sender = RTPSender.new(track, @codec, @rtx_codec, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+
+      assert [
+               %ExSDP.Attribute.MSID{id: "-", app_data: nil},
+               %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]},
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: "-"},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: "-"}
+             ] = RTPSender.get_mline_attrs(sender)
+    end
+
+    test "with multiple media streams" do
+      s1_id = MediaStreamTrack.generate_stream_id()
+      s2_id = MediaStreamTrack.generate_stream_id()
+
+      track = MediaStreamTrack.new(:video, [s1_id, s2_id])
+
+      sender = RTPSender.new(track, @codec, @rtx_codec, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+
+      assert [
+               %ExSDP.Attribute.MSID{id: ^s1_id, app_data: nil},
+               %ExSDP.Attribute.MSID{id: ^s2_id, app_data: nil},
+               %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]},
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ^s1_id},
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ^s2_id},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: ^s1_id},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: ^s2_id}
+             ] = RTPSender.get_mline_attrs(sender)
+    end
   end
 
   test "get_stats/2", %{sender: sender} do
