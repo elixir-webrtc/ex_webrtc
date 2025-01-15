@@ -158,7 +158,12 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           rtcp_feedbacks: [rtcp_feedback()]
         ]
 
-  @typedoc false
+  @typedoc """
+  `ExWebRTC.PeerConnection` configuration.
+
+  It is created from options passed to `ExWebRTC.PeerConnection.start_link/1`.
+  See `t:options/0` for more.
+  """
   @type t() :: %__MODULE__{
           controlling_process: Process.dest(),
           ice_servers: [ice_server()],
