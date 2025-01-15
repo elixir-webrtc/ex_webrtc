@@ -143,6 +143,16 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
+  Returns current `peer_connection` configuration.
+
+  Note: the configuration may change after applying remote description.
+  """
+  @spec get_configuration(peer_connection()) :: Configuration.t()
+  def get_configuration(peer_connection) do
+    GenServer.call(peer_connection, :get_configuration)
+  end
+
+  @doc """
   Sends an RTP packet to the remote peer using the track specified by the `track_id`.
 
   Options:
@@ -559,6 +569,11 @@ defmodule ExWebRTC.PeerConnection do
   def handle_call({:controlling_process, controlling_process}, _from, state) do
     state = %{state | owner: controlling_process}
     {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_call(:get_configuration, _from, state) do
+    {:reply, state.config, state}
   end
 
   @impl true
@@ -1097,6 +1112,12 @@ defmodule ExWebRTC.PeerConnection do
     |> Enum.find(fn {tr, _idx} -> tr.sender.track && tr.sender.track.id == track_id end)
     |> case do
       {tr, idx} ->
+        # When RTP packet comes from another peer connection,
+        # it can already have some extensions, in particular,
+        # extensions that we didn't negotiate (consider simulcast and rid).
+        # Remove these extensions and add ours.
+        packet = ExRTP.Packet.remove_extensions(packet)
+
         {packet, state} =
           case state.twcc_extension_id do
             nil ->
@@ -1107,10 +1128,7 @@ defmodule ExWebRTC.PeerConnection do
                 ExRTP.Packet.Extension.TWCC.new(state.sent_packets)
                 |> ExRTP.Packet.Extension.TWCC.to_raw(id)
 
-              packet =
-                packet
-                |> ExRTP.Packet.remove_extension(id)
-                |> ExRTP.Packet.add_extension(twcc)
+              packet = ExRTP.Packet.add_extension(packet, twcc)
 
               state = %{state | sent_packets: state.sent_packets + 1 &&& 0xFFFF}
               {packet, state}

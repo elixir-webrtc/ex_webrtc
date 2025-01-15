@@ -227,8 +227,13 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = negotiate(pc1, pc2)
     :ok = connect(pc1, pc2)
 
+    config = PeerConnection.get_configuration(pc1)
+    negotiated_ext_ids = Enum.map(config.audio_extensions ++ config.video_extensions, & &1.id)
+    non_negotiated_ext_id = Enum.random(Enum.to_list(1..255) -- negotiated_ext_ids)
+
     payload = <<3, 2, 5>>
-    packet = ExRTP.Packet.new(payload)
+    non_negotiated_ext = %ExRTP.Packet.Extension{id: non_negotiated_ext_id, data: "0"}
+    packet = payload |> ExRTP.Packet.new() |> ExRTP.Packet.add_extension(non_negotiated_ext)
 
     # Try to send data using correct track id.
     # Assert that pc2 received this data and send_rtp didn't modify some of the fields.
@@ -237,6 +242,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert recv_packet.payload == packet.payload
     assert recv_packet.sequence_number == packet.sequence_number
     assert recv_packet.timestamp == packet.timestamp
+    assert non_negotiated_ext not in recv_packet.extensions
 
     # Try to send data using invalid track id.
     # Assert that pc1 is still alive and pc2 didn't receive this data.
