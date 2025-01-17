@@ -2,7 +2,7 @@ defmodule ExWebRTC.RTPSenderTest do
   use ExUnit.Case, async: true
 
   alias ExRTP.Packet.Extension.SourceDescription
-  alias ExSDP.Attribute.{Extmap, FMTP}
+  alias ExSDP.Attribute.Extmap
 
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, RTPSender}
 

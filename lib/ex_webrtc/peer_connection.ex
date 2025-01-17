@@ -1809,7 +1809,7 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  # See W3C WebRTC 4.4.1.5-4.7.10.1
+  # See W3C WebRTC 4.4.1.4-4.7.10.1
   defp process_mlines_local(_mlines, transceivers, :offer, _owner), do: transceivers
 
   defp process_mlines_local([], transceivers, :answer, _owner), do: transceivers
@@ -1840,7 +1840,7 @@ defmodule ExWebRTC.PeerConnection do
     process_mlines_local(mlines, transceivers, :answer, owner)
   end
 
-  # See W3C WebRTC 4.4.1.5-4.7.10.2
+  # See W3C WebRTC 4.4.1.4-4.7.10.2
   defp process_mlines_remote(mlines, transceivers, sdp_type, demuxer_ssrcs, config, owner) do
     mlines_idx = Enum.with_index(mlines)
     do_process_mlines_remote(mlines_idx, transceivers, sdp_type, demuxer_ssrcs, config, owner)
@@ -1862,12 +1862,7 @@ defmodule ExWebRTC.PeerConnection do
         do: :inactive,
         else: SDPUtils.get_media_direction(mline) |> reverse_direction()
 
-    rtp_sender_ssrcs = Enum.map(transceivers, & &1.sender.ssrc)
-    ssrcs = MapSet.new(demuxer_ssrcs ++ rtp_sender_ssrcs)
-
-    ssrc = do_generate_ssrc(ssrcs)
-    ssrcs = MapSet.put(ssrcs, ssrc)
-    rtx_ssrc = do_generate_ssrc(ssrcs)
+    {ssrc, rtx_ssrc} = generate_ssrcs(transceivers, demuxer_ssrcs)
 
     # Note: in theory we should update transceiver codecs
     # after processing remote track but this shouldn't have any impact
@@ -2198,10 +2193,14 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp generate_ssrcs(state) do
-    rtp_sender_ssrcs = Enum.map(state.transceivers, & &1.sender.ssrc)
-    ssrcs = MapSet.new(Map.keys(state.demuxer.ssrc_to_mid) ++ rtp_sender_ssrcs)
-    ssrc = do_generate_ssrc(ssrcs, 200)
-    rtx_ssrc = do_generate_ssrc(MapSet.put(ssrcs, ssrc), 200)
+    generate_ssrcs(state.transceivers, Map.keys(state.demuxer.ssrc_to_mid))
+  end
+
+  defp generate_ssrcs(transceivers, demuxer_ssrcs) do
+    rtp_sender_ssrcs = Enum.map(transceivers, & &1.sender.ssrc)
+    ssrcs = MapSet.new(demuxer_ssrcs ++ rtp_sender_ssrcs)
+    ssrc = do_generate_ssrc(ssrcs)
+    rtx_ssrc = do_generate_ssrc(MapSet.put(ssrcs, ssrc))
     {ssrc, rtx_ssrc}
   end
 

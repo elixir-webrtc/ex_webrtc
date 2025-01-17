@@ -139,16 +139,13 @@ defmodule ExWebRTC.RTPSender do
     # Don't include track id. See RFC 8829 sec. 5.2.1
     msid_attrs =
       case sender.track do
-        nil ->
+        %MediaStreamTrack{streams: streams} when streams != [] ->
+          Enum.map(streams, &ExSDP.Attribute.MSID.new(&1, nil))
+
+        _other ->
           # In theory, we should do this "for each MediaStream that was associated with the transceiver",
           # but web browsers (chrome, ff) include MSID even when there aren't any MediaStreams
           [ExSDP.Attribute.MSID.new("-", nil)]
-
-        %MediaStreamTrack{streams: streams} ->
-          case Enum.map(streams, &ExSDP.Attribute.MSID.new(&1, nil)) do
-            [] -> [ExSDP.Attribute.MSID.new("-", nil)]
-            other -> other
-          end
       end
 
     ssrc_attrs =
@@ -181,29 +178,37 @@ defmodule ExWebRTC.RTPSender do
   defp get_ssrc_attrs(_pt, _rtx_pt, ssrc, rtx_ssrc, track) do
     streams = (track && track.streams) || []
 
-    case streams do
-      [] ->
-        [
-          %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [ssrc, rtx_ssrc]},
-          %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"},
-          %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: "-"}
-        ]
+    fid = %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [ssrc, rtx_ssrc]}
 
-      streams ->
-        {ssrc_attrs, rtx_ssrc_attrs} =
-          Enum.reduce(streams, {[], []}, fn stream, {ssrc_attrs, rtx_ssrc_attrs} ->
-            ssrc_attr = %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
-            ssrc_attrs = [ssrc_attr | ssrc_attrs]
+    ssrc_attrs =
+      case streams do
+        [] ->
+          [
+            %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"},
+            %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: "-"}
+          ]
 
-            rtx_ssrc_attr = %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: stream}
-            rtx_ssrc_attrs = [rtx_ssrc_attr | rtx_ssrc_attrs]
+        streams ->
+          {ssrc_attrs, rtx_ssrc_attrs} =
+            Enum.reduce(streams, {[], []}, fn stream, {ssrc_attrs, rtx_ssrc_attrs} ->
+              ssrc_attr = %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
+              ssrc_attrs = [ssrc_attr | ssrc_attrs]
 
-            {ssrc_attrs, rtx_ssrc_attrs}
-          end)
+              rtx_ssrc_attr = %ExSDP.Attribute.SSRC{
+                id: rtx_ssrc,
+                attribute: "msid",
+                value: stream
+              }
 
-        fid = %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [ssrc, rtx_ssrc]}
-        [fid | Enum.reverse(ssrc_attrs) ++ Enum.reverse(rtx_ssrc_attrs)]
-    end
+              rtx_ssrc_attrs = [rtx_ssrc_attr | rtx_ssrc_attrs]
+
+              {ssrc_attrs, rtx_ssrc_attrs}
+            end)
+
+          Enum.reverse(ssrc_attrs) ++ Enum.reverse(rtx_ssrc_attrs)
+      end
+
+    [fid | ssrc_attrs]
   end
 
   @doc false
