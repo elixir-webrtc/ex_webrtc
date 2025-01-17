@@ -21,8 +21,11 @@ defmodule ExWebRTC.RTPSender do
           mid: String.t() | nil,
           pt: non_neg_integer() | nil,
           rtx_pt: non_neg_integer() | nil,
-          ssrc: non_neg_integer() | nil,
-          rtx_ssrc: non_neg_integer() | nil,
+          # ssrc and rtx_ssrc are always present, even if there is no track,
+          # or transceiver direction is recvonly.
+          # We preallocate them so they can be included in SDP when needed.
+          ssrc: non_neg_integer(),
+          rtx_ssrc: non_neg_integer(),
           packets_sent: non_neg_integer(),
           bytes_sent: non_neg_integer(),
           retransmitted_packets_sent: non_neg_integer(),
@@ -68,8 +71,8 @@ defmodule ExWebRTC.RTPSender do
           RTPCodecParameters.t() | nil,
           [Extmap.t()],
           String.t() | nil,
-          non_neg_integer() | nil,
-          non_neg_integer() | nil,
+          non_neg_integer(),
+          non_neg_integer(),
           [atom()]
         ) :: sender()
   def new(track, codec, rtx_codec, rtp_hdr_exts, mid, ssrc, rtx_ssrc, features) do
@@ -129,6 +132,83 @@ defmodule ExWebRTC.RTPSender do
         rtx_pt: rtx_pt,
         report_recorder: report_recorder
     }
+  end
+
+  @spec get_mline_attrs(sender()) :: [ExSDP.Attribute.t()]
+  def get_mline_attrs(sender) do
+    # Don't include track id. See RFC 8829 sec. 5.2.1
+    msid_attrs =
+      case sender.track do
+        %MediaStreamTrack{streams: streams} when streams != [] ->
+          Enum.map(streams, &ExSDP.Attribute.MSID.new(&1, nil))
+
+        _other ->
+          # In theory, we should do this "for each MediaStream that was associated with the transceiver",
+          # but web browsers (chrome, ff) include MSID even when there aren't any MediaStreams
+          [ExSDP.Attribute.MSID.new("-", nil)]
+      end
+
+    ssrc_attrs =
+      get_ssrc_attrs(sender.pt, sender.rtx_pt, sender.ssrc, sender.rtx_ssrc, sender.track)
+
+    msid_attrs ++ ssrc_attrs
+  end
+
+  # we didn't manage to negotiate any codec
+  defp get_ssrc_attrs(nil, _rtx_pt, _ssrc, _rtx_ssrc, _track) do
+    []
+  end
+
+  # we have a codec but not rtx
+  defp get_ssrc_attrs(_pt, nil, ssrc, _rtx_ssrc, track) do
+    streams = (track && track.streams) || []
+
+    case streams do
+      [] ->
+        [%ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"}]
+
+      streams ->
+        Enum.map(streams, fn stream ->
+          %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
+        end)
+    end
+  end
+
+  # we have both codec and rtx
+  defp get_ssrc_attrs(_pt, _rtx_pt, ssrc, rtx_ssrc, track) do
+    streams = (track && track.streams) || []
+
+    fid = %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [ssrc, rtx_ssrc]}
+
+    ssrc_attrs =
+      case streams do
+        [] ->
+          [
+            %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"},
+            %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: "-"}
+          ]
+
+        streams ->
+          {ssrc_attrs, rtx_ssrc_attrs} =
+            Enum.reduce(streams, {[], []}, fn stream, {ssrc_attrs, rtx_ssrc_attrs} ->
+              ssrc_attr = %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
+              ssrc_attrs = [ssrc_attr | ssrc_attrs]
+
+              rtx_ssrc_attr = %ExSDP.Attribute.SSRC{
+                id: rtx_ssrc,
+                attribute: "msid",
+                value: stream
+              }
+
+              rtx_ssrc_attrs = [rtx_ssrc_attr | rtx_ssrc_attrs]
+
+              {ssrc_attrs, rtx_ssrc_attrs}
+            end)
+
+          Enum.reverse(ssrc_attrs) ++ Enum.reverse(rtx_ssrc_attrs)
+      end
+
+    [fid | ssrc_attrs]
   end
 
   @doc false

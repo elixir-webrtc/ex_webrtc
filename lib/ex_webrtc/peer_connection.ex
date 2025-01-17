@@ -870,7 +870,6 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call({:add_track, %MediaStreamTrack{kind: kind} = track}, _from, state) do
     # we ignore the condition that sender has never been used to send
-    {ssrc, rtx_ssrc} = generate_ssrcs(state)
 
     {transceivers, sender} =
       state.transceivers
@@ -878,10 +877,12 @@ defmodule ExWebRTC.PeerConnection do
       |> Enum.find(fn {tr, _idx} -> RTPTransceiver.can_add_track?(tr, kind) end)
       |> case do
         {tr, idx} ->
-          tr = RTPTransceiver.add_track(tr, track, ssrc, rtx_ssrc)
+          tr = RTPTransceiver.add_track(tr, track)
           {List.replace_at(state.transceivers, idx, tr), tr.sender}
 
         nil ->
+          {ssrc, rtx_ssrc} = generate_ssrcs(state)
+
           options = [
             direction: :sendrecv,
             added_by_add_track: true,
@@ -910,8 +911,7 @@ defmodule ExWebRTC.PeerConnection do
         {:reply, {:error, :invalid_track_type}, state}
 
       {tr, idx} when tr.direction in [:sendrecv, :sendonly] ->
-        {ssrc, rtx_ssrc} = generate_ssrcs(state)
-        tr = RTPTransceiver.replace_track(tr, track, ssrc, rtx_ssrc)
+        tr = RTPTransceiver.replace_track(tr, track)
         transceivers = List.replace_at(state.transceivers, idx, tr)
         state = %{state | transceivers: transceivers}
         {:reply, :ok, state}
@@ -1649,7 +1649,13 @@ defmodule ExWebRTC.PeerConnection do
       transceivers =
         sdp.media
         |> Enum.reject(&SDPUtils.data_channel?/1)
-        |> process_mlines_remote(state.transceivers, type, state.config, state.owner)
+        |> process_mlines_remote(
+          state.transceivers,
+          type,
+          Map.keys(state.demuxer.ssrc_to_mid),
+          state.config,
+          state.owner
+        )
 
       # infer our role from the remote role
       dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
@@ -1803,7 +1809,7 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  # See W3C WebRTC 4.4.1.5-4.7.10.1
+  # See W3C WebRTC 4.4.1.4-4.7.10.1
   defp process_mlines_local(_mlines, transceivers, :offer, _owner), do: transceivers
 
   defp process_mlines_local([], transceivers, :answer, _owner), do: transceivers
@@ -1834,26 +1840,36 @@ defmodule ExWebRTC.PeerConnection do
     process_mlines_local(mlines, transceivers, :answer, owner)
   end
 
-  # See W3C WebRTC 4.4.1.5-4.7.10.2
-  defp process_mlines_remote(mlines, transceivers, sdp_type, config, owner) do
+  # See W3C WebRTC 4.4.1.4-4.7.10.2
+  defp process_mlines_remote(mlines, transceivers, sdp_type, demuxer_ssrcs, config, owner) do
     mlines_idx = Enum.with_index(mlines)
-    do_process_mlines_remote(mlines_idx, transceivers, sdp_type, config, owner)
+    do_process_mlines_remote(mlines_idx, transceivers, sdp_type, demuxer_ssrcs, config, owner)
   end
 
-  defp do_process_mlines_remote([], transceivers, _sdp_type, _config, _owner), do: transceivers
+  defp do_process_mlines_remote([], transceivers, _sdp_type, _demuxer_ssrcs, _config, _owner),
+    do: transceivers
 
-  defp do_process_mlines_remote([{mline, idx} | mlines], transceivers, sdp_type, config, owner) do
+  defp do_process_mlines_remote(
+         [{mline, idx} | mlines],
+         transceivers,
+         sdp_type,
+         demuxer_ssrcs,
+         config,
+         owner
+       ) do
     direction =
       if SDPUtils.rejected?(mline),
         do: :inactive,
         else: SDPUtils.get_media_direction(mline) |> reverse_direction()
+
+    {ssrc, rtx_ssrc} = generate_ssrcs(transceivers, demuxer_ssrcs)
 
     # Note: in theory we should update transceiver codecs
     # after processing remote track but this shouldn't have any impact
     {idx, tr} =
       case find_transceiver_from_remote(transceivers, mline) do
         {idx, tr} -> {idx, RTPTransceiver.update(tr, mline, config)}
-        nil -> {nil, RTPTransceiver.from_mline(mline, idx, config)}
+        nil -> {nil, RTPTransceiver.from_mline(mline, idx, ssrc, rtx_ssrc, config)}
       end
 
     tr = process_remote_track(tr, direction, owner)
@@ -1867,11 +1883,11 @@ defmodule ExWebRTC.PeerConnection do
     case idx do
       nil ->
         transceivers = transceivers ++ [tr]
-        do_process_mlines_remote(mlines, transceivers, sdp_type, config, owner)
+        do_process_mlines_remote(mlines, transceivers, sdp_type, demuxer_ssrcs, config, owner)
 
       idx ->
         transceivers = List.replace_at(transceivers, idx, tr)
-        do_process_mlines_remote(mlines, transceivers, sdp_type, config, owner)
+        do_process_mlines_remote(mlines, transceivers, sdp_type, demuxer_ssrcs, config, owner)
     end
   end
 
@@ -2177,15 +2193,21 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp generate_ssrcs(state) do
-    rtp_sender_ssrcs = Enum.map(state.transceivers, & &1.sender.ssrc)
-    ssrcs = MapSet.new(Map.keys(state.demuxer.ssrc_to_mid) ++ rtp_sender_ssrcs)
-    ssrc = do_generate_ssrc(ssrcs, 200)
-    rtx_ssrc = do_generate_ssrc(MapSet.put(ssrcs, ssrc), 200)
+    generate_ssrcs(state.transceivers, Map.keys(state.demuxer.ssrc_to_mid))
+  end
+
+  defp generate_ssrcs(transceivers, demuxer_ssrcs) do
+    rtp_sender_ssrcs = Enum.map(transceivers, & &1.sender.ssrc)
+    ssrcs = MapSet.new(demuxer_ssrcs ++ rtp_sender_ssrcs)
+    ssrc = do_generate_ssrc(ssrcs)
+    rtx_ssrc = do_generate_ssrc(MapSet.put(ssrcs, ssrc))
     {ssrc, rtx_ssrc}
   end
 
   # this is practically impossible so it's easier to raise
   # than to propagate the error up to the user
+  defp do_generate_ssrc(ssrcs, max_attempts \\ 200)
+
   defp do_generate_ssrc(_ssrcs, 0), do: raise("Couldn't find free SSRC")
 
   defp do_generate_ssrc(ssrcs, max_attempts) do

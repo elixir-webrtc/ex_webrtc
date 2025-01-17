@@ -28,8 +28,12 @@ defmodule ExWebRTC.RTPSender.NACKResponder do
 
     {packets, seq_no} =
       seq_nos
-      |> Enum.map(fn seq_no -> {seq_no, Map.get(responder.packets, rem(seq_no, @max_packets))} end)
-      |> Enum.filter(fn {seq_no, packet} -> packet != nil and packet.sequence_number == seq_no end)
+      |> Enum.map(fn seq_no ->
+        {seq_no, Map.get(responder.packets, rem(seq_no, @max_packets))}
+      end)
+      |> Enum.filter(fn {seq_no, packet} ->
+        packet != nil and packet.sequence_number == seq_no
+      end)
       # ssrc will be assigned by the sender
       |> Enum.map_reduce(responder.seq_no, fn {seq_no, packet}, rtx_seq_no ->
         rtx_packet = %Packet{
