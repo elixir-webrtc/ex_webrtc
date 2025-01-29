@@ -8,7 +8,6 @@ defmodule ExWebRTC.Recorder do
   use GenServer
 
   alias ExWebRTC.MediaStreamTrack
-  alias ExWebRTC.Recorder.Manifest
 
   require Logger
 
@@ -19,7 +18,7 @@ defmodule ExWebRTC.Recorder do
     kind: :video | :audio,
     streams: [MediaStreamTrack.stream_id()],
     rid_map: %{MediaStreamTrack.rid() => integer()},
-    path: Path.t() | {:s3, bucket_name :: String.t(), Path.t()}
+    location: String.t()
   }
 
   @opaque manifest :: %{MediaStreamTrack.id() => track_manifest()}
@@ -30,8 +29,8 @@ defmodule ExWebRTC.Recorder do
   * `base_dir` - Base directory where Recorder will save its artifacts. `#{@default_base_dir}` by default.
   * `on_start` - Callback that will be executed just after the Recorder is (re)started.
                  It should return the initial list of tracks to be added.
-  * `s3_config` - XXX WRITEME
-  * `controlling_process` - XXX WRITEME
+  * `s3_config` - WRITEME
+  * `controlling_process` - WRITEME
   """
   @type option ::
           {:base_dir, String.t()}
@@ -85,7 +84,6 @@ defmodule ExWebRTC.Recorder do
   @doc """
   Adds new tracks to the recording.
   """
-  # XXX need to return the manifest here?
   @spec add_tracks(GenServer.server(), [MediaStreamTrack.t()]) :: {:ok, manifest()}
   def add_tracks(recorder, tracks) do
     GenServer.call(recorder, {:add_tracks, tracks})
@@ -106,7 +104,7 @@ defmodule ExWebRTC.Recorder do
   end
 
   @doc """
-  # XXX WRITEME
+  # WRITEME
   Changes the controlling process of this `peer_connection` process.
 
   Controlling process is a process that receives all of the messages (described
@@ -118,9 +116,9 @@ defmodule ExWebRTC.Recorder do
   end
 
   @doc """
-  XXX WRITEME Adds new tracks to the recording.
+  WRITEME Adds new tracks to the recording.
   """
-  @spec end_tracks(GenServer.server(), [MediaStreamTrack.id()]) :: {:ok, reference()}
+  @spec end_tracks(GenServer.server(), [MediaStreamTrack.id()]) :: {:ok, manifest(), reference() | nil} | {:error, :tracks_not_found}
   def end_tracks(recorder, track_ids) do
     GenServer.call(recorder, {:end_tracks, track_ids})
   end
@@ -137,8 +135,8 @@ defmodule ExWebRTC.Recorder do
 
     upload_handler =
       if config[:s3_config] do
-        Logger.info("Recordings will be uploaded to S3 XXX WRITEME")
-        __MODULE__.S3.Utils.new(config[:s3_config])
+        Logger.info("Recordings will be uploaded to S3 WRITEME")
+        __MODULE__.S3.UploadHandler.new(config[:s3_config])
       end
 
     state = %{
@@ -184,28 +182,14 @@ defmodule ExWebRTC.Recorder do
 
   @impl true
   def handle_call({:end_tracks, track_ids}, _from, state) do
-    existent_track_ids = 
-      track_ids
-      |> Enum.filter(&Map.has_key?(state.track_data, &1))
+    case Enum.filter(track_ids, &Map.has_key?(state.track_data, &1)) do
+      [] ->
+        {:reply, {:error, :tracks_not_found}, state}
 
-    state =
-      existent_track_ids
-      |> Enum.reduce(state, fn track_id, state ->
-        %{file: file} = state.track_data[track_id]
-        File.close(file)
-
-        put_in(state, [:track_data, track_id, :file], nil)
-      end)
-
-    manifest = state.track_data |> Map.take(existent_track_ids) |> to_manifest()
-
-    # XXX dont spawn if exist_ empty
-    {ref, upload_handler} =
-      if state.upload_handler do
-        __MODULE__.S3.Utils.spawn_upload_task(state.upload_handler, manifest)
-      end
-
-    {:reply, {:ok, ref}, %{state | upload_handler: upload_handler}}
+      track_ids ->
+        {manifest_diff, ref, state} = do_end_tracks(track_ids, state)
+        {:reply, {:ok, manifest_diff, ref}, state}
+    end
   end
 
   @impl true
@@ -213,18 +197,18 @@ defmodule ExWebRTC.Recorder do
       when is_map_key(state.track_data, track_id) do
     %{file: file, rid_map: rid_map} = state.track_data[track_id]
 
-    case {rid_map, file} do
-      {_any, nil} ->
-        Logger.warning("""
-        Tried to save packet for track which has been ended. Ignoring. Track id: #{inspect(track_id)} \
-        """)
-
-      {%{^rid => rid_idx}, file} ->
-        :ok = IO.binwrite(file, serialize_packet(packet, rid_idx, recv_time))
-
-      _other ->
+    with {:ok, rid_idx} <- Map.fetch(rid_map, rid),
+         false <- is_nil(file) do
+      :ok = IO.binwrite(file, serialize_packet(packet, rid_idx, recv_time))
+    else
+      :error ->
         Logger.warning("""
         Tried to save packet for unknown rid. Ignoring. Track id: #{inspect(track_id)}, rid: #{inspect(rid)}.\
+        """)
+
+      true ->
+        Logger.warning("""
+        Tried to save packet for track which has been ended. Ignoring. Track id: #{inspect(track_id)} \
         """)
     end
 
@@ -244,7 +228,7 @@ defmodule ExWebRTC.Recorder do
   def handle_info({ref, _res} = task_result, state) when is_reference(ref) do
     if state.upload_handler do
       {result, handler} =
-        __MODULE__.S3.Utils.process_upload_result(state.upload_handler, task_result)
+        __MODULE__.S3.UploadHandler.process_result(state.upload_handler, task_result)
 
       case result do
         {:ok, manifest} ->
@@ -270,15 +254,15 @@ defmodule ExWebRTC.Recorder do
 
     new_track_data =
       Map.new(tracks, fn track ->
-        path = Path.join(state.base_dir, "#{track.id}.rtpx")
+        file_path = Path.join(state.base_dir, "#{track.id}.rtpx")
 
         track_entry = %{
           start_time: start_time,
           kind: track.kind,
           streams: track.streams,
           rid_map: (track.rids || [nil]) |> Enum.with_index() |> Map.new(),
-          path: path,
-          file: File.open!(path, [:write])
+          location: file_path,
+          file: File.open!(file_path, [:write])
         }
 
         {track.id, track_entry}
@@ -291,6 +275,32 @@ defmodule ExWebRTC.Recorder do
     :ok = File.write!(state.manifest_path, state.track_data |> to_manifest() |> Jason.encode!())
 
     {manifest_diff, state}
+  end
+
+  defp do_end_tracks(track_ids, state) do
+    state =
+      Enum.reduce(track_ids, state, fn track_id, state ->
+        %{file: file} = state.track_data[track_id]
+        File.close(file)
+
+        put_in(state, [:track_data, track_id, :file], nil)
+      end)
+
+    manifest_diff = to_manifest(state.track_data, track_ids)
+
+    case state.upload_handler do
+      nil ->
+        {manifest_diff, nil, state}
+
+      handler ->
+        {ref, handler} = __MODULE__.S3.UploadHandler.spawn_task(handler, manifest_diff)
+
+        {manifest_diff, ref, %{state | upload_handler: handler}}
+    end
+  end
+
+  defp to_manifest(track_data, track_ids) do
+    track_data |> Map.take(track_ids) |> to_manifest()
   end
 
   defp to_manifest(track_data) do
