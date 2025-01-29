@@ -16,7 +16,14 @@ defmodule ExWebRTC.RTPSender do
   @type sender() :: %{
           id: id(),
           track: MediaStreamTrack.t() | nil,
-          codec: RTPCodecParameters.t() | nil,
+          # Negotiated codecs
+          codecs: [RTPCodecParameters.t()],
+          # Codecs that will be used for sending media.
+          # Can be set with `set_selected_codec/2`.
+          # Defaults to the first codec in `codecs` list.
+          # RTX codec is a codec associated with `selected_codec`.
+          selected_codec: RTPCodecParameters.t() | nil,
+          selected_rtx_codec: RTPCodecParameters.t() | nil,
           rtp_hdr_exts: %{Extmap.extension_id() => Extmap.t()},
           mid: String.t() | nil,
           pt: non_neg_integer() | nil,
@@ -50,42 +57,49 @@ defmodule ExWebRTC.RTPSender do
   @type t() :: %__MODULE__{
           id: id(),
           track: MediaStreamTrack.t() | nil,
-          codec: RTPCodecParameters.t() | nil
+          codecs: [RTPCodecParameters.t()],
+          rtx_codecs: [RTPCodecParameters.t()],
+          selected_codec: RTPCodecParameters.t() | nil,
+          selected_rtx_codec: RTPCodecParameters.t() | nil
         }
 
-  @enforce_keys [:id, :track, :codec]
+  @enforce_keys [:id, :track, :codecs, :selected_codec, :selected_rtx_codec]
   defstruct @enforce_keys
 
   @doc false
   @spec to_struct(sender()) :: t()
   def to_struct(sender) do
     sender
-    |> Map.take([:id, :track, :codec])
+    |> Map.take([:id, :track, :codecs, :selected_codec, :selected_rtx_codec])
     |> then(&struct!(__MODULE__, &1))
   end
 
   @doc false
   @spec new(
           MediaStreamTrack.t() | nil,
-          RTPCodecParameters.t() | nil,
-          RTPCodecParameters.t() | nil,
+          [RTPCodecParameters.t()],
           [Extmap.t()],
           String.t() | nil,
           non_neg_integer(),
           non_neg_integer(),
           [atom()]
         ) :: sender()
-  def new(track, codec, rtx_codec, rtp_hdr_exts, mid, ssrc, rtx_ssrc, features) do
+  def new(track, codecs, rtp_hdr_exts, mid, ssrc, rtx_ssrc, features) do
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
     # TODO: handle cases when codec == nil (no valid codecs after negotiation)
-    pt = if codec != nil, do: codec.payload_type, else: nil
-    rtx_pt = if rtx_codec != nil, do: rtx_codec.payload_type, else: nil
+    selected_codec = List.first(codecs)
+    selected_rtx_codec = selected_codec && find_associated_rtx_codec(codecs, selected_codec)
+
+    pt = if selected_codec != nil, do: selected_codec.payload_type, else: nil
+    rtx_pt = if selected_rtx_codec != nil, do: selected_rtx_codec.payload_type, else: nil
 
     %{
       id: Utils.generate_id(),
       track: track,
-      codec: codec,
+      codecs: codecs,
+      selected_codec: selected_codec,
+      selected_rtx_codec: selected_rtx_codec,
       rtp_hdr_exts: rtp_hdr_exts,
       pt: pt,
       rtx_pt: rtx_pt,
@@ -101,32 +115,41 @@ defmodule ExWebRTC.RTPSender do
       pli_count: 0,
       reports?: :rtcp_reports in features,
       outbound_rtx?: :outbound_rtx in features,
-      report_recorder: %ReportRecorder{clock_rate: codec && codec.clock_rate},
+      report_recorder: %ReportRecorder{clock_rate: selected_codec && selected_codec.clock_rate},
       nack_responder: %NACKResponder{}
     }
   end
 
   @doc false
-  @spec update(sender(), String.t(), RTPCodecParameters.t() | nil, RTPCodecParameters.t() | nil, [
-          Extmap.t()
-        ]) :: sender()
-  def update(sender, mid, codec, rtx_codec, rtp_hdr_exts) do
+  @spec update(sender(), String.t(), [RTPCodecParameters.t()], [Extmap.t()]) :: sender()
+  def update(sender, mid, codecs, rtp_hdr_exts) do
     if sender.mid != nil and mid != sender.mid, do: raise(ArgumentError)
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
     # TODO: handle cases when codec == nil (no valid codecs after negotiation)
-    pt = if codec != nil, do: codec.payload_type, else: nil
-    rtx_pt = if rtx_codec != nil, do: rtx_codec.payload_type, else: nil
+    selected_codec = if sender.selected_codec in codecs, do: sender.selected_codec, else: nil
+    selected_rtx_codec = selected_codec && find_associated_rtx_codec(codecs, selected_codec)
+
+    if sender.selected_codec != nil and selected_codec == nil do
+      Logger.debug(
+        "Unselecting RTP sender codec as the codec used so far has not been negotiated."
+      )
+    end
+
+    pt = if selected_codec != nil, do: selected_codec.payload_type, else: nil
+    rtx_pt = if selected_rtx_codec != nil, do: selected_rtx_codec.payload_type, else: nil
 
     report_recorder = %ReportRecorder{
       sender.report_recorder
-      | clock_rate: codec && codec.clock_rate
+      | clock_rate: selected_codec && selected_codec.clock_rate
     }
 
     %{
       sender
       | mid: mid,
-        codec: codec,
+        codecs: codecs,
+        selected_codec: selected_codec,
+        selected_rtx_codec: selected_rtx_codec,
         rtp_hdr_exts: rtp_hdr_exts,
         pt: pt,
         rtx_pt: rtx_pt,
@@ -134,6 +157,7 @@ defmodule ExWebRTC.RTPSender do
     }
   end
 
+  @doc false
   @spec get_mline_attrs(sender()) :: [ExSDP.Attribute.t()]
   def get_mline_attrs(sender) do
     # Don't include track id. See RFC 8829 sec. 5.2.1
@@ -212,7 +236,25 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
+  @spec select_codec(sender(), RTPCodecParameters.t()) ::
+          {:ok, sender()} | {:error, :invalid_codec}
+  def select_codec(sender, codec) do
+    if codec in sender.codecs do
+      selected_rtx_codec = find_associated_rtx_codec(sender.codecs, codec)
+      sender = %{sender | selected_codec: codec, selected_rtx_codec: selected_rtx_codec}
+      {:ok, sender}
+    else
+      {:error, :invalid_codec}
+    end
+  end
+
+  @doc false
   @spec send_packet(sender(), ExRTP.Packet.t(), boolean()) :: {binary(), sender()}
+  def send_packet(%{selected_codec: nil} = sender, _packet, _rtx?) do
+    Logger.debug("Tried to send packet but there is no selected codec. Ignoring.")
+    {<<>>, sender}
+  end
+
   def send_packet(sender, packet, rtx?) do
     {pt, ssrc} =
       if rtx? do
@@ -325,5 +367,9 @@ defmodule ExWebRTC.RTPSender do
       nack_count: sender.nack_count,
       pli_count: sender.pli_count
     }
+  end
+
+  defp find_associated_rtx_codec(codecs, codec) do
+    Enum.find(codecs, &(&1.sdp_fmtp_line && &1.sdp_fmtp_line.apt == codec.payload_type))
   end
 end

@@ -600,17 +600,4 @@ defmodule ExWebRTC.RTPTransceiver do
     factor = :rand.uniform() + 0.5
     trunc(factor * @report_interval)
   end
-
-  defp get_default_codec(codecs) do
-    {rtxs, codecs} = Enum.split_with(codecs, &String.ends_with?(&1.mime_type, "/rtx"))
-
-    case List.first(codecs) do
-      nil ->
-        {nil, nil}
-
-      codec ->
-        rtx = Enum.find(rtxs, &(&1.sdp_fmtp_line.apt == codec.payload_type))
-        {codec, rtx}
-    end
-  end
 end
