@@ -15,6 +15,15 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
   @ntp_offset 2_208_988_800
   @max_u32 0xFFFFFFFF
 
+  test "init/3" do
+    recorder = %ReportRecorder{}
+
+    %{clock_rate: 90_000, sender_ssrc: 1234} =
+      recorder = ReportRecorder.init(recorder, 90_000, 1234)
+
+    assert_raise RuntimeError, fn -> ReportRecorder.init(recorder, 90_000, 1234) end
+  end
+
   describe "record_packet/3" do
     test "keeps track of packet counts and sizes" do
       recorder =
@@ -78,7 +87,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
 
       native_in_sec = System.convert_time_unit(1, :second, :native)
       seconds = 89_934
-      # 1/8, so 0.001 in binary 
+      # 1/8, so 0.001 in binary
       frac = 0.125
 
       assert {:ok, report, _recorder} =

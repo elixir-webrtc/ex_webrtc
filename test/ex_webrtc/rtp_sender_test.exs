@@ -11,13 +11,27 @@ defmodule ExWebRTC.RTPSenderTest do
 
   @rtp_hdr_exts [%Extmap{id: 1, uri: "urn:ietf:params:rtp-hdrext:sdes:mid"}]
 
-  @codec %RTPCodecParameters{
+  @vp8 %RTPCodecParameters{
     payload_type: 96,
     mime_type: "video/VP8",
     clock_rate: 90_000
   }
 
-  @rtx_codec %ExWebRTC.RTPCodecParameters{
+  @av1 %RTPCodecParameters{
+    payload_type: 45,
+    mime_type: "video/AV1",
+    clock_rate: 90_000,
+    sdp_fmtp_line: %ExSDP.Attribute.FMTP{pt: 45, level_idx: 5, profile: 0, tier: 0}
+  }
+
+  @av1_45khz %RTPCodecParameters{
+    payload_type: 45,
+    mime_type: "video/AV1",
+    clock_rate: 45_000,
+    sdp_fmtp_line: %ExSDP.Attribute.FMTP{pt: 45, level_idx: 5, profile: 0, tier: 0}
+  }
+
+  @rtx %ExWebRTC.RTPCodecParameters{
     payload_type: 124,
     mime_type: "video/rtx",
     clock_rate: 90_000,
@@ -30,35 +44,96 @@ defmodule ExWebRTC.RTPSenderTest do
   setup do
     track = MediaStreamTrack.new(:video)
 
-    sender = RTPSender.new(track, [@codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+    sender = RTPSender.new(track, [@vp8, @av1, @rtx], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
     %{sender: sender}
   end
 
-  test "send/2", %{sender: sender} do
-    packet = ExRTP.Packet.new(<<>>)
+  test "new/6" do
+    track = MediaStreamTrack.new(:video)
 
-    {packet, sender} = RTPSender.send_packet(sender, packet, false)
+    codecs = [@vp8, @av1, @av1_45khz, @rtx]
+    sender = RTPSender.new(track, codecs, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
-    {:ok, packet} = ExRTP.Packet.decode(packet)
+    assert sender.codec == @vp8
+    assert sender.rtx_codec == @rtx
+  end
 
-    assert packet.ssrc == @ssrc
-    assert packet.marker == false
-    assert packet.payload_type == 96
-    # timestamp and sequence number shouldn't be overwritten
-    assert packet.timestamp == 0
-    assert packet.sequence_number == 0
-    # there should only be one extension
-    assert [ext] = packet.extensions
-    assert {:ok, %{text: "1"}} = SourceDescription.from_raw(ext)
+  test "set_codec/2" do
+    track = MediaStreamTrack.new(:video)
 
-    # check sequence number rollover and marker flag
-    packet = ExRTP.Packet.new(<<>>, sequence_number: 1, marker: true)
-    {packet, _sender} = RTPSender.send_packet(sender, packet, false)
-    {:ok, packet} = ExRTP.Packet.decode(packet)
-    assert packet.sequence_number == 1
-    # marker flag shouldn't be overwritten
-    assert packet.marker == true
+    codecs = [@vp8, @av1, @av1_45khz, @rtx]
+    sender = RTPSender.new(track, codecs, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+    assert sender.codec == @vp8
+
+    assert {:ok, %{codec: @av1} = sender} = RTPSender.set_codec(sender, @av1)
+
+    assert {:error, :invalid_codec} =
+             RTPSender.set_codec(sender, %{@av1 | payload_type: @av1.payload_type + 1})
+
+    assert {:error, :invalid_codec} = RTPSender.set_codec(sender, @rtx)
+
+    # codec with different clock rate should be accepted
+    assert {:ok, %{codec: @av1_45khz} = sender} = RTPSender.set_codec(sender, @av1_45khz)
+
+    # once we send an RTP packet, codec with different clock rate shouldn't be accepted
+    {_packet, sender} = RTPSender.send_packet(sender, ExRTP.Packet.new(<<>>), false)
+    assert {:error, :invalid_codec} = RTPSender.set_codec(sender, @av1)
+  end
+
+  test "update/4" do
+    track = MediaStreamTrack.new(:video)
+    sender = RTPSender.new(track, [@vp8, @av1, @rtx], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+
+    assert %{codec: @vp8, rtx_codec: @rtx} =
+             RTPSender.update(sender, "1", [@vp8, @av1, @rtx], @rtp_hdr_exts)
+
+    assert %{codec: @vp8, rtx_codec: nil} =
+             RTPSender.update(sender, "1", [@vp8, @av1], @rtp_hdr_exts)
+
+    assert %{codec: nil, rtx_codec: nil} = RTPSender.update(sender, "1", [@av1], @rtp_hdr_exts)
+  end
+
+  describe "send_packet/3" do
+    test "when there is no codec", %{sender: sender} do
+      sender = RTPSender.update(sender, "1", [], @rtp_hdr_exts)
+      assert {<<>>, ^sender} = RTPSender.send_packet(sender, ExRTP.Packet.new(<<>>), false)
+    end
+
+    test "when there is no rtx codec", %{sender: sender} do
+      sender = RTPSender.update(sender, "1", [], @rtp_hdr_exts)
+      assert {<<>>, ^sender} = RTPSender.send_packet(sender, ExRTP.Packet.new(<<>>), true)
+    end
+
+    test "when there is codec", %{sender: sender} do
+      packet = ExRTP.Packet.new(<<>>)
+
+      {packet, sender} = RTPSender.send_packet(sender, packet, false)
+
+      {:ok, packet} = ExRTP.Packet.decode(packet)
+
+      assert packet.ssrc == @ssrc
+      assert packet.marker == false
+      assert packet.payload_type == 96
+      # timestamp and sequence number shouldn't be overwritten
+      assert packet.timestamp == 0
+      assert packet.sequence_number == 0
+      # there should only be one extension
+      assert [ext] = packet.extensions
+      assert {:ok, %{text: "1"}} = SourceDescription.from_raw(ext)
+
+      # check sequence number rollover and marker flag
+      packet = ExRTP.Packet.new(<<>>, sequence_number: 1, marker: true)
+      {packet, _sender} = RTPSender.send_packet(sender, packet, false)
+      {:ok, packet} = ExRTP.Packet.decode(packet)
+      assert packet.sequence_number == 1
+      # marker flag shouldn't be overwritten
+      assert packet.marker == true
+
+      # assert report recorder was initialized
+      assert sender.report_recorder.clock_rate == sender.codec.clock_rate
+      assert sender.report_recorder.sender_ssrc == sender.ssrc
+    end
   end
 
   describe "get_mline_attrs/1" do
@@ -66,7 +141,7 @@ defmodule ExWebRTC.RTPSenderTest do
       stream_id = MediaStreamTrack.generate_stream_id()
       track = MediaStreamTrack.new(:video, [stream_id])
 
-      sender = RTPSender.new(track, [@codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+      sender = RTPSender.new(track, [@vp8], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
       assert [
                %ExSDP.Attribute.MSID{id: ^stream_id, app_data: nil},
@@ -78,8 +153,7 @@ defmodule ExWebRTC.RTPSenderTest do
       stream_id = MediaStreamTrack.generate_stream_id()
       track = MediaStreamTrack.new(:video, [stream_id])
 
-      sender =
-        RTPSender.new(track, [@codec, @rtx_codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+      sender = RTPSender.new(track, [@vp8, @rtx], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
       assert [
                %ExSDP.Attribute.MSID{id: ^stream_id, app_data: nil},
@@ -92,8 +166,7 @@ defmodule ExWebRTC.RTPSenderTest do
     test "without media stream" do
       track = MediaStreamTrack.new(:video)
 
-      sender =
-        RTPSender.new(track, [@codec, @rtx_codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+      sender = RTPSender.new(track, [@vp8, @rtx], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
       assert [
                %ExSDP.Attribute.MSID{id: "-", app_data: nil},
@@ -109,8 +182,7 @@ defmodule ExWebRTC.RTPSenderTest do
 
       track = MediaStreamTrack.new(:video, [s1_id, s2_id])
 
-      sender =
-        RTPSender.new(track, [@codec, @rtx_codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+      sender = RTPSender.new(track, [@vp8, @rtx], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
       assert [
                %ExSDP.Attribute.MSID{id: ^s1_id, app_data: nil},

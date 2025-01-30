@@ -2,6 +2,7 @@ defmodule ExWebRTC.RTPSender do
   @moduledoc """
   Implementation of the [RTCRtpSender](https://www.w3.org/TR/webrtc/#rtcrtpsender-interface).
   """
+  require Logger
 
   alias ExRTCP.Packet.{TransportFeedback.NACK, PayloadFeedback.PLI}
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils}
@@ -17,6 +18,7 @@ defmodule ExWebRTC.RTPSender do
           id: id(),
           track: MediaStreamTrack.t() | nil,
           codec: RTPCodecParameters.t() | nil,
+          rtx_codec: RTPCodecParameters.t() | nil,
           codecs: [RTPCodecParameters.t()],
           rtp_hdr_exts: %{Extmap.extension_id() => Extmap.t()},
           mid: String.t() | nil,
@@ -93,6 +95,7 @@ defmodule ExWebRTC.RTPSender do
       id: Utils.generate_id(),
       track: track,
       codec: codec,
+      rtx_codec: rtx_codec,
       codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
       pt: pt,
@@ -109,7 +112,7 @@ defmodule ExWebRTC.RTPSender do
       pli_count: 0,
       reports?: :rtcp_reports in features,
       outbound_rtx?: :outbound_rtx in features,
-      report_recorder: %ReportRecorder{clock_rate: codec && codec.clock_rate},
+      report_recorder: %ReportRecorder{},
       nack_responder: %NACKResponder{}
     }
   end
@@ -118,31 +121,55 @@ defmodule ExWebRTC.RTPSender do
   @spec update(sender(), String.t(), [RTPCodecParameters.t()], [Extmap.t()]) :: sender()
   def update(sender, mid, codecs, rtp_hdr_exts) do
     if sender.mid != nil and mid != sender.mid, do: raise(ArgumentError)
-
-    {codec, rtx_codec} = get_default_codec(codecs)
-
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
+
+    # Keep already selected codec if it is still supported.
+    # Otherwise, clear it and wait until user sets it again.
+    codec = if sender.codec in codecs, do: sender.codec, else: nil
+    rtx_codec = codec && find_associated_rtx_codec(codecs, codec)
+
+    log_codec_change(sender, codec, codecs)
+    log_rtx_codec_change(sender, rtx_codec, codecs)
+
     # TODO: handle cases when codec == nil (no valid codecs after negotiation)
     pt = if codec != nil, do: codec.payload_type, else: nil
     rtx_pt = if rtx_codec != nil, do: rtx_codec.payload_type, else: nil
-
-    report_recorder = %ReportRecorder{
-      sender.report_recorder
-      | clock_rate: codec && codec.clock_rate
-    }
 
     %{
       sender
       | mid: mid,
         codec: codec,
+        rtx_codec: rtx_codec,
         codecs: codecs,
         rtp_hdr_exts: rtp_hdr_exts,
         pt: pt,
-        rtx_pt: rtx_pt,
-        report_recorder: report_recorder
+        rtx_pt: rtx_pt
     }
   end
+
+  defp log_codec_change(%{codec: codec} = sender, nil, neg_codecs) when codec != nil do
+    Logger.debug("""
+    Unselecting RTP sender codec as it is no longer supported by the remote side.
+    Call set_sender_codec again passing supported codec.
+    Codec: #{inspect(sender.codec)}
+    Currently negotiated codecs: #{inspect(neg_codecs)}
+    """)
+  end
+
+  defp log_codec_change(_sender, _codec, _neg_codecs), do: :ok
+
+  defp log_rtx_codec_change(%{rtx_codec: rtx_codec} = sender, nil, neg_codecs)
+       when rtx_codec != nil do
+    Logger.debug("""
+    Unselecting RTP sender codec as it is no longer supported by the remote side.
+    Call set_sender_codec again passing supported codec.
+    Codec: #{inspect(sender.codec)}
+    Currently negotiated codecs: #{inspect(neg_codecs)}
+    """)
+  end
+
+  defp log_rtx_codec_change(_sender, _rtx_codec, _neg_codecs), do: :ok
 
   @spec get_mline_attrs(sender()) :: [ExSDP.Attribute.t()]
   def get_mline_attrs(sender) do
@@ -222,8 +249,52 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
+  @spec set_codec(sender(), RTPCodecParameters.t()) :: {:ok, sender()} | {:error, term()}
+  def set_codec(sender, codec) do
+    if not rtx?(codec) and supported?(sender, codec) and same_clock_rate?(sender, codec) do
+      rtx_codec = find_associated_rtx_codec(sender.codecs, codec)
+      sender = %{sender | codec: codec, rtx_codec: rtx_codec}
+      {:ok, sender}
+    else
+      {:error, :invalid_codec}
+    end
+  end
+
+  defp rtx?(codec), do: String.ends_with?(codec.mime_type, "rtx")
+  defp supported?(sender, codec), do: codec in sender.codecs
+
+  # As long as report recorder is not initialized i.e. we have not send any RTP packet
+  # allow for codec changes. Once we start sending RTP packet, require the same clock rate.
+  defp same_clock_rate?(%{report_recorder: %{clock_rate: nil}}, _codec), do: true
+  defp same_clock_rate?(sender, codec), do: sender.report_recorder.clock_rate == codec.clock_rate
+
+  @doc false
   @spec send_packet(sender(), ExRTP.Packet.t(), boolean()) :: {binary(), sender()}
+  def send_packet(%{rtx_codec: nil} = sender, _packet, true) do
+    Logger.warning("Tried to retransmit packet but there is no selected RTX codec. Ignoring.")
+    {<<>>, sender}
+  end
+
+  def send_packet(%{codec: nil} = sender, _packet, false) do
+    Logger.warning("Tried to send packet but there is no selected codec. Ignoring.")
+    {<<>>, sender}
+  end
+
+  def send_packet(%{packets_sent: 0}, _packet, true) do
+    raise "Tried to retransmit packet without sending any real RTP packet. This should never happen."
+  end
+
+  def send_packet(%{packets_sent: 0} = sender, packet, false) do
+    recorder = ReportRecorder.init(sender.report_recorder, sender.codec.clock_rate, sender.ssrc)
+    sender = %{sender | report_recorder: recorder}
+    do_send_packet(sender, packet, false)
+  end
+
   def send_packet(sender, packet, rtx?) do
+    do_send_packet(sender, packet, rtx?)
+  end
+
+  def do_send_packet(sender, packet, rtx?) do
     {pt, ssrc} =
       if rtx? do
         {sender.rtx_pt, sender.rtx_ssrc}

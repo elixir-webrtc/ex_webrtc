@@ -278,6 +278,16 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
+  @spec set_sender_codec(transceiver(), RTPCodecParameters.t()) ::
+          {:ok, transceiver()} | {:error, term()}
+  def set_sender_codec(transceiver, codec) do
+    case RTPSender.set_codec(transceiver.sender, codec) do
+      {:ok, sender} -> {:ok, %{transceiver | sender: sender}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
   @spec can_add_track?(transceiver(), kind()) :: boolean()
   def can_add_track?(transceiver, kind) do
     transceiver.kind == kind and
@@ -367,18 +377,22 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec send_packet(transceiver(), ExRTP.Packet.t(), boolean()) :: {binary(), transceiver()}
   def send_packet(transceiver, packet, rtx?) do
-    {packet, sender} = RTPSender.send_packet(transceiver.sender, packet, rtx?)
+    case RTPSender.send_packet(transceiver.sender, packet, rtx?) do
+      {<<>>, sender} ->
+        {<<>>, %{transceiver | sender: sender}}
 
-    receiver =
-      if rtx? do
-        transceiver.receiver
-      else
-        RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
-      end
+      {packet, sender} ->
+        receiver =
+          if rtx? do
+            transceiver.receiver
+          else
+            RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
+          end
 
-    transceiver = %{transceiver | sender: sender, receiver: receiver}
+        transceiver = %{transceiver | sender: sender, receiver: receiver}
 
-    {packet, transceiver}
+        {packet, transceiver}
+    end
   end
 
   @doc false
