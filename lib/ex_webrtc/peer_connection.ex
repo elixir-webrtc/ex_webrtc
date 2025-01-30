@@ -1526,7 +1526,7 @@ defmodule ExWebRTC.PeerConnection do
     {transceivers, final_mlines ++ data_mline}
   end
 
-  def generate_data_mline(mid, opts) do
+  defp generate_data_mline(mid, opts) do
     attributes =
       [
         {:mid, mid},
