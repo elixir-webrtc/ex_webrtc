@@ -201,9 +201,13 @@ defmodule ExWebRTC.DataChannelTest do
       assert_receive {:ex_webrtc, ^pc1, {:data, ^ref1, ^data}}
     end
 
-    test "and collecting stats about it", %{pc1: pc1, pc2: pc2, ref1: ref1} do
+    test "and collecting stats about it", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
       for _ <- 1..10 do
         :ok = PeerConnection.send_data(pc1, ref1, <<1, 2, 3>>)
+      end
+
+      for _ <- 1..10 do
+        assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, <<1, 2, 3>>}}
       end
 
       stats1 = PeerConnection.get_stats(pc1)
