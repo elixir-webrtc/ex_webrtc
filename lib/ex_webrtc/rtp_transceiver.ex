@@ -123,12 +123,6 @@ defmodule ExWebRTC.RTPTransceiver do
         :video -> {config.video_extensions, config.video_codecs}
       end
 
-    # When we create sendonly or sendrecv transceiver, we always only take one codec
-    # to avoid ambiguity when assigning payload type for RTP packets in RTPSender.
-    # In other case, if PeerConnection negotiated multiple codecs,
-    # user would have to pass RTP codec when sending RTP packets,
-    # or assign payload type on their own.
-    {codec, codec_rtx} = get_default_codec(codecs)
     track = MediaStreamTrack.new(kind)
 
     id = Utils.generate_id()
@@ -141,13 +135,12 @@ defmodule ExWebRTC.RTPTransceiver do
       send(self(), {:send_nacks, id})
     end
 
-    receiver = RTPReceiver.new(track, codec, header_extensions, config.features)
+    receiver = RTPReceiver.new(track, codecs, header_extensions, config.features)
 
     sender =
       RTPSender.new(
         sender_track,
-        codec,
-        codec_rtx,
+        codecs,
         header_extensions,
         nil,
         options[:ssrc],
@@ -196,7 +189,6 @@ defmodule ExWebRTC.RTPTransceiver do
     {:mid, mid} = ExSDP.get_attribute(mline, :mid)
 
     track = MediaStreamTrack.from_mline(mline)
-    {codec, codec_rtx} = get_default_codec(codecs)
 
     id = Utils.generate_id()
 
@@ -208,13 +200,12 @@ defmodule ExWebRTC.RTPTransceiver do
       send(self(), {:send_nacks, id})
     end
 
-    receiver = RTPReceiver.new(track, codec, header_extensions, config.features)
+    receiver = RTPReceiver.new(track, codecs, header_extensions, config.features)
 
     sender =
       RTPSender.new(
         nil,
-        codec,
-        codec_rtx,
+        codecs,
         header_extensions,
         mid,
         ssrc,
@@ -265,11 +256,10 @@ defmodule ExWebRTC.RTPTransceiver do
 
     codecs = Configuration.intersect_codecs(config, mline)
     header_extensions = Configuration.intersect_extensions(config, mline)
-    {codec, codec_rtx} = get_default_codec(codecs)
     stream_ids = SDPUtils.get_stream_ids(mline)
 
-    receiver = RTPReceiver.update(transceiver.receiver, codec, header_extensions, stream_ids)
-    sender = RTPSender.update(transceiver.sender, mid, codec, codec_rtx, header_extensions)
+    receiver = RTPReceiver.update(transceiver.receiver, codecs, header_extensions, stream_ids)
+    sender = RTPSender.update(transceiver.sender, mid, codecs, header_extensions)
 
     %{
       transceiver
@@ -599,18 +589,5 @@ defmodule ExWebRTC.RTPTransceiver do
     # https://datatracker.ietf.org/doc/html/rfc3550#page-27
     factor = :rand.uniform() + 0.5
     trunc(factor * @report_interval)
-  end
-
-  defp get_default_codec(codecs) do
-    {rtxs, codecs} = Enum.split_with(codecs, &String.ends_with?(&1.mime_type, "/rtx"))
-
-    case List.first(codecs) do
-      nil ->
-        {nil, nil}
-
-      codec ->
-        rtx = Enum.find(rtxs, &(&1.sdp_fmtp_line.apt == codec.payload_type))
-        {codec, rtx}
-    end
   end
 end

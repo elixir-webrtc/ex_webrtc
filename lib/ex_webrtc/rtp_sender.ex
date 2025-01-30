@@ -17,6 +17,7 @@ defmodule ExWebRTC.RTPSender do
           id: id(),
           track: MediaStreamTrack.t() | nil,
           codec: RTPCodecParameters.t() | nil,
+          codecs: [RTPCodecParameters.t()],
           rtp_hdr_exts: %{Extmap.extension_id() => Extmap.t()},
           mid: String.t() | nil,
           pt: non_neg_integer() | nil,
@@ -67,17 +68,23 @@ defmodule ExWebRTC.RTPSender do
   @doc false
   @spec new(
           MediaStreamTrack.t() | nil,
-          RTPCodecParameters.t() | nil,
-          RTPCodecParameters.t() | nil,
+          [RTPCodecParameters.t()],
           [Extmap.t()],
           String.t() | nil,
           non_neg_integer(),
           non_neg_integer(),
           [atom()]
         ) :: sender()
-  def new(track, codec, rtx_codec, rtp_hdr_exts, mid, ssrc, rtx_ssrc, features) do
+  def new(track, codecs, rtp_hdr_exts, mid, ssrc, rtx_ssrc, features) do
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
+
+    # We always only take one codec to avoid ambiguity when assigning payload type for RTP packets.
+    # In other case, if PeerConnection negotiated multiple codecs,
+    # user would have to pass RTP codec when sending RTP packets,
+    # or assign payload type on their own.
+    {codec, rtx_codec} = get_default_codec(codecs)
+
     # TODO: handle cases when codec == nil (no valid codecs after negotiation)
     pt = if codec != nil, do: codec.payload_type, else: nil
     rtx_pt = if rtx_codec != nil, do: rtx_codec.payload_type, else: nil
@@ -86,6 +93,7 @@ defmodule ExWebRTC.RTPSender do
       id: Utils.generate_id(),
       track: track,
       codec: codec,
+      codecs: codecs,
       rtp_hdr_exts: rtp_hdr_exts,
       pt: pt,
       rtx_pt: rtx_pt,
@@ -107,11 +115,12 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec update(sender(), String.t(), RTPCodecParameters.t() | nil, RTPCodecParameters.t() | nil, [
-          Extmap.t()
-        ]) :: sender()
-  def update(sender, mid, codec, rtx_codec, rtp_hdr_exts) do
+  @spec update(sender(), String.t(), [RTPCodecParameters.t()], [Extmap.t()]) :: sender()
+  def update(sender, mid, codecs, rtp_hdr_exts) do
     if sender.mid != nil and mid != sender.mid, do: raise(ArgumentError)
+
+    {codec, rtx_codec} = get_default_codec(codecs)
+
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
     # TODO: handle cases when codec == nil (no valid codecs after negotiation)
@@ -127,6 +136,7 @@ defmodule ExWebRTC.RTPSender do
       sender
       | mid: mid,
         codec: codec,
+        codecs: codecs,
         rtp_hdr_exts: rtp_hdr_exts,
         pt: pt,
         rtx_pt: rtx_pt,
@@ -325,5 +335,21 @@ defmodule ExWebRTC.RTPSender do
       nack_count: sender.nack_count,
       pli_count: sender.pli_count
     }
+  end
+
+  defp get_default_codec(codecs) do
+    {rtx_codecs, media_codecs} = Utils.split_rtx_codecs(codecs)
+
+    case List.first(media_codecs) do
+      nil ->
+        {nil, nil}
+
+      codec ->
+        {codec, find_associated_rtx_codec(rtx_codecs, codec)}
+    end
+  end
+
+  defp find_associated_rtx_codec(codecs, codec) do
+    Enum.find(codecs, &(&1.sdp_fmtp_line && &1.sdp_fmtp_line.apt == codec.payload_type))
   end
 end
