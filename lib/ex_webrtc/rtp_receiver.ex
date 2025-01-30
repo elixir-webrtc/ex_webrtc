@@ -61,9 +61,11 @@ defmodule ExWebRTC.RTPReceiver do
   end
 
   @doc false
-  @spec new(MediaStreamTrack.t(), RTPCodecParameters.t() | nil, [Extmap.t()], [atom()]) ::
-          receiver()
-  def new(track, codec, rtp_hdr_exts, features) do
+  @spec new(MediaStreamTrack.t(), [RTPCodecParameters.t()], [Extmap.t()], [atom()]) :: receiver()
+  def new(track, codecs, rtp_hdr_exts, features) do
+    {_rtx_codecs, media_codecs} = Utils.split_rtx_codecs(codecs)
+    codec = List.first(media_codecs)
+
     # layer `nil` is for the packets without RID/ no simulcast
     %{
       id: Utils.generate_id(),
@@ -77,8 +79,10 @@ defmodule ExWebRTC.RTPReceiver do
   end
 
   @doc false
-  @spec update(receiver(), RTPCodecParameters.t() | nil, [Extmap.t()], [String.t()]) :: receiver()
-  def update(receiver, codec, rtp_hdr_exts, stream_ids) do
+  @spec update(receiver(), [RTPCodecParameters.t()], [Extmap.t()], [String.t()]) :: receiver()
+  def update(receiver, codecs, rtp_hdr_exts, stream_ids) do
+    {_rtx_codecs, media_codecs} = Utils.split_rtx_codecs(codecs)
+    codec = List.first(media_codecs)
     simulcast_demuxer = SimulcastDemuxer.update(receiver.simulcast_demuxer, rtp_hdr_exts)
     track = %MediaStreamTrack{receiver.track | streams: stream_ids}
 

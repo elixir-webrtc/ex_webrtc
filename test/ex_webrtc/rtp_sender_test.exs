@@ -30,7 +30,7 @@ defmodule ExWebRTC.RTPSenderTest do
   setup do
     track = MediaStreamTrack.new(:video)
 
-    sender = RTPSender.new(track, @codec, nil, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+    sender = RTPSender.new(track, [@codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
     %{sender: sender}
   end
@@ -66,7 +66,7 @@ defmodule ExWebRTC.RTPSenderTest do
       stream_id = MediaStreamTrack.generate_stream_id()
       track = MediaStreamTrack.new(:video, [stream_id])
 
-      sender = RTPSender.new(track, @codec, nil, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+      sender = RTPSender.new(track, [@codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
       assert [
                %ExSDP.Attribute.MSID{id: ^stream_id, app_data: nil},
@@ -78,7 +78,8 @@ defmodule ExWebRTC.RTPSenderTest do
       stream_id = MediaStreamTrack.generate_stream_id()
       track = MediaStreamTrack.new(:video, [stream_id])
 
-      sender = RTPSender.new(track, @codec, @rtx_codec, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+      sender =
+        RTPSender.new(track, [@codec, @rtx_codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
       assert [
                %ExSDP.Attribute.MSID{id: ^stream_id, app_data: nil},
@@ -91,7 +92,8 @@ defmodule ExWebRTC.RTPSenderTest do
     test "without media stream" do
       track = MediaStreamTrack.new(:video)
 
-      sender = RTPSender.new(track, @codec, @rtx_codec, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+      sender =
+        RTPSender.new(track, [@codec, @rtx_codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
       assert [
                %ExSDP.Attribute.MSID{id: "-", app_data: nil},
@@ -107,7 +109,8 @@ defmodule ExWebRTC.RTPSenderTest do
 
       track = MediaStreamTrack.new(:video, [s1_id, s2_id])
 
-      sender = RTPSender.new(track, @codec, @rtx_codec, @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
+      sender =
+        RTPSender.new(track, [@codec, @rtx_codec], @rtp_hdr_exts, "1", @ssrc, @rtx_ssrc, [])
 
       assert [
                %ExSDP.Attribute.MSID{id: ^s1_id, app_data: nil},
