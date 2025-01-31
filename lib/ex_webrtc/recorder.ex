@@ -14,12 +14,12 @@ defmodule ExWebRTC.Recorder do
   @default_base_dir "./recordings"
 
   @typep track_manifest :: %{
-    start_time: DateTime.t(),
-    kind: :video | :audio,
-    streams: [MediaStreamTrack.stream_id()],
-    rid_map: %{MediaStreamTrack.rid() => integer()},
-    location: String.t()
-  }
+           start_time: DateTime.t(),
+           kind: :video | :audio,
+           streams: [MediaStreamTrack.stream_id()],
+           rid_map: %{MediaStreamTrack.rid() => integer()},
+           location: String.t()
+         }
 
   @opaque manifest :: %{MediaStreamTrack.id() => track_manifest()}
 
@@ -61,7 +61,8 @@ defmodule ExWebRTC.Recorder do
     config =
       recorder_opts
       |> Keyword.put_new(:controlling_process, self())
-      # |> to_config?
+
+    # |> to_config?
 
     GenServer.start(__MODULE__, config, gen_server_opts)
   end
@@ -76,7 +77,8 @@ defmodule ExWebRTC.Recorder do
     config =
       recorder_opts
       |> Keyword.put_new(:controlling_process, self())
-      # |> to_config?
+
+    # |> to_config?
 
     GenServer.start_link(__MODULE__, config, gen_server_opts)
   end
@@ -118,7 +120,8 @@ defmodule ExWebRTC.Recorder do
   @doc """
   WRITEME Adds new tracks to the recording.
   """
-  @spec end_tracks(GenServer.server(), [MediaStreamTrack.id()]) :: {:ok, manifest(), reference() | nil} | {:error, :tracks_not_found}
+  @spec end_tracks(GenServer.server(), [MediaStreamTrack.id()]) ::
+          {:ok, manifest(), reference() | nil} | {:error, :tracks_not_found}
   def end_tracks(recorder, track_ids) do
     GenServer.call(recorder, {:end_tracks, track_ids})
   end
@@ -227,15 +230,18 @@ defmodule ExWebRTC.Recorder do
   @impl true
   def handle_info({ref, _res} = task_result, state) when is_reference(ref) do
     if state.upload_handler do
-      {result, handler} =
+      {result, manifest, handler} =
         __MODULE__.S3.UploadHandler.process_result(state.upload_handler, task_result)
 
       case result do
-        {:ok, manifest} ->
+        :ok ->
           send(state.owner, {:ex_webrtc_recorder, self(), {:upload_complete, ref, manifest}})
 
-        other ->
-          IO.inspect(other, label: :OTHER_RESULT_OMAHGAH)
+        {:error, :upload_failed} ->
+          send(state.owner, {:ex_webrtc_recorder, self(), {:upload_failed, ref, manifest}})
+
+        {:error, :unknown_task} ->
+          raise "Upload handler encountered result of unknown task"
       end
 
       {:noreply, %{state | upload_handler: handler}}

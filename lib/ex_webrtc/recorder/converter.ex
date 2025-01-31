@@ -38,11 +38,12 @@ defmodule ExWebRTC.Recorder.Converter do
     channels: 2
   }
 
-  @default_output_path "./converter_output"
+  @default_output_path "./converter/output"
+  @default_download_path "./converter/download"
 
   @typep file_manifest :: %{
-    location: String.t()
-  }
+           location: String.t()
+         }
 
   # XXX this probably shouldn't be opaque
   @opaque manifest :: %{ExWebRTC.MediaStreamTrack.stream_id() => file_manifest()}
@@ -78,51 +79,40 @@ defmodule ExWebRTC.Recorder.Converter do
 
   def convert_manifest!(manifest, options) when map_size(manifest) > 0 do
     output_path = Keyword.get(options, :output_path, @default_output_path) |> Path.expand()
-    download_path = Keyword.get(options, :download_path, System.tmp_dir!()) |> Path.expand()
+    download_path = Keyword.get(options, :download_path, @default_download_path) |> Path.expand()
     File.mkdir_p!(output_path)
     File.mkdir_p!(download_path)
 
-    # XXX terrible synergy with tmp_dir
-    at_exit = fn -> File.rm_rf(download_path) end
+    download_config = Keyword.get(options, :s3_download_config, [])
 
-    try do
-      download_config = Keyword.get(options, :s3_download_config, [])
+    upload_handler =
+      if options[:s3_upload_config] do
+        Logger.info("Converted recordings will be uploaded to S3 WRITEME")
+        S3.UploadHandler.new(options[:s3_upload_config])
+      end
 
-      upload_handler =
-        if options[:s3_upload_config] do
-          Logger.info("Converted recordings will be uploaded to S3 WRITEME")
-          S3.UploadHandler.new(options[:s3_upload_config])
-        end
+    output_manifest =
+      manifest
+      |> fetch_remote_files!(download_path, download_config)
+      |> do_convert_manifest!(output_path)
 
-      output_manifest =
-        manifest
-        |> fetch_remote_files!(download_path, download_config)
-        |> do_convert_manifest!(output_path)
+    result_manifest =
+      if upload_handler != nil do
+        {ref, upload_handler} = S3.UploadHandler.spawn_task(upload_handler, output_manifest)
 
-      result_manifest =
-        if upload_handler != nil do
-          {ref, upload_handler} = S3.UploadHandler.spawn_task(upload_handler, output_manifest)
+        # XXX What if upload fails?
+        {:ok, download_manifest, _handler} =
+          receive do
+            {^ref, _res} = task_result ->
+              S3.UploadHandler.process_result(upload_handler, task_result)
+          end
 
-          # What if upload fails?
-          {{:ok, download_manifest}, _handler} =
-            receive do
-              {^ref, _res} = task_result ->
-                S3.UploadHandler.process_result(upload_handler, task_result)
-            end
+        download_manifest
+      else
+        output_manifest
+      end
 
-          download_manifest
-        else
-          output_manifest
-        end
-
-      at_exit.()
-
-      result_manifest |> IO.inspect(label: :FINAL_RESULT_MANIFEST)
-    rescue
-      exception ->
-        at_exit.()
-        reraise exception, __STACKTRACE__
-    end
+    result_manifest |> IO.inspect(label: :FINAL_RESULT_MANIFEST)
   end
 
   def convert_manifest!(_empty_manifest, _options), do: %{}
@@ -172,7 +162,10 @@ defmodule ExWebRTC.Recorder.Converter do
         file = File.open!(path)
 
         packets =
-          read_packets(file, Map.new(rid_map, fn {_rid, rid_idx} -> {rid_idx, %PacketStore{}} end))
+          read_packets(
+            file,
+            Map.new(rid_map, fn {_rid, rid_idx} -> {rid_idx, %PacketStore{}} end)
+          )
 
         output_metadata =
           case kind do
@@ -192,17 +185,20 @@ defmodule ExWebRTC.Recorder.Converter do
 
     for {stream_id, %{video: video_files, audio: audio_files}} <- stream_map,
         {rid, %{filename: video_file, start_time: video_start}} <- video_files,
-        {nil, %{filename: audio_file, start_time: audio_start}} <- audio_files, into: %{} do
-
+        {nil, %{filename: audio_file, start_time: audio_start}} <- audio_files,
+        into: %{} do
       {video_start_time, audio_start_time} = calculate_start_times(video_start, audio_start)
       output_id = if rid == nil, do: stream_id, else: "#{stream_id}_#{rid}"
 
       output_file = Path.join(output_path, "#{output_id}.webm")
 
-      {_io, 0} = System.cmd("ffmpeg", [
-          "-ss",
-          video_start_time,
-          "-i",
+      {_io, 0} =
+        System.cmd(
+          "ffmpeg",
+          [
+            "-ss",
+            video_start_time,
+            "-i",
             Path.join(output_path, video_file),
             "-ss",
             audio_start_time,
@@ -214,7 +210,9 @@ defmodule ExWebRTC.Recorder.Converter do
             "copy",
             "-shortest",
             output_file
-          ], stderr_to_stdout: true)
+          ],
+          stderr_to_stdout: true
+        )
 
       {output_id, %{location: output_file}}
     end
@@ -255,15 +253,15 @@ defmodule ExWebRTC.Recorder.Converter do
         do_convert_video_track(rest, %{state | depayloader: depayloader})
 
       {vp8_frame, depayloader} ->
-        {:ok, %ExRTP.Packet.Extension{id: 1, data: <<recv_time::64>>}} = ExRTP.Packet.fetch_extension(packet, 1)
+        {:ok, %ExRTP.Packet.Extension{id: 1, data: <<recv_time::64>>}} =
+          ExRTP.Packet.fetch_extension(packet, 1)
+
         frame = %IVF.Frame{timestamp: state.frames_cnt, data: vp8_frame}
         {:ok, writer} = IVF.Writer.write_frame(state.writer, frame)
 
-        state = %{state |
-          depayloader: depayloader,
-          writer: writer,
-          frames_cnt: state.frames_cnt + 1
-        } |> Map.put_new(:first_frame_recv_time, recv_time)
+        state =
+          %{state | depayloader: depayloader, writer: writer, frames_cnt: state.frames_cnt + 1}
+          |> Map.put_new(:first_frame_recv_time, recv_time)
 
         do_convert_video_track(rest, state)
     end
@@ -293,10 +291,15 @@ defmodule ExWebRTC.Recorder.Converter do
 
   defp do_convert_audio_track([packet | rest], state) do
     {opus_packet, depayloader} = Depayloader.depayload(state.depayloader, packet)
-    {:ok, %ExRTP.Packet.Extension{id: 1, data: <<recv_time::64>>}} = ExRTP.Packet.fetch_extension(packet, 1)
+
+    {:ok, %ExRTP.Packet.Extension{id: 1, data: <<recv_time::64>>}} =
+      ExRTP.Packet.fetch_extension(packet, 1)
+
     {:ok, writer} = Ogg.Writer.write_packet(state.writer, opus_packet)
 
-    state = %{state | depayloader: depayloader, writer: writer} |> Map.put_new(:first_frame_recv_time, recv_time)
+    state =
+      %{state | depayloader: depayloader, writer: writer}
+      |> Map.put_new(:first_frame_recv_time, recv_time)
 
     do_convert_audio_track(rest, state)
   end
@@ -304,7 +307,12 @@ defmodule ExWebRTC.Recorder.Converter do
   defp read_packets(file, stores) do
     case read_packet(file) do
       {:ok, rid_idx, recv_time, packet} ->
-        packet = ExRTP.Packet.add_extension(packet, %ExRTP.Packet.Extension{id: 1, data: <<recv_time::64>>})
+        packet =
+          ExRTP.Packet.add_extension(packet, %ExRTP.Packet.Extension{
+            id: 1,
+            data: <<recv_time::64>>
+          })
+
         stores = Map.update!(stores, rid_idx, &insert_packet_to_store(&1, packet))
         read_packets(file, stores)
 

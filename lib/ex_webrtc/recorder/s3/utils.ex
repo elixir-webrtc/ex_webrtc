@@ -66,16 +66,18 @@ else
   defmodule ExWebRTC.Recorder.S3.Utils do
     @moduledoc false
 
-    @tip "Add the `:ex_aws_s3`, `:ex_aws` and `:sweet_xml` dependencies to your project in order to upload and fetch files from S3-compatible storage"
-
     def upload_file(_, _, _, _ \\ nil), do: error()
     def fetch_file(_, _, _, _ \\ nil), do: error()
     def to_url(_, _), do: error()
     def parse_url(_), do: error()
+    def validate_bucket_name(_), do: error()
+    def validate_s3_path(_), do: error()
 
     defp error do
-      text = "WRITEME S3 support is turned off."
-      raise("#{text} #{@tip}")
+      raise """
+      S3 support is turned off. Add the `:ex_aws_s3`, `:ex_aws` and `:sweet_xml` dependencies to your project \
+      in order to upload and fetch files from S3-compatible storage\
+      """
     end
   end
 end
