@@ -223,7 +223,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     {:ok, pid} = PeerConnection.start_link()
     {:ok, tr} = PeerConnection.add_transceiver(pid, :video)
 
-    {rtx_codecs, media_codecs} = Utils.split_rtx_codecs(tr.codecs)
+    {_rtx_codecs, media_codecs} = Utils.split_rtx_codecs(tr.codecs)
 
     assert :ok = PeerConnection.set_sender_codec(pid, tr.sender.id, List.last(media_codecs))
 
