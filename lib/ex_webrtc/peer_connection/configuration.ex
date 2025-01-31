@@ -25,20 +25,31 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   @default_video_codecs [
     %RTPCodecParameters{
-      payload_type: 96,
-      mime_type: "video/VP8",
-      clock_rate: 90_000
-    },
-    %RTPCodecParameters{
       payload_type: 98,
       mime_type: "video/H264",
       clock_rate: 90_000,
       sdp_fmtp_line: %FMTP{
         pt: 98,
-        level_asymmetry_allowed: 1,
+        level_asymmetry_allowed: true,
         packetization_mode: 0,
         profile_level_id: 0x42E01F
       }
+    },
+    %RTPCodecParameters{
+      payload_type: 99,
+      mime_type: "video/H264",
+      clock_rate: 90_000,
+      sdp_fmtp_line: %FMTP{
+        pt: 99,
+        level_asymmetry_allowed: true,
+        packetization_mode: 1,
+        profile_level_id: 0x42E01F
+      }
+    },
+    %RTPCodecParameters{
+      payload_type: 96,
+      mime_type: "video/VP8",
+      clock_rate: 90_000
     },
     %RTPCodecParameters{
       payload_type: 45,
@@ -466,7 +477,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         |> Enum.find(
           &(String.downcase(&1.mime_type) == String.downcase(codec.mime_type) and
               &1.clock_rate == codec.clock_rate and
-              &1.channels == codec.channels)
+              &1.channels == codec.channels and fmtp_equal_soft?(codec, &1))
         )
         |> case do
           nil ->
@@ -515,7 +526,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   def intersect_codecs(config, mline) do
     # we assume that this function is called after
     # the config was updated based on the remote SDP
-    # so the payload types should match
+    # so the payload types (in codec_equal?) should match
     codecs =
       case mline.type do
         :audio -> config.audio_codecs
@@ -526,13 +537,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     |> SDPUtils.get_rtp_codec_parameters()
     |> Enum.flat_map(fn sdp_codec ->
       codecs
-      |> Enum.find(
-        # as of now, we ignore sdp_fmtp_line
-        &(String.downcase(&1.mime_type) == String.downcase(sdp_codec.mime_type) and
-            &1.payload_type == sdp_codec.payload_type and
-            &1.clock_rate == sdp_codec.clock_rate and
-            &1.channels == sdp_codec.channels)
-      )
+      |> Enum.find(&codec_equal?(&1, sdp_codec))
       |> case do
         nil ->
           []
@@ -542,6 +547,29 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           [%RTPCodecParameters{sdp_codec | rtcp_fbs: fbs}]
       end
     end)
+  end
+
+  @doc false
+  @spec codec_equal?(RTPCodecParameters.t(), RTPCodecParameters.t()) :: boolean()
+  def codec_equal?(c1, c2) do
+    String.downcase(c1.mime_type) == String.downcase(c2.mime_type) and
+      c1.payload_type == c2.payload_type and
+      c1.clock_rate == c2.clock_rate and
+      c1.channels == c2.channels and fmtp_equal?(c1, c2)
+  end
+
+  defp fmtp_equal?(%{sdp_fmtp_line: nil}, _c2), do: true
+  defp fmtp_equal?(_c1, %{sdp_fmtp_line: nil}), do: true
+  defp fmtp_equal?(c1, c2), do: c1.sdp_fmtp_line == c2.sdp_fmtp_line
+
+  defp fmtp_equal_soft?(%{sdp_fmtp_line: nil}, _c2), do: true
+  defp fmtp_equal_soft?(_c1, %{sdp_fmtp_line: nil}), do: true
+
+  defp fmtp_equal_soft?(c1, c2) do
+    fmtp1 = %{c1.sdp_fmtp_line | pt: nil}
+    fmtp2 = %{c2.sdp_fmtp_line | pt: nil}
+
+    fmtp1 == fmtp2
   end
 
   @doc false

@@ -155,7 +155,7 @@ defmodule ExWebRTC.RenegotiationTest do
   test "add and remove tracks in a loop" do
     # Simulate the most basic videoconference scenario
     # where both sides join with audio and video,
-    # start screensharing and remove screensharing. 
+    # start screensharing and remove screensharing.
     # pc1 adds audio and video tracks
     # pc2 adds audio and video tracks
     # pc1 adds screenshare track
