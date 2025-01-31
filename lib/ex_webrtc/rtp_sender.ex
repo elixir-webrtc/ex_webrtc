@@ -263,8 +263,8 @@ defmodule ExWebRTC.RTPSender do
   defp rtx?(codec), do: String.ends_with?(codec.mime_type, "rtx")
   defp supported?(sender, codec), do: codec in sender.codecs
 
-  # As long as report recorder is not initialized i.e. we have not send any RTP packet
-  # allow for codec changes. Once we start sending RTP packet, require the same clock rate.
+  # As long as report recorder is not initialized i.e. we have not sent any RTP packet,
+  # allow for codec changes. Once we start sending RTP packets, require the same clock rate.
   defp same_clock_rate?(%{report_recorder: %{clock_rate: nil}}, _codec), do: true
   defp same_clock_rate?(sender, codec), do: sender.report_recorder.clock_rate == codec.clock_rate
 

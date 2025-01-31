@@ -165,7 +165,7 @@ defmodule ExWebRTC.PeerConnection do
   should be used for sending.
 
   Once the first RTP packet is sent (via `send_rtp/4`), `set_sender_codec/3`
-  can only be called with a codec with the clock rate.
+  can only be called with a codec with the same clock rate.
 
   Although very unlikely, keep in mind that after renegotiation,
   the selected codec may no longer be supported by the remote side and you might
@@ -176,6 +176,10 @@ defmodule ExWebRTC.PeerConnection do
   ```
   {:ok, pc} = PeerConnection.start_link()
   {:ok, rtp_sender} = PeerConnection.add_track(MediaStreamTrack.new(:video))
+
+  # exchange SDP with the remote side
+  # {:ok, offer} = PeerConnection.create_offer(pc)
+  # ...
 
   tr =
     pc

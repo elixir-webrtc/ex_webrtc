@@ -49,7 +49,7 @@ defmodule ExWebRTC.RTPSenderTest do
     %{sender: sender}
   end
 
-  test "new/6" do
+  test "new/7" do
     track = MediaStreamTrack.new(:video)
 
     codecs = [@vp8, @av1, @av1_45khz, @rtx]

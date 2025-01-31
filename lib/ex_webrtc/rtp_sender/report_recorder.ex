@@ -50,8 +50,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   def record_packet(%{last_seq_no: nil} = recorder, packet, time) do
     %__MODULE__{
       recorder
-      | sender_ssrc: packet.ssrc,
-        last_rtp_timestamp: packet.timestamp,
+      | last_rtp_timestamp: packet.timestamp,
         last_seq_no: packet.sequence_number,
         last_timestamp: time,
         packet_count: 1,
