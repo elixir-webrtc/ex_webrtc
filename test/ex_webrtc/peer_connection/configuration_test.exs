@@ -20,7 +20,13 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
   @h264_codec %RTPCodecParameters{
     payload_type: @payload_type,
     mime_type: "video/H264",
-    clock_rate: 90_000
+    clock_rate: 90_000,
+    sdp_fmtp_line: %FMTP{
+      pt: @payload_type,
+      level_asymmetry_allowed: true,
+      packetization_mode: 1,
+      profile_level_id: 0x42E01F
+    }
   }
 
   @vp8_codec %RTPCodecParameters{
@@ -33,6 +39,13 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
     payload_type: @payload_type,
     mime_type: "video/VP9",
     clock_rate: 90_000
+  }
+
+  @av1_codec %RTPCodecParameters{
+    payload_type: @payload_type,
+    mime_type: "video/AV1",
+    clock_rate: 90_000,
+    sdp_fmtp_line: %FMTP{pt: @payload_type, level_idx: 5, profile: 0, tier: 0}
   }
 
   @rtx %RTPCodecParameters{
@@ -265,13 +278,19 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
           audio_codecs: [%{@opus_codec | payload_type: 111}]
         )
 
+      # opus should change its payload type as it is defined without fmtp, hence every fmtp from sdp is accepted
+      # h264 should have payload type 112 as this is the one that has the same fmtp
       sdp =
         """
-        m=audio 9 UDP/TLS/RTP/SAVPF 0
+        m=audio 9 UDP/TLS/RTP/SAVPF 115
         a=rtpmap:115 opus/48000/2
-        m=video 9 UDP/TLS/RTP/SAVPF 1
+        a=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1
+        m=video 9 UDP/TLS/RTP/SAVPF 100 111 112
         a=rtpmap:100 VP8/90000
         a=rtpmap:111 H264/90000
+        a=fmtp:111 profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1
+        a=rtpmap:112 H264/90000
+        a=fmtp:112 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1
         """
         |> ExSDP.parse!()
 
@@ -280,7 +299,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       assert %Configuration{
                audio_codecs: [%RTPCodecParameters{payload_type: 115}],
                video_codecs: [
-                 %RTPCodecParameters{payload_type: 111},
+                 %RTPCodecParameters{payload_type: 112},
                  %RTPCodecParameters{payload_type: 100}
                ]
              } = config
@@ -297,19 +316,27 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
             %{@rtx | payload_type: 111, sdp_fmtp_line: %FMTP{pt: 111, apt: 94}},
             %{@vp8_codec | payload_type: 96},
             %{@rtx | payload_type: 100, sdp_fmtp_line: %FMTP{pt: 100, apt: 96}},
-            %{@vp9_codec | payload_type: 108}
+            %{@vp9_codec | payload_type: 108},
+            %{@av1_codec | payload_type: 102},
+            %{@rtx | payload_type: 113, sdp_fmtp_line: %FMTP{pt: 113, apt: 102}}
           ]
         )
 
-      # h264 and its rtx both should change pt
+      # h264 and its rtx both should change pt (but to the second h264 from sdp as this is the one with matching fmtp)
       # vp8 should stay as it is but its rtx should change pt as it conflicts with the new h264
       # vp9 should just change pt
+      # av1 should stay as it is but its rtx should change pt as it conflicts with the second h264's rtx from sdp
       sdp =
         """
-        m=audio 9 UDP/TLS/RTP/SAVPF 0
+        m=audio 9 UDP/TLS/RTP/SAVPF 115
         a=rtpmap:115 opus/48000/2
-        m=video 9 UDP/TLS/RTP/SAVPF 1
+        m=video 9 UDP/TLS/RTP/SAVPF 112 113 100 101 96 110 111
+        a=rtpmap:112 H264/90000
+        a=fmtp:112 profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1
+        a=rtpmap:113 rtx/90000
+        a=fmtp:113 apt=112
         a=rtpmap:100 H264/90000
+        a=fmtp:100 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1
         a=rtpmap:101 rtx/90000
         a=fmtp:101 apt=100
         a=rtpmap:96 VP8/90000
@@ -326,15 +353,25 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
                video_codecs: video_codecs
              } = config
 
-      [h264, vp8, vp9] = Enum.reject(video_codecs, &String.ends_with?(&1.mime_type, "/rtx"))
+      [h264, vp8, vp9, av1] = Enum.reject(video_codecs, &String.ends_with?(&1.mime_type, "/rtx"))
       assert %{mime_type: "video/H264", payload_type: 100} = h264
       assert %{mime_type: "video/VP8", payload_type: 96} = vp8
       assert %{mime_type: "video/VP9", payload_type: 110} = vp9
+      assert %{mime_type: "video/AV1", payload_type: 102} = av1
 
-      [h264_rtx, vp8_rtx] = Enum.filter(video_codecs, &String.ends_with?(&1.mime_type, "/rtx"))
+      [h264_rtx, vp8_rtx, av1_rtx] =
+        Enum.filter(video_codecs, &String.ends_with?(&1.mime_type, "/rtx"))
+
       assert %{mime_type: "video/rtx", payload_type: 101, sdp_fmtp_line: %{apt: 100}} = h264_rtx
-      assert %{mime_type: "video/rtx", payload_type: pt, sdp_fmtp_line: %{apt: 96}} = vp8_rtx
-      assert pt not in [100, 101, 96, 110]
+
+      assert %{mime_type: "video/rtx", payload_type: vp8_rtx_pt, sdp_fmtp_line: %{apt: 96}} =
+               vp8_rtx
+
+      assert %{mime_type: "video/rtx", payload_type: av1_rtx_pt, sdp_fmtp_line: %{apt: 102}} =
+               av1_rtx
+
+      assert vp8_rtx_pt not in [100, 101, 112, 113, 96, 110, 111]
+      assert av1_rtx_pt not in [100, 101, 112, 113, 96, 110, 111]
     end
 
     test "does not update anything, when there are no common codecs" do
@@ -367,65 +404,6 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
                String.ends_with?(codec.mime_type, "/rtx")
              end)
     end
-
-    test "does not update codec payload type when FMTP does not match" do
-      h264_codec = %RTPCodecParameters{
-        payload_type: 98,
-        mime_type: "video/H264",
-        clock_rate: 90_000,
-        sdp_fmtp_line: %FMTP{
-          pt: 98,
-          level_asymmetry_allowed: true,
-          packetization_mode: 1,
-          profile_level_id: 0x42E01F
-        }
-      }
-
-      og_config =
-        Configuration.from_options!(
-          controlling_process: self(),
-          video_codecs: [h264_codec]
-        )
-
-      # packetization mode in fmtp differs
-      sdp =
-        """
-        m=video 58712 UDP/TLS/RTP/SAVPF 127
-        a=rtpmap:127 H264/90000
-        a=rtcp-fb:127 nack
-        a=rtcp-fb:127 nack pli
-        a=fmtp:127 profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1
-        """
-        |> ExSDP.parse!()
-
-      assert Configuration.update(og_config, sdp) == og_config
-    end
-
-    test "updates codec payload type when there is no local FMTP" do
-      og_config =
-        Configuration.from_options!(controlling_process: self(), video_codecs: [@h264_codec])
-
-      assert @h264_codec.sdp_fmtp_line == nil
-      assert @h264_codec.payload_type != 96
-
-      sdp =
-        """
-        m=video 58712 UDP/TLS/RTP/SAVPF 96
-        a=rtpmap:96 H264/90000
-        a=rtcp-fb:96 nack
-        a=rtcp-fb:96 nack pli
-        a=fmtp:96 profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1
-        """
-        |> ExSDP.parse!()
-
-      config = Configuration.update(og_config, sdp)
-
-      assert [h264, rtx] = config.video_codecs
-      assert h264.payload_type == 96
-      assert h264.sdp_fmtp_line == nil
-      assert rtx.payload_type != 96
-      assert rtx.sdp_fmtp_line.apt == 96
-    end
   end
 
   test "intersect_codecs/2" do
@@ -440,15 +418,20 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
     sdp =
       """
-      m=audio 9 UDP/TLS/RTP/SAVPF 0
+      m=audio 9 UDP/TLS/RTP/SAVPF 111
       a=rtpmap:111 opus/48000/2
       a=rtcp-fb:111 transport-cc
-      m=video 9 UDP/TLS/RTP/SAVPF 1
+      m=video 9 UDP/TLS/RTP/SAVPF 112 115 120 121 113 117 119
       a=rtpmap:112 H264/90000
-      a=rtcp-fb:112 transport-cc
-      a=rtcp-fb:112 nack pli
+      a=fmtp:112 profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1
       a=rtpmap:115 rtx/90000
       a=fmtp:115 apt=112
+      a=rtpmap:120 H264/90000
+      a=fmtp:120 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1
+      a=rtcp-fb:120 transport-cc
+      a=rtcp-fb:120 nack pli
+      a=rtpmap:121 rtx/90000
+      a=fmtp:121 apt=120
       a=rtpmap:113 VP8/90000
       a=rtcp-fb:113 transport-cc
       a=rtpmap:117 VP9/90000
@@ -477,15 +460,15 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
     assert %RTPCodecParameters{
              mime_type: "video/H264",
-             payload_type: 112,
-             rtcp_fbs: [%RTCPFeedback{pt: 112, feedback_type: :pli}]
+             payload_type: 120,
+             rtcp_fbs: [%RTCPFeedback{pt: 120, feedback_type: :pli}]
            } = h264
 
     assert %RTPCodecParameters{
              mime_type: "video/rtx",
-             payload_type: 115,
+             payload_type: 121,
              rtcp_fbs: [],
-             sdp_fmtp_line: %FMTP{pt: 115, apt: 112}
+             sdp_fmtp_line: %FMTP{pt: 121, apt: 120}
            } = h264_rtx
   end
 
@@ -507,6 +490,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       a=extmap:5 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
       a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
       a=rtpmap:112 H264/90000
+      a=fmtp:112 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1
       """
       |> ExSDP.parse!()
 
