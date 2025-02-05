@@ -433,6 +433,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     config
     |> update_extensions(sdp)
     |> update_codecs(sdp)
+    # if update went wrong (there are duplicates in payload types),
+    # we should never continue as this may lead to hard to debug errors
+    |> ensure_unique_payload_types()
   end
 
   defp update_extensions(config, sdp) do
