@@ -490,7 +490,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   defp update_codecs(config, sdp) do
     %__MODULE__{audio_codecs: audio_codecs, video_codecs: video_codecs} = config
     sdp_codecs = SDPUtils.get_rtp_codec_parameters(sdp)
-    free_pts = get_free_payload_types(sdp_codecs)
+    free_pts = get_free_payload_types(audio_codecs ++ video_codecs ++ sdp_codecs)
 
     {audio_codecs, free_pts} = do_update_codecs(audio_codecs, sdp_codecs, free_pts)
     {video_codecs, _free_pts} = do_update_codecs(video_codecs, sdp_codecs, free_pts)
