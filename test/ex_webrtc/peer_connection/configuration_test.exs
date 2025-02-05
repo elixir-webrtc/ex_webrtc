@@ -115,7 +115,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
       assert length(video_codecs) == 4
 
-      Enum.map(video_codecs, fn %{mime_type: mime, rtcp_fbs: rtcp_fbs} ->
+      Enum.each(video_codecs, fn %{mime_type: mime, rtcp_fbs: rtcp_fbs} ->
         if String.ends_with?(mime, "/rtx") do
           assert rtcp_fbs == []
         else
@@ -123,8 +123,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
         end
       end)
 
-      [100, 101]
-      |> Enum.each(fn pt ->
+      Enum.each([100, 101], fn pt ->
         assert Enum.any?(
                  video_codecs,
                  &(String.ends_with?(&1.mime_type, "/rtx") and &1.sdp_fmtp_line.apt == pt)
@@ -161,9 +160,17 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
         end
       end
     end
+
+    test "with duplicated payload types" do
+      options = [audio_codecs: [@opus_codec, @opus_codec]]
+      assert_raise RuntimeError, fn -> Configuration.from_options!(options) end
+
+      options = [video_codecs: [@h264_codec, @vp8_codec]]
+      assert_raise RuntimeError, fn -> Configuration.from_options!(options) end
+    end
   end
 
-  describe "update!/2" do
+  describe "update/2" do
     test "updates RTP header extensions" do
       extensions = [
         %{type: :all, uri: @mid_uri},
@@ -294,7 +301,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
           ]
         )
 
-      # h264 and it's rtx both should change pt
+      # h264 and its rtx both should change pt
       # vp8 should stay as it is but its rtx should change pt as it conflicts with the new h264
       # vp9 should just change pt
       sdp =
@@ -328,6 +335,96 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       assert %{mime_type: "video/rtx", payload_type: 101, sdp_fmtp_line: %{apt: 100}} = h264_rtx
       assert %{mime_type: "video/rtx", payload_type: pt, sdp_fmtp_line: %{apt: 96}} = vp8_rtx
       assert pt not in [100, 101, 96, 110]
+    end
+
+    test "does not update anything, when there are no common codecs" do
+      og_config = Configuration.from_options!(controlling_process: self())
+
+      sdp =
+        """
+        m=audio 9 UDP/TLS/RTP/SAVPF 126
+        a=rtpmap:126 newaudiocodec/48000/2
+        m=video 9 UDP/TLS/RTP/SAVPF 127
+        a=rtpmap:127 newvideocodec/90000
+        """
+        |> ExSDP.parse!()
+
+      assert Enum.all?(og_config.audio_codecs, fn codec ->
+               codec.payload_type not in [126, 127] and codec.mime_type != "audio/newaudiocodec"
+             end)
+
+      assert Enum.all?(og_config.video_codecs, fn codec ->
+               codec.payload_type not in [126, 127] and codec.mime_type != "video/newvideocodec"
+             end)
+
+      assert Configuration.update(og_config, sdp) == og_config
+
+      # make sure that RTX codecs and RTP header extensions were also present
+      assert og_config.audio_extensions != []
+      assert og_config.video_extensions != []
+
+      assert Enum.any?(og_config.video_codecs, fn codec ->
+               String.ends_with?(codec.mime_type, "/rtx")
+             end)
+    end
+
+    test "does not update codec payload type when FMTP does not match" do
+      h264_codec = %RTPCodecParameters{
+        payload_type: 98,
+        mime_type: "video/H264",
+        clock_rate: 90_000,
+        sdp_fmtp_line: %FMTP{
+          pt: 98,
+          level_asymmetry_allowed: true,
+          packetization_mode: 1,
+          profile_level_id: 0x42E01F
+        }
+      }
+
+      og_config =
+        Configuration.from_options!(
+          controlling_process: self(),
+          video_codecs: [h264_codec]
+        )
+
+      # packetization mode in fmtp differs
+      sdp =
+        """
+        m=video 58712 UDP/TLS/RTP/SAVPF 127
+        a=rtpmap:127 H264/90000
+        a=rtcp-fb:127 nack
+        a=rtcp-fb:127 nack pli
+        a=fmtp:127 profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1
+        """
+        |> ExSDP.parse!()
+
+      assert Configuration.update(og_config, sdp) == og_config
+    end
+
+    test "updates codec payload type when there is no local FMTP" do
+      og_config =
+        Configuration.from_options!(controlling_process: self(), video_codecs: [@h264_codec])
+
+      assert @h264_codec.sdp_fmtp_line == nil
+      assert @h264_codec.payload_type != 96
+
+      sdp =
+        """
+        m=video 58712 UDP/TLS/RTP/SAVPF 96
+        a=rtpmap:96 H264/90000
+        a=rtcp-fb:96 nack
+        a=rtcp-fb:96 nack pli
+        a=fmtp:96 profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1
+        """
+        |> ExSDP.parse!()
+
+      config = Configuration.update(og_config, sdp)
+
+      assert [h264, rtx] = config.video_codecs
+      assert h264.payload_type == 96
+      assert h264.sdp_fmtp_line == nil
+      assert rtx.payload_type != 96
+      assert rtx.sdp_fmtp_line.apt == 96
     end
   end
 

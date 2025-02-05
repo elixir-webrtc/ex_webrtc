@@ -146,9 +146,9 @@ defmodule ExWebRTC.RTPSender do
   defp log_rtx_codec_change(%{rtx_codec: rtx_codec} = sender, nil, neg_codecs)
        when rtx_codec != nil do
     Logger.warning("""
-    Unselecting RTP sender codec as it is no longer supported by the remote side.
+    Unselecting RTP sender RTX codec as it is no longer supported by the remote side.
     Call set_sender_codec again passing supported codec.
-    Codec: #{inspect(sender.codec)}
+    Codec: #{inspect(sender.rtx_codec)}
     Currently negotiated codecs: #{inspect(neg_codecs)}
     """)
   end
