@@ -19,6 +19,7 @@ defmodule ExWebRTC.RTPSender do
           track: MediaStreamTrack.t() | nil,
           codec: RTPCodecParameters.t() | nil,
           rtx_codec: RTPCodecParameters.t() | nil,
+          selected_codec: RTPCodecParameters.t() | nil,
           codecs: [RTPCodecParameters.t()],
           rtp_hdr_exts: %{Extmap.extension_id() => Extmap.t()},
           mid: String.t() | nil,
@@ -66,32 +67,20 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec new(
-          MediaStreamTrack.t() | nil,
-          [RTPCodecParameters.t()],
-          [Extmap.t()],
-          String.t() | nil,
-          non_neg_integer(),
-          non_neg_integer(),
-          [atom()]
-        ) :: sender()
-  def new(track, codecs, rtp_hdr_exts, mid, ssrc, rtx_ssrc, features) do
-    # convert to a map to be able to find extension id using extension uri
-    rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
-
-    # TODO: handle cases when codec == nil (no valid codecs after negotiation)
-    {codec, rtx_codec} = get_default_codec(codecs)
-
+  @spec new(MediaStreamTrack.t() | nil, non_neg_integer(), non_neg_integer(), [atom()]) ::
+          sender()
+  def new(track, ssrc, rtx_ssrc, features) do
     %{
       id: Utils.generate_id(),
       track: track,
-      codec: codec,
-      rtx_codec: rtx_codec,
-      codecs: codecs,
-      rtp_hdr_exts: rtp_hdr_exts,
+      codec: nil,
+      rtx_codec: nil,
+      selected_codec: nil,
+      codecs: [],
+      rtp_hdr_exts: %{},
       ssrc: ssrc,
       rtx_ssrc: rtx_ssrc,
-      mid: mid,
+      mid: nil,
       packets_sent: 0,
       bytes_sent: 0,
       retransmitted_packets_sent: 0,
@@ -113,11 +102,16 @@ defmodule ExWebRTC.RTPSender do
     # convert to a map to be able to find extension id using extension uri
     rtp_hdr_exts = Map.new(rtp_hdr_exts, fn extmap -> {extmap.uri, extmap} end)
 
-    # Keep already selected codec if it is still supported.
-    # Otherwise, clear it and wait until user sets it again.
-    # TODO: handle cases when codec == nil (no valid codecs after negotiation)
-    codec = if supported?(codecs, sender.codec), do: sender.codec, else: nil
-    rtx_codec = codec && find_associated_rtx_codec(codecs, codec)
+    {codec, rtx_codec} =
+      if sender.codec == nil and sender.selected_codec == nil do
+        get_default_codec(codecs)
+      else
+        # Keep already selected codec if it is still supported.
+        # Otherwise, clear it and wait until user sets it again.
+        codec = if supported?(codecs, sender.selected_codec), do: sender.selected_codec, else: nil
+        rtx_codec = codec && find_associated_rtx_codec(codecs, codec)
+        {codec, rtx_codec}
+      end
 
     log_codec_change(sender, codec, codecs)
     log_rtx_codec_change(sender, rtx_codec, codecs)
@@ -127,6 +121,7 @@ defmodule ExWebRTC.RTPSender do
       | mid: mid,
         codec: codec,
         rtx_codec: rtx_codec,
+        selected_codec: codec || sender.selected_codec,
         codecs: codecs,
         rtp_hdr_exts: rtp_hdr_exts
     }
@@ -135,7 +130,7 @@ defmodule ExWebRTC.RTPSender do
   defp log_codec_change(%{codec: codec} = sender, nil, neg_codecs) when codec != nil do
     Logger.warning("""
     Unselecting RTP sender codec as it is no longer supported by the remote side.
-    Call set_sender_codec again passing supported codec.
+    Call set_sender_codec passing supported codec.
     Codec: #{inspect(sender.codec)}
     Currently negotiated codecs: #{inspect(neg_codecs)}
     """)
@@ -147,7 +142,7 @@ defmodule ExWebRTC.RTPSender do
        when rtx_codec != nil do
     Logger.warning("""
     Unselecting RTP sender RTX codec as it is no longer supported by the remote side.
-    Call set_sender_codec again passing supported codec.
+    Call set_sender_codec passing supported codec.
     Codec: #{inspect(sender.rtx_codec)}
     Currently negotiated codecs: #{inspect(neg_codecs)}
     """)
@@ -155,89 +150,12 @@ defmodule ExWebRTC.RTPSender do
 
   defp log_rtx_codec_change(_sender, _rtx_codec, _neg_codecs), do: :ok
 
-  @spec get_mline_attrs(sender()) :: [ExSDP.Attribute.t()]
-  def get_mline_attrs(sender) do
-    # Don't include track id. See RFC 8829 sec. 5.2.1
-    msid_attrs =
-      case sender.track do
-        %MediaStreamTrack{streams: streams} when streams != [] ->
-          Enum.map(streams, &ExSDP.Attribute.MSID.new(&1, nil))
-
-        _other ->
-          # In theory, we should do this "for each MediaStream that was associated with the transceiver",
-          # but web browsers (chrome, ff) include MSID even when there aren't any MediaStreams
-          [ExSDP.Attribute.MSID.new("-", nil)]
-      end
-
-    ssrc_attrs =
-      get_ssrc_attrs(sender.codec, sender.rtx_codec, sender.ssrc, sender.rtx_ssrc, sender.track)
-
-    msid_attrs ++ ssrc_attrs
-  end
-
-  # we didn't manage to negotiate any codec
-  defp get_ssrc_attrs(nil, _rtx_codec, _ssrc, _rtx_ssrc, _track) do
-    []
-  end
-
-  # we have a codec but not rtx codec
-  defp get_ssrc_attrs(_codec, nil, ssrc, _rtx_ssrc, track) do
-    streams = (track && track.streams) || []
-
-    case streams do
-      [] ->
-        [%ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"}]
-
-      streams ->
-        Enum.map(streams, fn stream ->
-          %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
-        end)
-    end
-  end
-
-  # we have both codec and rtx codec
-  defp get_ssrc_attrs(_codec, _rtx_codec, ssrc, rtx_ssrc, track) do
-    streams = (track && track.streams) || []
-
-    fid = %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [ssrc, rtx_ssrc]}
-
-    ssrc_attrs =
-      case streams do
-        [] ->
-          [
-            %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"},
-            %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: "-"}
-          ]
-
-        streams ->
-          {ssrc_attrs, rtx_ssrc_attrs} =
-            Enum.reduce(streams, {[], []}, fn stream, {ssrc_attrs, rtx_ssrc_attrs} ->
-              ssrc_attr = %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
-              ssrc_attrs = [ssrc_attr | ssrc_attrs]
-
-              rtx_ssrc_attr = %ExSDP.Attribute.SSRC{
-                id: rtx_ssrc,
-                attribute: "msid",
-                value: stream
-              }
-
-              rtx_ssrc_attrs = [rtx_ssrc_attr | rtx_ssrc_attrs]
-
-              {ssrc_attrs, rtx_ssrc_attrs}
-            end)
-
-          Enum.reverse(ssrc_attrs) ++ Enum.reverse(rtx_ssrc_attrs)
-      end
-
-    [fid | ssrc_attrs]
-  end
-
   @doc false
   @spec set_codec(sender(), RTPCodecParameters.t()) :: {:ok, sender()} | {:error, term()}
   def set_codec(sender, codec) do
     if not rtx?(codec) and supported?(sender.codecs, codec) and same_clock_rate?(sender, codec) do
       rtx_codec = find_associated_rtx_codec(sender.codecs, codec)
-      sender = %{sender | codec: codec, rtx_codec: rtx_codec}
+      sender = %{sender | codec: codec, rtx_codec: rtx_codec, selected_codec: codec}
       {:ok, sender}
     else
       {:error, :invalid_codec}
