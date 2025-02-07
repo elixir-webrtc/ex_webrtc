@@ -536,7 +536,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           {nil, false} ->
             {rtx, free_pts}
 
-          # thre is no such codec, but its payload type is used
+          # there is no such codec, but its payload type is used
           {nil, true} ->
             [pt | rest] = free_pts
             rtx = do_update_codec(rtx, pt)
@@ -628,9 +628,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       c1.channels == c2.channels and fmtp_equal?(c1, c2)
   end
 
-  @doc false
-  @spec codec_equal_soft?(RTPCodecParameters.t(), RTPCodecParameters.t()) :: boolean()
-  def codec_equal_soft?(c1, c2) do
+  defp codec_equal_soft?(c1, c2) do
     String.downcase(c1.mime_type) == String.downcase(c2.mime_type) and
       c1.clock_rate == c2.clock_rate and
       c1.channels == c2.channels and fmtp_equal_soft?(c1, c2)

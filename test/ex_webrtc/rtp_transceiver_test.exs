@@ -94,13 +94,11 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
 
-      assert [
-               %ExSDP.Attribute.MSID{id: @stream_id, app_data: nil}
-             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
+      assert [%ExSDP.Attribute.MSID{id: @stream_id, app_data: nil}] =
+               ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
-      assert [
-               %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]}
-             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
+      assert [%ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]}] =
+               ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
 
       assert [
                %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: @stream_id},
@@ -120,13 +118,11 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
 
-      assert [
-               %ExSDP.Attribute.MSID{id: "-", app_data: nil}
-             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
+      assert [%ExSDP.Attribute.MSID{id: "-", app_data: nil}] =
+               ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
-      assert [
-               %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]}
-             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
+      assert [%ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]}] =
+               ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
 
       assert [
                %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: "-"},
@@ -154,9 +150,8 @@ defmodule ExWebRTC.RTPTransceiverTest do
                %ExSDP.Attribute.MSID{id: ^s2_id, app_data: nil}
              ] = ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
-      assert [
-               %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]}
-             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
+      assert [%ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]}] =
+               ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
 
       assert [
                %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ^s1_id},
