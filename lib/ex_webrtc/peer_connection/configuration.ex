@@ -25,6 +25,11 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   @default_video_codecs [
     %RTPCodecParameters{
+      payload_type: 96,
+      mime_type: "video/VP8",
+      clock_rate: 90_000
+    },
+    %RTPCodecParameters{
       payload_type: 98,
       mime_type: "video/H264",
       clock_rate: 90_000,
@@ -45,11 +50,6 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         packetization_mode: 1,
         profile_level_id: 0x42E01F
       }
-    },
-    %RTPCodecParameters{
-      payload_type: 96,
-      mime_type: "video/VP8",
-      clock_rate: 90_000
     },
     %RTPCodecParameters{
       payload_type: 45,
