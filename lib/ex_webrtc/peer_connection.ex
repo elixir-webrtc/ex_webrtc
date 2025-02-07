@@ -194,6 +194,8 @@ defmodule ExWebRTC.PeerConnection do
 
   :ok = PeerConnection.set_sender_codec(pc, rtp_sender.id, h264 || vp8)
   ```
+
+  This function can only be called once the first negotiation passes.
   """
   @spec set_sender_codec(peer_connection(), RTPSender.id(), RTPCodecParameters.t()) ::
           :ok | {:error, term()}
