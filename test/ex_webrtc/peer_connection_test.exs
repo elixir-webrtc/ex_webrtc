@@ -219,6 +219,33 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert_receive {:ex_webrtc, _pid, {:connection_state_change, :new}}
   end
 
+  test "set_sender_codec/3" do
+    {:ok, pc1} = PeerConnection.start_link()
+    {:ok, pc2} = PeerConnection.start_link()
+    {:ok, tr} = PeerConnection.add_transceiver(pc1, :video)
+
+    {_rtx_codecs, media_codecs} = Utils.split_rtx_codecs(tr.codecs)
+
+    assert {:error, :invalid_sender_id} =
+             PeerConnection.set_sender_codec(pc1, "invalid_id", List.last(media_codecs))
+
+    :ok = PeerConnection.set_transceiver_direction(pc1, tr.id, :recvonly)
+
+    assert {:error, :invalid_transceiver_direction} =
+             PeerConnection.set_sender_codec(pc1, tr.sender.id, List.last(media_codecs))
+
+    # reset transceiver direction
+    :ok = PeerConnection.set_transceiver_direction(pc1, tr.id, :sendrecv)
+
+    # setting codec before negotiation should fail
+    assert {:error, :invalid_codec} =
+             PeerConnection.set_sender_codec(pc1, tr.sender.id, List.last(media_codecs))
+
+    :ok = negotiate(pc1, pc2)
+
+    assert :ok = PeerConnection.set_sender_codec(pc1, tr.sender.id, List.last(media_codecs))
+  end
+
   test "send_rtp/4" do
     {:ok, pc1} = PeerConnection.start_link()
     {:ok, pc2} = PeerConnection.start_link()

@@ -9,6 +9,7 @@ defmodule ExWebRTC.PeerConnection do
 
   require Logger
 
+  alias ExWebRTC.RTPCodecParameters
   alias __MODULE__.{Configuration, Demuxer, TWCCRecorder}
 
   alias ExWebRTC.{
@@ -153,7 +154,65 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @doc """
+  Sets the codec that will be used for sending RTP packets.
+
+  `send_rtp/4` overrides some of the RTP packet fields.
+  In particular, when multiple codecs are negotiated, `send_rtp/4` will use
+  payload type of the most preffered by the remote side codec (i.e. the first
+  one from the list of codecs in the remote description).
+
+  Use this function if you want to select, which codec (hence payload type)
+  should be used for sending.
+
+  Once the first RTP packet is sent (via `send_rtp/4`), `set_sender_codec/3`
+  can only be called with a codec with the same clock rate.
+
+  Although very unlikely, keep in mind that after renegotiation,
+  the selected codec may no longer be supported by the remote side and you might
+  need to call this function again, passing a new codec.
+
+  To check available codecs you can use `get_transceivers/1`:
+
+  ```
+  {:ok, pc} = PeerConnection.start_link()
+  {:ok, rtp_sender} = PeerConnection.add_track(MediaStreamTrack.new(:video))
+
+  # exchange SDP with the remote side
+  # {:ok, offer} = PeerConnection.create_offer(pc)
+  # ...
+
+  tr =
+    pc
+    |> PeerConnection.get_transceivers()
+    |> Enum.find(fn tr -> tr.sender.id == rtp_sender.id end)
+
+  dbg(tr.codecs) # list of supported codecs both for sending and receiving
+
+  # e.g. always prefer h264 over vp8
+  h264 = Enum.find(tr.codecs, fn codec -> codec.mime_type == "video/H264" end)
+  vp8 = Enum.find(tr.codecs, fn codec -> codec.mime_type == "video/VP8" end)
+
+  :ok = PeerConnection.set_sender_codec(pc, rtp_sender.id, h264 || vp8)
+  ```
+
+  This function can only be called once the first negotiation passes.
+  """
+  @spec set_sender_codec(peer_connection(), RTPSender.id(), RTPCodecParameters.t()) ::
+          :ok | {:error, term()}
+  def set_sender_codec(peer_connection, sender_id, codec) do
+    GenServer.call(peer_connection, {:set_sender_codec, sender_id, codec})
+  end
+
+  @doc """
   Sends an RTP packet to the remote peer using the track specified by the `track_id`.
+
+  The following fields of the RTP packet will be overwritten by this function:
+  * payload type
+  * ssrc
+  * rtp header extensions
+
+  If you negotiated multiple codecs (hence payload types) and you want to choose,
+  which one should be used, see `set_sender_codec/3`.
 
   Options:
     * `rtx?` - send the packet as if it was retransmitted (use SSRC and payload type specific to RTX)
@@ -574,6 +633,31 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call(:get_configuration, _from, state) do
     {:reply, state.config, state}
+  end
+
+  @impl true
+  def handle_call({:set_sender_codec, sender_id, codec}, _from, state) do
+    state.transceivers
+    |> Enum.with_index()
+    |> Enum.find(fn {tr, _idx} -> tr.sender.id == sender_id end)
+    |> case do
+      {tr, idx} when tr.direction in [:sendrecv, :sendonly] ->
+        case RTPTransceiver.set_sender_codec(tr, codec) do
+          {:ok, tr} ->
+            transceivers = List.replace_at(state.transceivers, idx, tr)
+            state = %{state | transceivers: transceivers}
+            {:reply, :ok, state}
+
+          {:error, _reason} = error ->
+            {:reply, error, state}
+        end
+
+      {_tr, _idx} ->
+        {:reply, {:error, :invalid_transceiver_direction}, state}
+
+      nil ->
+        {:reply, {:error, :invalid_sender_id}, state}
+    end
   end
 
   @impl true
@@ -1135,7 +1219,8 @@ defmodule ExWebRTC.PeerConnection do
           end
 
         {packet, tr} = RTPTransceiver.send_packet(tr, packet, rtx?)
-        :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
+
+        if packet != <<>>, do: :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
 
         transceivers = List.replace_at(state.transceivers, idx, tr)
         state = %{state | transceivers: transceivers}

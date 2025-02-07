@@ -35,8 +35,19 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       clock_rate: 90_000,
       sdp_fmtp_line: %FMTP{
         pt: 98,
-        level_asymmetry_allowed: 1,
+        level_asymmetry_allowed: true,
         packetization_mode: 0,
+        profile_level_id: 0x42E01F
+      }
+    },
+    %RTPCodecParameters{
+      payload_type: 99,
+      mime_type: "video/H264",
+      clock_rate: 90_000,
+      sdp_fmtp_line: %FMTP{
+        pt: 99,
+        level_asymmetry_allowed: true,
+        packetization_mode: 1,
         profile_level_id: 0x42E01F
       }
     },
@@ -252,8 +263,25 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     |> Keyword.put(:audio_extensions, Enum.map(audio_extensions, fn {_, ext} -> ext end))
     |> Keyword.put(:video_extensions, Enum.map(video_extensions, fn {_, ext} -> ext end))
     |> then(&struct(__MODULE__, &1))
+    |> ensure_unique_payload_types()
     |> populate_feedbacks(feedbacks)
     |> add_features()
+  end
+
+  defp ensure_unique_payload_types(config) do
+    audio_pt = Enum.map(config.audio_codecs, fn codec -> codec.payload_type end)
+
+    if length(audio_pt) != length(Enum.uniq(audio_pt)) do
+      raise "Payload types in audio codecs are not unique."
+    end
+
+    video_pt = Enum.map(config.video_codecs, fn codec -> codec.payload_type end)
+
+    if length(video_pt) != length(Enum.uniq(video_pt)) do
+      raise "Payload types in video codecs are not unique."
+    end
+
+    config
   end
 
   defp add_features(config) do
@@ -405,6 +433,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     config
     |> update_extensions(sdp)
     |> update_codecs(sdp)
+    # if update went wrong (there are duplicates in payload types),
+    # we should never continue as this may lead to hard to debug errors
+    |> ensure_unique_payload_types()
   end
 
   defp update_extensions(config, sdp) do
@@ -425,25 +456,41 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   defp do_update_extensions(extensions, sdp_extensions, free_ids) do
     # we replace extension ids in config to ids from the SDP
     # in case we have an extension in config but not in SDP, we replace
-    # its id to some free (not present in SDP) id, so it doesn't conflict
+    # its id only when it's occupied to some free (not present in SDP) id, so it doesn't conflict
     Enum.map_reduce(extensions, free_ids, fn ext, free_ids ->
-      sdp_extensions
-      |> Enum.find(&(&1.uri == ext.uri))
-      |> case do
-        nil ->
+      case find_in_sdp_rtp_extensions(sdp_extensions, ext) do
+        {nil, false} ->
+          {ext, free_ids}
+
+        {nil, true} ->
           [id | rest] = free_ids
           {%Extmap{ext | id: id}, rest}
 
-        other ->
+        {other, _id_used} ->
           {%Extmap{ext | id: other.id}, free_ids}
       end
     end)
   end
 
+  # Searches for rtp extension in sdp rtp extensions.
+  # If ext is not found, id_used determines whether ext's id
+  # is already present in sdp_extensions.
+  # Otherwise, id_used can have any value.
+  defp find_in_sdp_rtp_extensions(sdp_extensions, ext, id_used \\ false)
+  defp find_in_sdp_rtp_extensions([], _ext, id_used), do: {nil, id_used}
+
+  defp find_in_sdp_rtp_extensions([sdp_ext | sdp_extensions], ext, id_used) do
+    if sdp_ext.uri == ext.uri do
+      {sdp_ext, id_used}
+    else
+      find_in_sdp_rtp_extensions(sdp_extensions, ext, id_used || sdp_ext.id == ext.id)
+    end
+  end
+
   defp update_codecs(config, sdp) do
     %__MODULE__{audio_codecs: audio_codecs, video_codecs: video_codecs} = config
     sdp_codecs = SDPUtils.get_rtp_codec_parameters(sdp)
-    free_pts = get_free_payload_types(sdp_codecs)
+    free_pts = get_free_payload_types(audio_codecs ++ video_codecs ++ sdp_codecs)
 
     {audio_codecs, free_pts} = do_update_codecs(audio_codecs, sdp_codecs, free_pts)
     {video_codecs, _free_pts} = do_update_codecs(video_codecs, sdp_codecs, free_pts)
@@ -452,29 +499,27 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   end
 
   defp do_update_codecs(codecs, sdp_codecs, free_pts) do
-    # we replace codec payload types in config to payload types from SDP
-    # both normal codecs and rtx (we also update apt FMTP attribute in rtxs)
-    # other codecs that are present in config but not in SDP
-    # are also updated with values from a pool of free payload types (not present in SDP)
-    # to make sure they don't conflict
-    {sdp_rtxs, sdp_codecs} = Enum.split_with(sdp_codecs, &rtx?/1)
+    # We replace codec payload types in config to payload types from SDP
+    # both for normal codecs and rtx (we also update apt FMTP attribute in rtxs).
+    # Other codecs that are present in config but not in SDP, and their
+    # payload type is already present in SDP, are also updated with values
+    # from a pool of free payload types (not present in SDP) to make sure they don't conflict
     {rtxs, codecs} = Enum.split_with(codecs, &rtx?/1)
 
     {codecs, {free_pts, mapping}} =
       Enum.map_reduce(codecs, {free_pts, %{}}, fn codec, {free_pts, mapping} ->
-        sdp_codecs
-        |> Enum.find(
-          &(String.downcase(&1.mime_type) == String.downcase(codec.mime_type) and
-              &1.clock_rate == codec.clock_rate and
-              &1.channels == codec.channels)
-        )
-        |> case do
-          nil ->
+        case find_in_sdp_codecs(sdp_codecs, codec) do
+          # there is no such codec and its payload type is not used
+          {nil, false} ->
+            {codec, {free_pts, Map.put(mapping, codec.payload_type, codec.payload_type)}}
+
+          # there is no such codec, but its payload type is used
+          {nil, true} ->
             [pt | rest] = free_pts
             new_codec = do_update_codec(codec, pt)
             {new_codec, {rest, Map.put(mapping, codec.payload_type, pt)}}
 
-          other ->
+          {other, _pt_used} ->
             new_codec = do_update_codec(codec, other.payload_type)
             {new_codec, {free_pts, Map.put(mapping, codec.payload_type, other.payload_type)}}
         end
@@ -486,21 +531,56 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         %RTPCodecParameters{rtx | sdp_fmtp_line: %FMTP{fmtp | apt: Map.fetch!(mapping, apt)}}
       end)
       |> Enum.map_reduce(free_pts, fn rtx, free_pts ->
-        sdp_rtxs
-        |> Enum.find(&(&1.sdp_fmtp_line.apt == rtx.sdp_fmtp_line.apt))
-        |> case do
-          nil ->
+        case find_in_sdp_codecs(sdp_codecs, rtx) do
+          # there is no such codec and its payload type is not used
+          {nil, false} ->
+            {rtx, free_pts}
+
+          # there is no such codec, but its payload type is used
+          {nil, true} ->
             [pt | rest] = free_pts
             rtx = do_update_codec(rtx, pt)
             {rtx, rest}
 
-          other ->
+          {other, _pt_used} ->
             rtx = do_update_codec(rtx, other.payload_type)
             {rtx, free_pts}
         end
       end)
 
     {codecs ++ rtxs, free_pts}
+  end
+
+  # Searches for codec in sdp_codecs.
+  # If codec is not found, pt_used determines whether
+  # codec's payload type is already present in sdp_codecs.
+  # Otherwise, pt_used can have any value.
+  defp find_in_sdp_codecs(sdp_codecs, codec, pt_used \\ false)
+
+  defp find_in_sdp_codecs([], _codec, pt_used), do: {nil, pt_used}
+
+  defp find_in_sdp_codecs([sdp_codec | sdp_codecs], codec, pt_used) do
+    if String.ends_with?(codec.mime_type, "/rtx") do
+      if sdp_codec.sdp_fmtp_line != nil && sdp_codec.sdp_fmtp_line.apt == codec.sdp_fmtp_line.apt do
+        {sdp_codec, pt_used}
+      else
+        find_in_sdp_codecs(
+          sdp_codecs,
+          codec,
+          pt_used || sdp_codec.payload_type == codec.payload_type
+        )
+      end
+    else
+      if codec_equal_soft?(sdp_codec, codec) do
+        {sdp_codec, pt_used}
+      else
+        find_in_sdp_codecs(
+          sdp_codecs,
+          codec,
+          pt_used || sdp_codec.payload_type == codec.payload_type
+        )
+      end
+    end
   end
 
   defp do_update_codec(codec, new_pt) do
@@ -515,7 +595,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   def intersect_codecs(config, mline) do
     # we assume that this function is called after
     # the config was updated based on the remote SDP
-    # so the payload types should match
+    # so the payload types (in codec_equal?) should match
     codecs =
       case mline.type do
         :audio -> config.audio_codecs
@@ -526,13 +606,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     |> SDPUtils.get_rtp_codec_parameters()
     |> Enum.flat_map(fn sdp_codec ->
       codecs
-      |> Enum.find(
-        # as of now, we ignore sdp_fmtp_line
-        &(String.downcase(&1.mime_type) == String.downcase(sdp_codec.mime_type) and
-            &1.payload_type == sdp_codec.payload_type and
-            &1.clock_rate == sdp_codec.clock_rate and
-            &1.channels == sdp_codec.channels)
-      )
+      |> Enum.find(&codec_equal?(&1, sdp_codec))
       |> case do
         nil ->
           []
@@ -542,6 +616,36 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           [%RTPCodecParameters{sdp_codec | rtcp_fbs: fbs}]
       end
     end)
+  end
+
+  # soft functions does not compare payload types
+  @doc false
+  @spec codec_equal?(RTPCodecParameters.t(), RTPCodecParameters.t()) :: boolean()
+  def codec_equal?(c1, c2) do
+    String.downcase(c1.mime_type) == String.downcase(c2.mime_type) and
+      c1.payload_type == c2.payload_type and
+      c1.clock_rate == c2.clock_rate and
+      c1.channels == c2.channels and fmtp_equal?(c1, c2)
+  end
+
+  defp codec_equal_soft?(c1, c2) do
+    String.downcase(c1.mime_type) == String.downcase(c2.mime_type) and
+      c1.clock_rate == c2.clock_rate and
+      c1.channels == c2.channels and fmtp_equal_soft?(c1, c2)
+  end
+
+  defp fmtp_equal?(%{sdp_fmtp_line: nil}, _c2), do: true
+  defp fmtp_equal?(_c1, %{sdp_fmtp_line: nil}), do: true
+  defp fmtp_equal?(c1, c2), do: c1.sdp_fmtp_line == c2.sdp_fmtp_line
+
+  defp fmtp_equal_soft?(%{sdp_fmtp_line: nil}, _c2), do: true
+  defp fmtp_equal_soft?(_c1, %{sdp_fmtp_line: nil}), do: true
+
+  defp fmtp_equal_soft?(c1, c2) do
+    fmtp1 = %{c1.sdp_fmtp_line | pt: nil}
+    fmtp2 = %{c2.sdp_fmtp_line | pt: nil}
+
+    fmtp1 == fmtp2
   end
 
   @doc false

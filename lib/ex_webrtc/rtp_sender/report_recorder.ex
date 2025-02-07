@@ -29,6 +29,14 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
             packet_count: 0,
             octet_count: 0
 
+  @spec init(t(), non_neg_integer(), non_neg_integer()) :: t()
+  def init(%{clock_rate: nil, sender_ssrc: nil}, clock_rate, sender_ssrc) do
+    %__MODULE__{clock_rate: clock_rate, sender_ssrc: sender_ssrc}
+  end
+
+  def init(_recorder, _clock_rate, _sender_ssrc),
+    do: raise("Tried to re-initialize ReportRecorder")
+
   @doc """
   Records incoming RTP packet.
 
@@ -42,8 +50,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   def record_packet(%{last_seq_no: nil} = recorder, packet, time) do
     %__MODULE__{
       recorder
-      | sender_ssrc: packet.ssrc,
-        last_rtp_timestamp: packet.timestamp,
+      | last_rtp_timestamp: packet.timestamp,
         last_seq_no: packet.sequence_number,
         last_timestamp: time,
         packet_count: 1,

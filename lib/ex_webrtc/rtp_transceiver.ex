@@ -137,16 +137,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
     receiver = RTPReceiver.new(track, codecs, header_extensions, config.features)
 
-    sender =
-      RTPSender.new(
-        sender_track,
-        codecs,
-        header_extensions,
-        nil,
-        options[:ssrc],
-        options[:rtx_ssrc],
-        config.features
-      )
+    sender = RTPSender.new(sender_track, options[:ssrc], options[:rtx_ssrc], config.features)
 
     %{
       id: id,
@@ -202,16 +193,8 @@ defmodule ExWebRTC.RTPTransceiver do
 
     receiver = RTPReceiver.new(track, codecs, header_extensions, config.features)
 
-    sender =
-      RTPSender.new(
-        nil,
-        codecs,
-        header_extensions,
-        mid,
-        ssrc,
-        rtx_ssrc,
-        config.features
-      )
+    sender = RTPSender.new(nil, ssrc, rtx_ssrc, config.features)
+    sender = RTPSender.update(sender, mid, codecs, header_extensions)
 
     %{
       id: id,
@@ -275,6 +258,16 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec set_direction(transceiver(), direction()) :: t()
   def set_direction(transceiver, direction) do
     %{transceiver | direction: direction}
+  end
+
+  @doc false
+  @spec set_sender_codec(transceiver(), RTPCodecParameters.t()) ::
+          {:ok, transceiver()} | {:error, term()}
+  def set_sender_codec(transceiver, codec) do
+    case RTPSender.set_codec(transceiver.sender, codec) do
+      {:ok, sender} -> {:ok, %{transceiver | sender: sender}}
+      {:error, _reason} = error -> error
+    end
   end
 
   @doc false
@@ -367,18 +360,22 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec send_packet(transceiver(), ExRTP.Packet.t(), boolean()) :: {binary(), transceiver()}
   def send_packet(transceiver, packet, rtx?) do
-    {packet, sender} = RTPSender.send_packet(transceiver.sender, packet, rtx?)
+    case RTPSender.send_packet(transceiver.sender, packet, rtx?) do
+      {<<>>, sender} ->
+        {<<>>, %{transceiver | sender: sender}}
 
-    receiver =
-      if rtx? do
-        transceiver.receiver
-      else
-        RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
-      end
+      {packet, sender} ->
+        receiver =
+          if rtx? do
+            transceiver.receiver
+          else
+            RTPReceiver.update_sender_ssrc(transceiver.receiver, sender.ssrc)
+          end
 
-    transceiver = %{transceiver | sender: sender, receiver: receiver}
+        transceiver = %{transceiver | sender: sender, receiver: receiver}
 
-    {packet, transceiver}
+        {packet, transceiver}
+    end
   end
 
   @doc false
@@ -547,7 +544,19 @@ defmodule ExWebRTC.RTPTransceiver do
     # add sender attrs only if we send
     sender_attrs =
       if direction in [:sendonly, :sendrecv] do
-        RTPSender.get_mline_attrs(transceiver.sender)
+        # sender codecs are set when negotiation completes,
+        # hence, to generate the first offer, we need to use transceiver codecs
+        codecs =
+          if transceiver.sender.codecs == [],
+            do: transceiver.codecs,
+            else: transceiver.sender.codecs
+
+        get_sender_attrs(
+          transceiver.sender.track,
+          codecs,
+          transceiver.sender.ssrc,
+          transceiver.sender.rtx_ssrc
+        )
       else
         []
       end
@@ -559,6 +568,89 @@ defmodule ExWebRTC.RTPTransceiver do
         connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
     }
     |> ExSDP.add_attributes(attributes ++ media_formats ++ sender_attrs)
+  end
+
+  @doc false
+  defp get_sender_attrs(track, codecs, ssrc, rtx_ssrc) do
+    # Don't include track id. See RFC 8829 sec. 5.2.1
+    msid_attrs =
+      case track do
+        %MediaStreamTrack{streams: streams} when streams != [] ->
+          Enum.map(streams, &ExSDP.Attribute.MSID.new(&1, nil))
+
+        _other ->
+          # In theory, we should do this "for each MediaStream that was associated with the transceiver",
+          # but web browsers (chrome, ff) include MSID even when there aren't any MediaStreams
+          [ExSDP.Attribute.MSID.new("-", nil)]
+      end
+
+    ssrc_attrs = get_ssrc_attrs(codecs, ssrc, rtx_ssrc, track)
+
+    msid_attrs ++ ssrc_attrs
+  end
+
+  defp get_ssrc_attrs(codecs, ssrc, rtx_ssrc, track) do
+    codec = Enum.any?(codecs, fn codec -> not String.ends_with?(codec.mime_type, "/rtx") end)
+    rtx_codec = Enum.any?(codecs, fn codec -> String.ends_with?(codec.mime_type, "/rtx") end)
+
+    do_get_ssrc_attrs(codec, rtx_codec, ssrc, rtx_ssrc, track)
+  end
+
+  # we didn't manage to negotiate any codec
+  defp do_get_ssrc_attrs(false, _rtx_codec, _ssrc, _rtx_ssrc, _track) do
+    []
+  end
+
+  # we have a codec but not rtx codec
+  defp do_get_ssrc_attrs(_codec, false, ssrc, _rtx_ssrc, track) do
+    streams = (track && track.streams) || []
+
+    case streams do
+      [] ->
+        [%ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"}]
+
+      streams ->
+        Enum.map(streams, fn stream ->
+          %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
+        end)
+    end
+  end
+
+  # we have both codec and rtx codec
+  defp do_get_ssrc_attrs(_codec, _rtx_codec, ssrc, rtx_ssrc, track) do
+    streams = (track && track.streams) || []
+
+    fid = %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [ssrc, rtx_ssrc]}
+
+    ssrc_attrs =
+      case streams do
+        [] ->
+          [
+            %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"},
+            %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: "-"}
+          ]
+
+        streams ->
+          {ssrc_attrs, rtx_ssrc_attrs} =
+            Enum.reduce(streams, {[], []}, fn stream, {ssrc_attrs, rtx_ssrc_attrs} ->
+              ssrc_attr = %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
+              ssrc_attrs = [ssrc_attr | ssrc_attrs]
+
+              rtx_ssrc_attr = %ExSDP.Attribute.SSRC{
+                id: rtx_ssrc,
+                attribute: "msid",
+                value: stream
+              }
+
+              rtx_ssrc_attrs = [rtx_ssrc_attr | rtx_ssrc_attrs]
+
+              {ssrc_attrs, rtx_ssrc_attrs}
+            end)
+
+          Enum.reverse(ssrc_attrs) ++ Enum.reverse(rtx_ssrc_attrs)
+      end
+
+    [fid | ssrc_attrs]
   end
 
   # RFC 3264 (6.1) + RFC 8829 (5.3.1)
