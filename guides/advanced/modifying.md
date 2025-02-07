@@ -168,8 +168,10 @@ to the previous tutorial on consuming media data.
 In a real scenario, you'd have to receive the RTP packet from the PeerConnection, inspect its payload type, find the codec associated with that payload type, find the payload type
 associated with that codec on the other PeerConnection, and use it to overwrite the original payload type in the packet.
 
-Unfortunately, at the moment the `PeerConnection.send_rtp` API forces you to use the topmost negotiated codec, so there's no way to handle RTP streams with changing codecs.
-The only real solution is to force `PeerConnection` to negotiate only one codec.
+By default, `ExWebRTC.PeerConnection.send_rtp/4` will use the topmost negotiated codec, but you can change this behavior with
+`ExWebRTC.PeerConnection.set_sender_codec/3`.
+
+Another option is to negotiate only one codec:
 
 ```elixir
 codec = %ExWebRTC.RTPCodecParameters{
@@ -180,8 +182,8 @@ codec = %ExWebRTC.RTPCodecParameters{
 {:ok, pc} = PeerConnection.start_link(video_codecs: [codec])
 ```
 
-This is not ideal as the remote PeerConnection might not support this particular codec. This tutorial will be appropriately updated once the `PeerConnection` API allows
-for more in this regard.
+And the last option is to perform server-side transcoding e.g. always negotiate both VP8 and H264 (in that preference), and if someone only supports H264, transcode their stream to VP8. 
+
 
 > #### WebRTC internals {: .tip}
 > If you're developing using a Chromium-based browser, be sure to type out `chrome://webrtc-internals` in your address bar,
