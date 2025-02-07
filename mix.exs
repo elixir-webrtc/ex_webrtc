@@ -1,7 +1,7 @@
 defmodule ExWebRTC.MixProject do
   use Mix.Project
 
-  @version "0.7.0"
+  @version "0.8.0"
   @source_url "https://github.com/elixir-webrtc/ex_webrtc"
 
   def project do
@@ -62,12 +62,12 @@ defmodule ExWebRTC.MixProject do
       {:ex_libsrtp, "~> 0.7.1"},
       {:ex_rtp, "~> 0.4.0"},
       {:ex_rtcp, "~> 0.4.0"},
-      {:ex_sctp, "0.1.0", optional: true},
+      {:ex_sctp, "0.1.2", optional: true},
       {:crc, "~> 0.10"},
 
       # dev/test
       {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.31.0", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
@@ -93,7 +93,7 @@ defmodule ExWebRTC.MixProject do
           Enum.map(intro_guides, &"guides/introduction/#{&1}.md") ++
           Enum.map(advanced_guides, &"guides/advanced/#{&1}.md") ++
           Enum.map(deploying_guides, &"guides/deploying/#{&1}.md"),
-      assets: "guides/assets",
+      assets: %{"guides/assets" => "assets"},
       source_ref: "v#{@version}",
       formatters: ["html"],
       before_closing_body_tag: &before_closing_body_tag/1,
