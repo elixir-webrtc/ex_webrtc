@@ -177,7 +177,7 @@ defmodule ExWebRTC.Recorder do
 
     :ok = File.write!(report_path, Jason.encode!(report))
 
-    %{state | tracks: tracks}
+    state
   end
 
   defp serialize_packet(packet, rid_idx, recv_time) do
