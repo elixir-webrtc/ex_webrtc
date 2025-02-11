@@ -153,31 +153,70 @@ defmodule ExWebRTC.Recorder do
     {:noreply, state}
   end
 
-  defp do_add_tracks(tracks, state) do
+  defp do_add_tracks(tracks, %{base_dir: base_dir, tracks: existing_tracks} = state) do
     start_time = DateTime.utc_now()
 
-    tracks =
-      Map.new(tracks, fn track ->
-        path = Path.join(state.base_dir, "#{track.id}.rtpx")
-        file = File.open!(path, [:write])
-        rid_map = (track.rids || [nil]) |> Enum.with_index() |> Map.new()
+    # Create new track entries with computed metadata
+    new_tracks =
+      tracks
+      |> Enum.map(&create_track_entry(&1, base_dir, existing_tracks, start_time))
+      |> Map.new()
 
-        {track.id,
-         %{kind: track.kind, rid_map: rid_map, path: path, file: file, start_time: start_time}}
-      end)
+    # Merge tracks and update state
+    updated_tracks = Map.merge(existing_tracks, new_tracks, &merge_track_metadata/3)
+    updated_state = %{state | tracks: updated_tracks}
 
-    state = %{state | tracks: Map.merge(state.tracks, tracks)}
-    report_path = Path.join(state.base_dir, "report.json")
+    # Generate and save report
+    generate_report(updated_state)
+    updated_state
+  end
 
-    report =
-      Map.new(state.tracks, fn {id, track} ->
-        track = Map.delete(track, :file)
-        {id, track}
-      end)
+  # Creates a new track entry with all necessary metadata
+  defp create_track_entry(track, base_dir, existing_tracks, start_time) do
+    path = Path.join(base_dir, "#{track.id}.rtpx")
+    file = get_or_create_file(track.id, path, existing_tracks)
+    rid_map = create_rid_map(track)
 
-    :ok = File.write!(report_path, Jason.encode!(report))
+    {track.id,
+     %{
+       kind: track.kind,
+       rid_map: rid_map,
+       path: path,
+       file: file,
+       start_time: start_time
+     }}
+  end
 
-    %{state | tracks: tracks}
+  # Gets existing file handle or creates a new one
+  defp get_or_create_file(track_id, path, existing_tracks) do
+    case Map.get(existing_tracks, track_id) do
+      nil -> File.open!(path, [:write])
+      %{file: existing_file} -> existing_file
+    end
+  end
+
+  # Creates a map of RIDs to indices
+  defp create_rid_map(track) do
+    track.rids
+    # Use [nil] if track.rids is nil
+    |> Kernel.||([nil])
+    |> Enum.with_index()
+    |> Map.new()
+  end
+
+  # Merges track metadata while preserving existing file handles
+  defp merge_track_metadata(_key, existing, new) do
+    %{new | file: existing.file}
+  end
+
+  # Generates and saves the report file
+  defp generate_report(%{base_dir: base_dir, tracks: tracks}) do
+    report_path = Path.join(base_dir, "report.json")
+
+    tracks
+    |> Map.new(fn {id, track} -> {id, Map.delete(track, :file)} end)
+    |> Jason.encode!()
+    |> then(&File.write!(report_path, &1))
   end
 
   defp serialize_packet(packet, rid_idx, recv_time) do
