@@ -11,7 +11,7 @@ defmodule ExWebRTC.RTP.MungerTest do
   @packet Packet.new(<<0::128*8>>)
 
   test "assigns sequence numbers properly" do
-    munger = Munger.new(@clock_rate)
+    munger = Munger.new(:h264, @clock_rate)
 
     l1_packet = %{@packet | sequence_number: 100}
     {^l1_packet, munger} = Munger.munge(munger, l1_packet)
@@ -45,7 +45,7 @@ defmodule ExWebRTC.RTP.MungerTest do
   end
 
   test "handles input sequence number rollover" do
-    munger = Munger.new(@clock_rate)
+    munger = Munger.new(:h264, @clock_rate)
 
     l1_packet = %{@packet | sequence_number: 100}
     {^l1_packet, munger} = Munger.munge(munger, l1_packet)
@@ -77,7 +77,7 @@ defmodule ExWebRTC.RTP.MungerTest do
   end
 
   test "handles output sequence number rollover" do
-    munger = Munger.new(@clock_rate)
+    munger = Munger.new(:h264, @clock_rate)
 
     l1_packet = %{@packet | sequence_number: @max_sn - 2}
     {^l1_packet, munger} = Munger.munge(munger, l1_packet)
@@ -98,7 +98,7 @@ defmodule ExWebRTC.RTP.MungerTest do
   end
 
   test "assigns timestamps properly" do
-    munger = Munger.new(@clock_rate)
+    munger = Munger.new(:h264, @clock_rate)
 
     l1_packet = %{@packet | sequence_number: 100, timestamp: 5000}
     {^l1_packet, munger} = Munger.munge(munger, l1_packet)
@@ -134,7 +134,7 @@ defmodule ExWebRTC.RTP.MungerTest do
   end
 
   test "handles input timestamp rollover" do
-    munger = Munger.new(@clock_rate)
+    munger = Munger.new(:h264, @clock_rate)
 
     l1_packet = %{@packet | sequence_number: 100, timestamp: 5000}
     {^l1_packet, munger} = Munger.munge(munger, l1_packet)
@@ -152,7 +152,7 @@ defmodule ExWebRTC.RTP.MungerTest do
   end
 
   test "handles output timestamp rollover" do
-    munger = Munger.new(@clock_rate)
+    munger = Munger.new(:h264, @clock_rate)
 
     l1_packet = %{@packet | sequence_number: 100, timestamp: @max_ts}
     {^l1_packet, munger} = Munger.munge(munger, l1_packet)
