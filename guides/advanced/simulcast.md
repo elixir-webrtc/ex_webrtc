@@ -86,7 +86,7 @@ This process is known as munging.
 alias ExWebRTC.PeerConnection
 alias ExWebRTC.RTP.{H264, Munger}
 
-m = Munger.new(90_000)
+m = Munger.new(:h264, 90_000)
 ```
 
 2. When a packet from an encoding that we want to forward arrives, rewrite its sequnce number and timestamp:
