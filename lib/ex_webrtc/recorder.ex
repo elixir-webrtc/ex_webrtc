@@ -60,9 +60,9 @@ defmodule ExWebRTC.Recorder do
   @doc """
   Adds new tracks to the recording.
   """
-  @spec add_tracks(GenServer.server(), [MediaStreamTrack.t()]) :: :ok
-  def add_tracks(recorder, tracks) do
-    GenServer.call(recorder, {:add_tracks, tracks})
+  @spec add_tracks(GenServer.server(), [MediaStreamTrack.t()], String.t() | nil) :: :ok
+  def add_tracks(recorder, tracks, prefix \\ nil) do
+    GenServer.call(recorder, {:add_tracks, tracks, prefix})
   end
 
   @doc """
@@ -116,8 +116,8 @@ defmodule ExWebRTC.Recorder do
   end
 
   @impl true
-  def handle_call({:add_tracks, tracks}, _from, state) do
-    state = do_add_tracks(tracks, state)
+  def handle_call({:add_tracks, tracks, prefix}, _from, state) do
+    state = do_add_tracks(tracks, state, prefix)
     {:reply, :ok, state}
   end
 
@@ -153,17 +153,30 @@ defmodule ExWebRTC.Recorder do
     {:noreply, state}
   end
 
-  defp do_add_tracks(tracks, state) do
+  defp do_add_tracks(tracks, state, prefix \\ nil) do
     start_time = DateTime.utc_now()
 
     tracks =
       Map.new(tracks, fn track ->
-        path = Path.join(state.base_dir, "#{track.id}.rtpx")
+        filename =
+          case prefix do
+            nil -> "#{track.id}.rtpx"
+            prefix -> "#{prefix}-#{track.id}.rtpx"
+          end
+
+        path = Path.join(state.base_dir, filename)
         file = File.open!(path, [:write])
         rid_map = (track.rids || [nil]) |> Enum.with_index() |> Map.new()
 
         {track.id,
-         %{kind: track.kind, rid_map: rid_map, path: path, file: file, start_time: start_time}}
+         %{
+           kind: track.kind,
+           rid_map: rid_map,
+           path: path,
+           prefix: prefix,
+           file: file,
+           start_time: start_time
+         }}
       end)
 
     state = %{state | tracks: Map.merge(state.tracks, tracks)}
