@@ -64,6 +64,11 @@ defmodule ExWebRTC.MixProject do
       {:ex_rtcp, "~> 0.4.0"},
       {:ex_sctp, "0.1.2", optional: true},
       {:crc, "~> 0.10"},
+      {:jason, "~> 1.4"},
+      {:ex_aws_s3, "~> 2.5", optional: true},
+      {:ex_aws, "~> 2.5", optional: true},
+      {:sweet_xml, "~> 0.7", optional: true},
+      {:req, "~> 0.5", optional: true},
 
       # dev/test
       {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
@@ -105,7 +110,8 @@ defmodule ExWebRTC.MixProject do
       ],
       groups_for_modules: [
         MEDIA: ~r"ExWebRTC\.Media\..*",
-        RTP: ~r"ExWebRTC\.RTP\..*"
+        RTP: ~r"ExWebRTC\.RTP\..*",
+        RECORDER: ~r"ExWebRTC\.Recorder.*"
       ]
     ]
   end
