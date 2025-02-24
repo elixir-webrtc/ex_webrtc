@@ -180,6 +180,19 @@ defmodule ExWebRTC.DataChannelTest do
       assert_receive {:ex_webrtc, ^pc1, {:data, ^ref1, ^data2}}
     end
 
+    test "as binary", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
+      data1 = <<1, 2, 3>>
+      :ok = PeerConnection.send_data(pc1, ref1, data1, :binary)
+      assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, ^data1}}
+
+      data2 = for i <- 1..2000, into: <<>>, do: <<i>>
+      :ok = PeerConnection.send_data(pc1, ref1, data2, :binary)
+      assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, ^data2}}
+
+      :ok = PeerConnection.send_data(pc1, ref1, <<>>, :binary)
+      assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, <<>>}}
+    end
+
     test "back and forth", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
       data = for i <- 1..1024, into: <<>>, do: <<i>>
       :ok = PeerConnection.send_data(pc2, ref2, data)
