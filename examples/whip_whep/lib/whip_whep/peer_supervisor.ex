@@ -69,7 +69,7 @@ defmodule WhipWhep.PeerSupervisor do
 
       {:ok, pc, pc_id, answer.sdp}
     else
-      {:error, _res} = err ->
+      {:error, res} = err ->
         Logger.info("Failed to complete negotiation for #{inspect(pc)}")
         terminate_pc(pc)
         err
@@ -110,7 +110,7 @@ defmodule WhipWhep.PeerSupervisor do
     receive do
       {:ex_webrtc, ^pc, {:ice_gathering_state_change, :complete}} -> :ok
     after
-      1000 -> {:error, :timeout}
+      1000 -> :ok
     end
   end
 

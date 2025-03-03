@@ -246,5 +246,15 @@ defmodule SendFromFile.PeerHandler do
     {:ok, state}
   end
 
+  defp handle_webrtc_msg({:connection_state_change, conn_state}, state) do
+    Logger.info("Connection state changed: #{conn_state}")
+
+    if conn_state == :failed do
+      {:stop, {:shutdown, :pc_failed}, state}
+    else
+      {:ok, state}
+    end
+  end
+
   defp handle_webrtc_msg(_msg, state), do: {:ok, state}
 end

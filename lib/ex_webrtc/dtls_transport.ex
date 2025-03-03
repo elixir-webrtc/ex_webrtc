@@ -251,12 +251,12 @@ defmodule ExWebRTC.DTLSTransport do
 
   @impl true
   def handle_cast({:send_rtp, _data}, state) do
-    Logger.warning("Attempted to send RTP before DTLS handshake has been finished. Ignoring.")
+    Logger.debug("Attempted to send RTP in wrong DTLS state: #{state.dtls_state}. Ignoring.")
     {:noreply, state}
   end
 
   @impl true
-  def handle_cast({:send_rtcp, data}, state) do
+  def handle_cast({:send_rtcp, data}, %{dtls_state: :connected, ice_connected: true} = state) do
     case ExLibSRTP.protect_rtcp(state.out_srtp, data) do
       {:ok, protected} -> do_send(state, protected)
       {:error, reason} -> Logger.warning("Unable to protect RTCP: #{inspect(reason)}")
@@ -266,12 +266,24 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_cast({:send_data, data}, state) do
+  def handle_cast({:send_rtcp, _data}, state) do
+    Logger.debug("Attempted to send RTCP in wrong DTLS state: #{state.dtls_state}. Ignoring.")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:send_data, data}, %{dtls_state: :connected, ice_connected: true} = state) do
     case ExDTLS.write_data(state.dtls, data) do
       {:ok, protected} -> do_send(state, protected)
       {:error, reason} -> Logger.warning("Unable to protect data: #{inspect(reason)}")
     end
 
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:send_data, _data}, state) do
+    Logger.debug("Attempted to send data in wrong DTLS state: #{state.dtls_state}. Ignoring.")
     {:noreply, state}
   end
 
@@ -312,9 +324,13 @@ defmodule ExWebRTC.DTLSTransport do
   @impl true
   def handle_info({:ex_ice, _from, {:data, _data} = msg}, state) do
     case handle_ice_data(msg, state) do
-      {:ok, state} -> {:noreply, state}
-      # we use shutdown to avoid logging an error
-      {:error, reason} -> {:stop, {:shutdown, reason}, state}
+      {:ok, state} ->
+        {:noreply, state}
+
+      {:error, _reason} ->
+        # See W3C WebRTC sec. 5.5.
+        state = update_dtls_state(state, :failed)
+        {:noreply, state}
     end
   end
 
