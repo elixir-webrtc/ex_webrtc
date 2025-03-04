@@ -979,6 +979,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert Map.get(groups, :outbound_rtp) == nil
     assert Map.get(groups, :local_candidate) == nil
     assert Map.get(groups, :remote_candidate) == nil
+    assert Map.get(groups, :candidate_pair) == nil
 
     # negotiate tracks
     {:ok, pc2} = PeerConnection.start_link()
@@ -1025,6 +1026,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert length(Map.get(groups, :outbound_rtp, [])) == 1
     assert length(Map.get(groups, :local_candidate, [])) > 0
     assert length(Map.get(groups, :remote_candidate, [])) > 0
+    assert length(Map.get(groups, :candidate_pair, [])) > 0
 
     assert %{
              peer_connection: %{
@@ -1056,6 +1058,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert length(Map.get(groups, :outbound_rtp, [])) == 1
     assert length(Map.get(groups, :local_candidate, [])) > 0
     assert length(Map.get(groups, :remote_candidate, [])) > 0
+    assert length(Map.get(groups, :candidate_pair, [])) > 0
   end
 
   test "close/1" do
