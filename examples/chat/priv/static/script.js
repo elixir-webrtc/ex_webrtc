@@ -9,6 +9,8 @@ ws.onclose = event => console.log("WebSocket connection was terminated:", event)
 
 const start_connection = async (ws) => {
   const pc = new RTCPeerConnection(pcConfig);
+  // expose pc for easier debugging and experiments
+  window.pc = pc;
   pc.onicecandidate = event => {
     if (event.candidate === null) return;
 

@@ -92,6 +92,16 @@ defmodule WhipWhep.Forwarder do
   end
 
   @impl true
+  def handle_info({:ex_webrtc, pc, {:connection_state_change, :failed}}, state) do
+    Logger.info("Output peer connection (#{inspect(pc)}) state change: failed. Removing.")
+    :ok = PeerConnection.close(pc)
+    pending_outputs = List.delete(state.pending_outputs, pc)
+    outputs = Map.delete(state.outputs, pc)
+    state = %{state | pending_outputs: pending_outputs, outputs: outputs}
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(
         {:ex_webrtc, input_pc, {:rtp, id, nil, packet}},
         %{input_pc: input_pc, audio_input: id} = state
