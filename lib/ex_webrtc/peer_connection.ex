@@ -1119,6 +1119,23 @@ defmodule ExWebRTC.PeerConnection do
       }
     end
 
+    to_stats_pair = fn pair, timestamp ->
+      %{
+        id: pair.id,
+        timestamp: timestamp,
+        type: :candidate_pair,
+        local_candidate_id: pair.local_cand_id,
+        remote_candidate_id: pair.remote_cand_id,
+        state: pair.state,
+        nominated: pair.nominated?,
+        requests_received: pair.requests_received,
+        requests_sent: pair.requests_sent,
+        responses_received: pair.responses_received,
+        non_symmetric_responses_received: pair.non_symmetric_responses_received,
+        responses_sent: pair.responses_sent
+      }
+    end
+
     local_cands =
       Map.new(ice_stats.local_candidates, fn local_cand ->
         cand = to_stats_candidate.(local_cand, :local_candidate, timestamp)
@@ -1129,6 +1146,12 @@ defmodule ExWebRTC.PeerConnection do
       Map.new(ice_stats.remote_candidates, fn remote_cand ->
         cand = to_stats_candidate.(remote_cand, :remote_candidate, timestamp)
         {cand.id, cand}
+      end)
+
+    candidate_pairs =
+      Map.new(ice_stats.candidate_pairs, fn pair ->
+        pair = to_stats_pair.(pair, timestamp)
+        {pair.id, pair}
       end)
 
     rtp_stats =
@@ -1179,6 +1202,7 @@ defmodule ExWebRTC.PeerConnection do
       stats
       |> Map.merge(local_cands)
       |> Map.merge(remote_cands)
+      |> Map.merge(candidate_pairs)
       |> Map.merge(rtp_stats)
       |> Map.merge(data_channel_stats)
 
