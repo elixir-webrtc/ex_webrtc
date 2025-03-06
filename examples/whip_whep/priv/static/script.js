@@ -22,6 +22,8 @@ async function sendCandidate(candidate) {
 
 async function connect() {
   const pc = new RTCPeerConnection(pcConfig);
+  // expose pc for easier debugging and experiments
+  window.pc = pc;
 
   pc.ontrack = event => videoPlayer.srcObject = event.streams[0];
   pc.onicegatheringstatechange = () => console.log("Gathering state change: " + pc.iceGatheringState);

@@ -409,7 +409,7 @@ defmodule ExWebRTC.PeerConnection do
 
   For more information, refer to the [RTCPeerConnection: createOffer() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createOffer).
   """
-  @spec create_offer(peer_connection(), restart_ice?: boolean()) ::
+  @spec create_offer(peer_connection(), ice_restart: boolean()) ::
           {:ok, SessionDescription.t()} | {:error, term()}
   def create_offer(peer_connection, options \\ []) do
     GenServer.call(peer_connection, {:create_offer, options})
@@ -1186,7 +1186,8 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_cast({:send_rtp, track_id, packet, opts}, state) do
+  def handle_cast({:send_rtp, track_id, packet, opts}, %{conn_state: conn_state} = state)
+      when conn_state != :failed do
     rtx? = Keyword.get(opts, :rtx?, false)
 
     # TODO: iterating over transceivers is not optimal
@@ -1238,7 +1239,13 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_cast({:send_pli, track_id, rid}, state) do
+  def handle_cast({:send_rtp, _track_id, _packet, _opts}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:send_pli, track_id, rid}, %{conn_state: conn_state} = state)
+      when conn_state != :failed do
     state.transceivers
     |> Enum.with_index()
     |> Enum.find(fn {tr, _idx} -> tr.receiver.track.id == track_id end)
@@ -1265,13 +1272,24 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_cast({:send_data, channel_ref, data_type, data}, state) do
+  def handle_cast({:send_pli, _track_id, _rid}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:send_data, channel_ref, data_type, data}, %{conn_state: conn_state} = state)
+      when conn_state != :failed do
     {events, sctp_transport} =
       SCTPTransport.send(state.sctp_transport, channel_ref, data_type, data)
 
     handle_sctp_events(events, state)
 
     {:noreply, %{state | sctp_transport: sctp_transport}}
+  end
+
+  @impl true
+  def handle_cast({:send_data, _channel_ref, _data_type, _data}, state) do
+    {:noreply, state}
   end
 
   @impl true
@@ -1283,6 +1301,7 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info({:ex_ice, _from, {:connection_state_change, new_ice_state}}, state) do
     state = %{state | ice_state: new_ice_state}
+    notify(state.owner, {:ice_connection_state_change, new_ice_state})
     next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
     state = update_conn_state(state, next_conn_state)
 
@@ -1290,14 +1309,7 @@ defmodule ExWebRTC.PeerConnection do
       :ok = DTLSTransport.set_ice_connected(state.dtls_transport)
     end
 
-    notify(state.owner, {:ice_connection_state_change, new_ice_state})
-
-    if next_conn_state == :failed do
-      Logger.debug("Stopping PeerConnection")
-      {:stop, {:shutdown, :conn_state_failed}, state}
-    else
-      {:noreply, state}
-    end
+    {:noreply, state}
   end
 
   @impl true
