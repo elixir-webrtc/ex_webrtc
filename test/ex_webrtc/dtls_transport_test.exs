@@ -23,7 +23,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     use GenServer
 
     @impl true
-    def start_link(_mode, config), do: GenServer.start_link(__MODULE__, config)
+    def start_link(config), do: GenServer.start_link(__MODULE__, config)
 
     @impl true
     def on_data(ice_pid, dst_pid), do: GenServer.call(ice_pid, {:on_data, dst_pid})
@@ -41,6 +41,11 @@ defmodule ExWebRTC.DTLSTransportTest do
     def gather_candidates(ice_pid), do: ice_pid
 
     @impl true
+    def get_role(ice_pid) do
+      GenServer.call(ice_pid, :get_role)
+    end
+
+    @impl true
     def get_local_credentials(_state), do: {:ok, "testufrag", "testpwd"}
 
     @impl true
@@ -56,6 +61,11 @@ defmodule ExWebRTC.DTLSTransportTest do
     def set_remote_credentials(ice_pid, _ufrag, _pwd), do: ice_pid
 
     @impl true
+    def set_role(ice_pid, role) do
+      GenServer.cast(ice_pid, {:set_role, role})
+    end
+
+    @impl true
     def get_stats(_ice_pid), do: %{}
 
     @impl true
@@ -65,11 +75,21 @@ defmodule ExWebRTC.DTLSTransportTest do
 
     @impl true
     def init(tester: tester),
-      do: {:ok, %{on_data_dst: nil, tester: tester}}
+      do: {:ok, %{role: nil, on_data_dst: nil, tester: tester}}
 
     @impl true
     def handle_call({:on_data, dst_pid}, _from, state) do
       {:reply, :ok, %{state | on_data_dst: dst_pid}}
+    end
+
+    @impl true
+    def handle_call(:get_role, _from, state) do
+      {:reply, state.role, state}
+    end
+
+    @impl true
+    def handle_cast({:set_role, role}, state) do
+      {:noreply, %{state | role: role}}
     end
 
     @impl true
@@ -86,7 +106,7 @@ defmodule ExWebRTC.DTLSTransportTest do
   end
 
   setup do
-    {:ok, ice_pid} = MockICETransport.start_link(:controlled, tester: self())
+    {:ok, ice_pid} = MockICETransport.start_link(tester: self())
     assert {:ok, dtls} = DTLSTransport.start_link(MockICETransport, ice_pid)
     MockICETransport.on_data(ice_pid, dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :new}}

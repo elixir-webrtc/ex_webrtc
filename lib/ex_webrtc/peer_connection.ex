@@ -577,7 +577,7 @@ defmodule ExWebRTC.PeerConnection do
       on_data: nil
     ]
 
-    {:ok, ice_pid} = DefaultICETransport.start_link(:controlled, ice_config)
+    {:ok, ice_pid} = DefaultICETransport.start_link(ice_config)
     {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid)
     # route data to the DTLSTransport
     :ok = DefaultICETransport.on_data(ice_pid, dtls_transport)
@@ -1188,7 +1188,7 @@ defmodule ExWebRTC.PeerConnection do
         timestamp: timestamp,
         ice_state: ice_stats.state,
         ice_gathering_state: state.ice_gathering_state,
-        ice_role: ice_stats.role,
+        ice_role: ice_stats.role || :unknown,
         ice_local_ufrag: ice_stats.local_ufrag,
         dtls_state: state.dtls_state,
         bytes_sent: ice_stats.bytes_sent,
@@ -1360,6 +1360,8 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info({:dtls_transport, _pid, {:state_change, new_dtls_state}}, state) do
     next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
+
+    notify(state.owner, {:dtls_state_change, new_dtls_state})
 
     state =
       %{state | dtls_state: new_dtls_state}
@@ -1717,6 +1719,13 @@ defmodule ExWebRTC.PeerConnection do
     with {:ok, next_sig_state} <- next_signaling_state(state.signaling_state, :local, type),
          :ok <- check_altered(type, raw_sdp, state),
          {:ok, sdp} <- parse_sdp(raw_sdp) do
+      # See: https://www.w3.org/TR/webrtc/#ref-for-dfn-icerole-1
+      # Also, this has to be before gathering candidates.
+      # Note: If we add support for ice-lite, this code needs to be adjusted.
+      if state.ice_transport.get_role(state.ice_pid) == nil and type == :offer do
+        :ok = state.ice_transport.set_role(state.ice_pid, :controlling)
+      end
+
       if state.ice_gathering_state == :new do
         state.ice_transport.gather_candidates(state.ice_pid)
       end
@@ -1755,9 +1764,22 @@ defmodule ExWebRTC.PeerConnection do
          {:ok, sdp} <- parse_sdp(raw_sdp),
          :ok <- SDPUtils.ensure_valid(sdp),
          {:ok, ice_creds} <- SDPUtils.get_ice_credentials(sdp),
+         ice_lite <- SDPUtils.get_ice_lite(sdp),
          {:ok, {:fingerprint, {:sha256, peer_fingerprint}}} <- SDPUtils.get_cert_fingerprint(sdp),
          {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp) do
       config = Configuration.update(state.config, sdp)
+
+      # See: https://www.w3.org/TR/webrtc/#ref-for-dfn-icerole-1
+      # Note: If we add support for ice-lite, this code needs to be adjusted.
+      if state.ice_transport.get_role(state.ice_pid) == nil do
+        cond do
+          type == :offer and ice_lite == true ->
+            :ok = state.ice_transport.set_role(state.ice_pid, :controlling)
+
+          type == :offer and ice_lite == false ->
+            :ok = state.ice_transport.set_role(state.ice_pid, :controlled)
+        end
+      end
 
       twcc_id =
         (config.video_extensions ++ config.audio_extensions)

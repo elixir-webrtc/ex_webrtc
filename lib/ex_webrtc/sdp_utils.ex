@@ -139,6 +139,9 @@ defmodule ExWebRTC.SDPUtils do
     |> Enum.map(fn msid -> msid.id end)
   end
 
+  @spec get_ice_lite(ExSDP.t()) :: boolean()
+  def get_ice_lite(sdp), do: ExSDP.get_attribute(sdp, "ice-lite") != nil
+
   @spec get_ice_credentials(ExSDP.t()) ::
           {:ok, {binary(), binary()} | nil}
           | {:error,

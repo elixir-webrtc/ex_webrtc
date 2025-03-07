@@ -199,6 +199,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
                 ice_servers: [],
                 ice_transport_policy: :all,
                 ice_port_range: [0],
+                ice_role: :controlled,
                 audio_codecs: @default_audio_codecs,
                 video_codecs: @default_video_codecs,
                 features: @default_features
