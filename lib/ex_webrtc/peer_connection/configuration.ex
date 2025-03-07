@@ -14,21 +14,44 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @rid_uri "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"
   @rrid_uri "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id"
 
-  @default_audio_codecs [
-    %RTPCodecParameters{
-      payload_type: 111,
-      mime_type: "audio/opus",
-      clock_rate: 48_000,
-      channels: 2
+  @default_codec_params_opus %RTPCodecParameters{
+    payload_type: 111,
+    mime_type: "audio/opus",
+    clock_rate: 48_000,
+    channels: 2
+  }
+
+  @default_codec_params_vp8 %RTPCodecParameters{
+    payload_type: 96,
+    mime_type: "video/VP8",
+    clock_rate: 90_000
+  }
+
+  # Ensure we are using H264 with packetization_mode=1 by default
+  # (packetization_mode=0 has issues when switching layers)
+  @default_codec_params_h264 %RTPCodecParameters{
+    payload_type: 99,
+    mime_type: "video/H264",
+    clock_rate: 90_000,
+    sdp_fmtp_line: %FMTP{
+      pt: 99,
+      level_asymmetry_allowed: true,
+      packetization_mode: 1,
+      profile_level_id: 0x42E01F
     }
-  ]
+  }
+
+  @default_codec_params_av1 %RTPCodecParameters{
+    payload_type: 45,
+    mime_type: "video/AV1",
+    clock_rate: 90_000,
+    sdp_fmtp_line: %FMTP{pt: 45, level_idx: 5, profile: 0, tier: 0}
+  }
+
+  @default_audio_codecs [@default_codec_params_opus]
 
   @default_video_codecs [
-    %RTPCodecParameters{
-      payload_type: 96,
-      mime_type: "video/VP8",
-      clock_rate: 90_000
-    },
+    @default_codec_params_vp8,
     %RTPCodecParameters{
       payload_type: 98,
       mime_type: "video/H264",
@@ -40,24 +63,19 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         profile_level_id: 0x42E01F
       }
     },
-    %RTPCodecParameters{
-      payload_type: 99,
-      mime_type: "video/H264",
-      clock_rate: 90_000,
-      sdp_fmtp_line: %FMTP{
-        pt: 99,
-        level_asymmetry_allowed: true,
-        packetization_mode: 1,
-        profile_level_id: 0x42E01F
-      }
-    },
-    %RTPCodecParameters{
-      payload_type: 45,
-      mime_type: "video/AV1",
-      clock_rate: 90_000,
-      sdp_fmtp_line: %FMTP{pt: 45, level_idx: 5, profile: 0, tier: 0}
-    }
+    @default_codec_params_h264,
+    @default_codec_params_av1
   ]
+
+  @typedoc """
+  Allowed audio codec names which will get expanded to the relevant default `t:ExWebRTC.RTPCodecParameters.t/0`
+  """
+  @type audio_codec_name :: :opus
+
+  @typedoc """
+  Allowed video codec names which will get expanded to the relevant default `t:ExWebRTC.RTPCodecParameters.t/0`
+  """
+  @type video_codec_name :: :vp8 | :h264 | :av1
 
   @typedoc """
   ICE (STUN and/or TURN) server used to create the ICE connection.
@@ -142,6 +160,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   * `audio_codecs` and `video_codecs` - lists of audio and video codecs to negotiate. By default these are equal to
   `default_audio_codecs/0` and `default_video_codecs/0`. To extend the list with your own codecs, do
   `audio_codecs: Configuration.default_audio_codecs() ++ my_codecs`.
+  To use a subset of the default codecs, you can pass the atoms defined in `t:audio_codec_name/0` and `t:video_codec_name/0`.
   * `features` - feature flags for some of the ExWebRTC functinalities. Refer to `t:feature/0` for more information.
   * `rtp_header_extensions` - list of RTP header extensions to negotiate. Refer to `t:rtp_header_extension/0` for more information.
   * `rtcp_feedbacks` - list of RTCP feedbacks to negotiate. Refer to `t:rtcp_feedback/0` for more information.
@@ -162,8 +181,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_transport_policy: :relay | :all,
           ice_ip_filter: ICEAgent.ip_filter(),
           ice_port_range: Enumerable.t(non_neg_integer()),
-          audio_codecs: [RTPCodecParameters.t()],
-          video_codecs: [RTPCodecParameters.t()],
+          audio_codecs: [RTPCodecParameters.t()] | [audio_codec_name()],
+          video_codecs: [RTPCodecParameters.t()] | [video_codec_name()],
           features: [feature()],
           rtp_header_extensions: [rtp_header_extension()],
           rtcp_feedbacks: [rtcp_feedback()]
@@ -262,6 +281,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     options
     |> Keyword.put(:audio_extensions, Enum.map(audio_extensions, fn {_, ext} -> ext end))
     |> Keyword.put(:video_extensions, Enum.map(video_extensions, fn {_, ext} -> ext end))
+    |> expand_default_codecs()
     |> then(&struct(__MODULE__, &1))
     |> ensure_unique_payload_types()
     |> populate_feedbacks(feedbacks)
@@ -671,4 +691,36 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       end
     end)
   end
+
+  @doc false
+  @spec expand_default_codecs(options()) :: options()
+  def expand_default_codecs(options) do
+    options
+    |> expand_default_codecs(:audio_codecs)
+    |> expand_default_codecs(:video_codecs)
+  end
+
+  defp expand_default_codecs(options, key) do
+    codecs = Keyword.get(options, key, [])
+
+    cond do
+      Enum.all?(codecs, &is_struct(&1, RTPCodecParameters)) ->
+        options
+
+      Enum.all?(codecs, &is_atom/1) ->
+        expanded_codecs = Enum.map(codecs, &expand_default_codec/1)
+        Keyword.put(options, key, expanded_codecs)
+
+      true ->
+        raise """
+        #{inspect(key)} passed to PeerConnection cannot be mixed: either use only atoms, or only RTPCodecParameters.
+        """
+    end
+  end
+
+  defp expand_default_codec(:opus), do: @default_codec_params_opus
+  defp expand_default_codec(:vp8), do: @default_codec_params_vp8
+  defp expand_default_codec(:h264), do: @default_codec_params_h264
+  defp expand_default_codec(:av1), do: @default_codec_params_av1
+  defp expand_default_codec(other), do: raise("Unknown codec name: #{inspect(other)}")
 end
