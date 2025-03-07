@@ -162,6 +162,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_transport_policy: :relay | :all,
           ice_ip_filter: ICEAgent.ip_filter(),
           ice_port_range: Enumerable.t(non_neg_integer()),
+          ice_role: ICEAgent.role(),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
           features: [feature()],
@@ -181,6 +182,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_transport_policy: :relay | :all,
           ice_ip_filter: (:inet.ip_address() -> boolean()) | nil,
           ice_port_range: Enumerable.t(non_neg_integer()),
+          ice_role: ICEAgent.role(),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
           audio_extensions: [Extmap.t()],
@@ -199,6 +201,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
                 ice_servers: [],
                 ice_transport_policy: :all,
                 ice_port_range: [0],
+                ice_role: :controlled,
                 audio_codecs: @default_audio_codecs,
                 video_codecs: @default_video_codecs,
                 features: @default_features

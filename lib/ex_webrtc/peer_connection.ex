@@ -577,7 +577,7 @@ defmodule ExWebRTC.PeerConnection do
       on_data: nil
     ]
 
-    {:ok, ice_pid} = DefaultICETransport.start_link(:controlled, ice_config)
+    {:ok, ice_pid} = DefaultICETransport.start_link(config.ice_role, ice_config)
     {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid)
     # route data to the DTLSTransport
     :ok = DefaultICETransport.on_data(ice_pid, dtls_transport)
