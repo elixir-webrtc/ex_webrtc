@@ -54,7 +54,7 @@ defmodule ExWebRTC.PeerConnection do
           :new | :checking | :connected | :completed | :failed | :disconnected | :closed
 
   @typedoc """
-  Possible DTLS transport state.
+  Possible DTLS transport states.
 
   For the exact meaning, refer to the [RTCDtlsTransport: state property](https://developer.mozilla.org/en-US/docs/Web/API/RTCDtlsTransport/state)
   """
@@ -73,10 +73,10 @@ defmodule ExWebRTC.PeerConnection do
   Most of the messages match the [RTCPeerConnection events](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection#events),
   except for:
   * `:dtls_transport_state_change` - traditional WebRTC implementation does not emit such event.
-  Instead, developer can read DTLS transport state by iterating over RTP receiver/senders, and checking their
+  Instead, developer can read DTLS transport state by iterating over RTP receivers/senders, and checking their
   DTLS transports states. See https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpSender/transport.
   However, because Elixir WebRTC creates a single DTLS transport for all receivers and senders, there is one generic
-  notification informing about DTLS transport state.
+  notification for convenience and parity with other events informing about ice/signaling/connection state changes.
   * `:track_muted`, `:track_ended` - these match the [MediaStreamTrack events](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack#events).
   * `:data` - data received from DataChannel identified by its `ref`.
   * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection. The third element of `:rtp` tuple is a simulcast RID and is set to `nil` if simulcast
@@ -1748,9 +1748,7 @@ defmodule ExWebRTC.PeerConnection do
          :ok <- check_altered(type, raw_sdp, state),
          {:ok, sdp} <- parse_sdp(raw_sdp),
          ice_lite <- SDPUtils.get_ice_lite(sdp) do
-      # See: https://www.w3.org/TR/webrtc/#ref-for-dfn-icerole-1
-      # Also, this has to be before gathering candidates.
-      # Note: If we add support for ice-lite, this code needs to be adjusted.
+      # This has to be called before gathering candidates.
       if state.ice_transport.get_role(state.ice_pid) == nil do
         set_ice_role(state, :local, type, ice_lite)
       end
@@ -1798,8 +1796,6 @@ defmodule ExWebRTC.PeerConnection do
          {:ok, dtls_role} <- SDPUtils.get_dtls_role(sdp) do
       config = Configuration.update(state.config, sdp)
 
-      # See: https://www.w3.org/TR/webrtc/#ref-for-dfn-icerole-1
-      # Note: If we add support for ice-lite, this code needs to be adjusted.
       if state.ice_transport.get_role(state.ice_pid) == nil do
         set_ice_role(state, :remote, type, ice_lite)
       end
@@ -1967,8 +1963,13 @@ defmodule ExWebRTC.PeerConnection do
     %{state | pending_remote_desc: {type, sdp}}
   end
 
-  defp set_ice_role(state, :local, :offer, _ice_lite) do
+  # See: https://www.w3.org/TR/webrtc/#ref-for-dfn-icerole-1
+  defp set_ice_role(state, :local, :offer, false) do
     :ok = state.ice_transport.set_role(state.ice_pid, :controlling)
+  end
+
+  defp set_ice_role(state, :local, :offer, true) do
+    :ok = state.ice_transport.set_role(state.ice_pid, :controlled)
   end
 
   defp set_ice_role(state, :remote, :offer, true) do
