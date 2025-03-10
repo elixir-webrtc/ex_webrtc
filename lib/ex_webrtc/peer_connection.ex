@@ -1746,12 +1746,13 @@ defmodule ExWebRTC.PeerConnection do
   defp apply_local_description(%SessionDescription{type: type, sdp: raw_sdp}, state) do
     with {:ok, next_sig_state} <- next_signaling_state(state.signaling_state, :local, type),
          :ok <- check_altered(type, raw_sdp, state),
-         {:ok, sdp} <- parse_sdp(raw_sdp) do
+         {:ok, sdp} <- parse_sdp(raw_sdp),
+         ice_lite <- SDPUtils.get_ice_lite(sdp) do
       # See: https://www.w3.org/TR/webrtc/#ref-for-dfn-icerole-1
       # Also, this has to be before gathering candidates.
       # Note: If we add support for ice-lite, this code needs to be adjusted.
-      if state.ice_transport.get_role(state.ice_pid) == nil and type == :offer do
-        :ok = state.ice_transport.set_role(state.ice_pid, :controlling)
+      if state.ice_transport.get_role(state.ice_pid) == nil do
+        set_ice_role(state, :local, type, ice_lite)
       end
 
       if state.ice_gathering_state == :new do
@@ -1800,13 +1801,7 @@ defmodule ExWebRTC.PeerConnection do
       # See: https://www.w3.org/TR/webrtc/#ref-for-dfn-icerole-1
       # Note: If we add support for ice-lite, this code needs to be adjusted.
       if state.ice_transport.get_role(state.ice_pid) == nil do
-        cond do
-          type == :offer and ice_lite == true ->
-            :ok = state.ice_transport.set_role(state.ice_pid, :controlling)
-
-          type == :offer and ice_lite == false ->
-            :ok = state.ice_transport.set_role(state.ice_pid, :controlled)
-        end
+        set_ice_role(state, :remote, type, ice_lite)
       end
 
       twcc_id =
@@ -1970,6 +1965,18 @@ defmodule ExWebRTC.PeerConnection do
 
   defp set_description(state, :remote, type, sdp) when type in [:offer, :pranswer] do
     %{state | pending_remote_desc: {type, sdp}}
+  end
+
+  defp set_ice_role(state, :local, :offer, _ice_lite) do
+    :ok = state.ice_transport.set_role(state.ice_pid, :controlling)
+  end
+
+  defp set_ice_role(state, :remote, :offer, true) do
+    :ok = state.ice_transport.set_role(state.ice_pid, :controlling)
+  end
+
+  defp set_ice_role(state, :remote, :offer, false) do
+    :ok = state.ice_transport.set_role(state.ice_pid, :controlled)
   end
 
   defp parse_sdp(raw_sdp) do
