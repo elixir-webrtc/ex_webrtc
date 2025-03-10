@@ -54,6 +54,13 @@ defmodule ExWebRTC.PeerConnection do
           :new | :checking | :connected | :completed | :failed | :disconnected | :closed
 
   @typedoc """
+  Possible DTLS transport state.
+
+  For the exact meaning, refer to the [RTCDtlsTransport: state property](https://developer.mozilla.org/en-US/docs/Web/API/RTCDtlsTransport/state)
+  """
+  @type dtls_transport_state() :: :new | :connecting | :connected | :failed
+
+  @typedoc """
   Possible signaling states.
 
   For the exact meaning, refer to the [RTCPeerConnection: signalingState property](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/signalingState).
@@ -65,6 +72,11 @@ defmodule ExWebRTC.PeerConnection do
 
   Most of the messages match the [RTCPeerConnection events](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection#events),
   except for:
+  * `:dtls_transport_state_change` - traditional WebRTC implementation does not emit such event.
+  Instead, developer can read DTLS transport state by iterating over RTP receiver/senders, and checking their
+  DTLS transports states. See https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpSender/transport.
+  However, because Elixir WebRTC creates a single DTLS transport for all receivers and senders, there is one generic
+  notification informing about DTLS transport state.
   * `:track_muted`, `:track_ended` - these match the [MediaStreamTrack events](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack#events).
   * `:data` - data received from DataChannel identified by its `ref`.
   * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection. The third element of `:rtp` tuple is a simulcast RID and is set to `nil` if simulcast
@@ -79,6 +91,7 @@ defmodule ExWebRTC.PeerConnection do
            | {:ice_candidate, ICECandidate.t()}
            | {:ice_connection_state_change, ice_connection_state()}
            | {:ice_gathering_state_change, ice_gathering_state()}
+           | {:dtls_transport_state_change, dtls_transport_state()}
            | :negotiation_needed
            | {:signaling_state_change, signaling_state()}
            | {:data_channel_state_change, DataChannel.ref(), DataChannel.ready_state()}
@@ -290,6 +303,16 @@ defmodule ExWebRTC.PeerConnection do
   @spec get_ice_gathering_state(peer_connection()) :: ice_gathering_state()
   def get_ice_gathering_state(peer_connection) do
     GenServer.call(peer_connection, :get_ice_gathering_state)
+  end
+
+  @doc """
+  Returns the DTLS transport state.
+
+  For more information, refer to the [RTCDtlsTransport: state property](https://developer.mozilla.org/en-US/docs/Web/API/RTCDtlsTransport/state).
+  """
+  @spec get_dtls_transport_state(peer_connection()) :: dtls_transport_state()
+  def get_dtls_transport_state(peer_connection) do
+    GenServer.call(peer_connection, :get_dtls_transport_state)
   end
 
   @doc """
@@ -673,6 +696,11 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call(:get_ice_gathering_state, _from, state) do
     {:reply, state.ice_gathering_state, state}
+  end
+
+  @impl true
+  def handle_call(:get_dtls_transport_state, _from, state) do
+    {:reply, state.dtls_state, state}
   end
 
   @impl true
@@ -1359,9 +1387,9 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:dtls_transport, _pid, {:state_change, new_dtls_state}}, state) do
-    next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
+    notify(state.owner, {:dtls_transport_state_change, new_dtls_state})
 
-    notify(state.owner, {:dtls_state_change, new_dtls_state})
+    next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
 
     state =
       %{state | dtls_state: new_dtls_state}
