@@ -298,6 +298,11 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = PeerConnection.close(pc2)
   end
 
+  test "get_dtls_transport_state/1" do
+    {:ok, pc} = PeerConnection.start_link()
+    assert PeerConnection.get_dtls_transport_state(pc) == :new
+  end
+
   describe "get_local_description/1" do
     test "includes ICE candidates" do
       {:ok, pc} = PeerConnection.start()
@@ -970,7 +975,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert is_binary(stats.local_certificate.fingerprint)
     assert is_binary(stats.local_certificate.base64_certificate)
 
-    assert stats.transport.ice_role in [:controlling, :controlled]
+    assert stats.transport.ice_role == :unknown
     assert is_binary(stats.transport.ice_local_ufrag)
 
     groups = Enum.group_by(Map.values(stats), & &1.type)
