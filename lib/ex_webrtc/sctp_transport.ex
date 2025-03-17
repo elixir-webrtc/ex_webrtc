@@ -279,7 +279,7 @@ if Code.ensure_loaded?(ExSCTP) do
 
           ExSCTP.close_stream(sctp_transport.ref, id)
 
-          case Enum.find_value(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
+          case Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
             {ref, %DataChannel{}} ->
               channels = Map.delete(sctp_transport.channels, ref)
               stats = Map.delete(sctp_transport.stats, ref)

@@ -8,6 +8,8 @@ defmodule ExWebRTC.SCTPTransport.DCEP do
     defstruct []
 
     def decode(<<>>), do: {:ok, %__MODULE__{}}
+    # Some implementations (e.g. Pion) seems to pad DataChannelAck to 4 bytes. Accept them.
+    def decode(<<_, _, _>>), do: {:ok, %__MODULE__{}}
     def decode(_other), do: :error
 
     def encode(%__MODULE__{}), do: <<0x02>>
