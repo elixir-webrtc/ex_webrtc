@@ -157,6 +157,13 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   * `ice_transport_policy` - which type of ICE candidates should be used. Defaults to `:all`.
   * `ice_ip_filter` - filter applied when gathering local candidates. By default, all IP addresses are accepted.
   * `ice_port_range` - range of ports that ICE will use for gathering host candidates. Defaults to ephemeral ports.
+  * `ice_aggressive_nomination` - whether ICE agent should use aggressive nomination. By default, ICE agent
+  relies on the regular nomination defined in RFC 8445. However, some WebRTC implementations require
+  the controlling side to nominate a pair before they can start sending data (e.g. Pion, Firefox).
+  This can result in longer, connection establishment time as regular nomination nominates only one pair,
+  at the very end of the whole connection establishment process. To mitigate this issue, you can eitehr add an empty
+  ICE candidate (this will indicate that there won't be further remote candidates and once all connectivity checks pass,
+  ICE will nominate the pair), or use aggressive nomination. Defaults to false.
   * `audio_codecs` and `video_codecs` - lists of audio and video codecs to negotiate. By default these are equal to
   `default_audio_codecs/0` and `default_video_codecs/0`. To extend the list with your own codecs, do
   `audio_codecs: Configuration.default_audio_codecs() ++ my_codecs`.
@@ -181,6 +188,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_transport_policy: :relay | :all,
           ice_ip_filter: ICEAgent.ip_filter(),
           ice_port_range: Enumerable.t(non_neg_integer()),
+          ice_aggressive_nomination: boolean(),
           audio_codecs: [RTPCodecParameters.t()] | [audio_codec_name()],
           video_codecs: [RTPCodecParameters.t()] | [video_codec_name()],
           features: [feature()],
@@ -200,6 +208,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_transport_policy: :relay | :all,
           ice_ip_filter: (:inet.ip_address() -> boolean()) | nil,
           ice_port_range: Enumerable.t(non_neg_integer()),
+          ice_aggressive_nomination: boolean(),
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
           audio_extensions: [Extmap.t()],
@@ -218,6 +227,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
                 ice_servers: [],
                 ice_transport_policy: :all,
                 ice_port_range: [0],
+                ice_aggressive_nomination: false,
                 audio_codecs: @default_audio_codecs,
                 video_codecs: @default_video_codecs,
                 features: @default_features

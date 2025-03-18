@@ -596,6 +596,7 @@ defmodule ExWebRTC.PeerConnection do
       ice_servers: config.ice_servers,
       ice_transport_policy: config.ice_transport_policy,
       ip_filter: config.ice_ip_filter,
+      aggressive_nomination: config.ice_aggressive_nomination,
       ports: config.ice_port_range,
       on_data: nil
     ]
