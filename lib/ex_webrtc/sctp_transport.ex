@@ -475,7 +475,8 @@ else
 
     def new, do: nil
     def set_role(_, _), do: nil
-    def data_channels?(_), do: false
+    # Compiler complains about this function always returning false. Hence, Code.ensure_loaded?.
+    def data_channels?(_), do: Code.ensure_loaded?(ExSCTP)
     def channel_count(_), do: 0
     def get_stats(_, _), do: []
 

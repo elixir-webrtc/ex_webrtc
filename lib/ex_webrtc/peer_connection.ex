@@ -26,6 +26,11 @@ defmodule ExWebRTC.PeerConnection do
     Utils
   }
 
+  if not Code.ensure_loaded?(ExSCTP) do
+    @sctp_error_text "DataChannel support is turned off"
+    @sctp_tip "Install Rust and add `ex_sctp` dependency to your project in order to enable DataChannels."
+  end
+
   @twcc_interval 100
   @twcc_uri "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
 
@@ -1060,46 +1065,63 @@ defmodule ExWebRTC.PeerConnection do
     end
   end
 
-  @impl true
-  def handle_call({:create_data_channel, label, opts}, _from, state) do
-    ordered = Keyword.get(opts, :ordered, true)
-    lifetime = Keyword.get(opts, :max_packet_life_time)
-    max_rtx = Keyword.get(opts, :max_retransmits)
-    protocol = Keyword.get(opts, :protocol, "")
+  if Code.ensure_loaded?(ExSCTP) do
+    @impl true
+    def handle_call({:create_data_channel, label, opts}, _from, state) do
+      ordered = Keyword.get(opts, :ordered, true)
+      lifetime = Keyword.get(opts, :max_packet_life_time)
+      max_rtx = Keyword.get(opts, :max_retransmits)
+      protocol = Keyword.get(opts, :protocol, "")
 
-    with true <- byte_size(label) < 65_535,
-         true <- lifetime == nil or max_rtx == nil do
-      {events, channel, sctp_transport} =
-        SCTPTransport.add_channel(
-          state.sctp_transport,
-          label,
-          ordered,
-          protocol,
-          lifetime,
-          max_rtx
-        )
+      with true <- byte_size(label) < 65_535,
+           true <- lifetime == nil or max_rtx == nil do
+        {events, channel, sctp_transport} =
+          SCTPTransport.add_channel(
+            state.sctp_transport,
+            label,
+            ordered,
+            protocol,
+            lifetime,
+            max_rtx
+          )
 
-      state = update_negotiation_needed(%{state | sctp_transport: sctp_transport})
+        state = update_negotiation_needed(%{state | sctp_transport: sctp_transport})
 
-      handle_sctp_events(events, state)
-      {:reply, {:ok, channel}, state}
-    else
-      _other -> {:reply, {:error, :invalid_option}, state}
+        handle_sctp_events(events, state)
+        {:reply, {:ok, channel}, state}
+      else
+        _other -> {:reply, {:error, :invalid_option}, state}
+      end
     end
-  end
 
-  @impl true
-  def handle_call({:close_data_channel, channel_ref}, _from, state) do
-    {events, sctp_transport} = SCTPTransport.close_channel(state.sctp_transport, channel_ref)
-    handle_sctp_events(events, state)
+    @impl true
+    def handle_call({:close_data_channel, channel_ref}, _from, state) do
+      {events, sctp_transport} = SCTPTransport.close_channel(state.sctp_transport, channel_ref)
+      handle_sctp_events(events, state)
 
-    {:reply, :ok, %{state | sctp_transport: sctp_transport}}
-  end
+      {:reply, :ok, %{state | sctp_transport: sctp_transport}}
+    end
 
-  @impl true
-  def handle_call({:get_data_channel, channel_ref}, _from, state) do
-    channel = SCTPTransport.get_channel(state.sctp_transport, channel_ref)
-    {:reply, channel, state}
+    @impl true
+    def handle_call({:get_data_channel, channel_ref}, _from, state) do
+      channel = SCTPTransport.get_channel(state.sctp_transport, channel_ref)
+      {:reply, channel, state}
+    end
+  else
+    @impl true
+    def handle_call({:create_data_channel, _label, _opts}, _from, _state) do
+      raise("#{@sctp_error_text} #{@sctp_tip}")
+    end
+
+    @impl true
+    def handle_call({:close_data_channel, _channel_ref}, _from, _state) do
+      raise("#{@sctp_error_text} #{@sctp_tip}")
+    end
+
+    @impl true
+    def handle_call({:get_data_channel, _channel_ref}, _from, _state) do
+      raise("#{@sctp_error_text} #{@sctp_tip}")
+    end
   end
 
   @impl true
@@ -1340,20 +1362,27 @@ defmodule ExWebRTC.PeerConnection do
     {:noreply, state}
   end
 
-  @impl true
-  def handle_cast({:send_data, channel_ref, data_type, data}, %{conn_state: conn_state} = state)
-      when conn_state != :failed do
-    {events, sctp_transport} =
-      SCTPTransport.send(state.sctp_transport, channel_ref, data_type, data)
+  if Code.ensure_loaded?(ExSCTP) do
+    @impl true
+    def handle_cast({:send_data, channel_ref, data_type, data}, %{conn_state: conn_state} = state)
+        when conn_state != :failed do
+      {events, sctp_transport} =
+        SCTPTransport.send(state.sctp_transport, channel_ref, data_type, data)
 
-    handle_sctp_events(events, state)
+      handle_sctp_events(events, state)
 
-    {:noreply, %{state | sctp_transport: sctp_transport}}
-  end
+      {:noreply, %{state | sctp_transport: sctp_transport}}
+    end
 
-  @impl true
-  def handle_cast({:send_data, _channel_ref, _data_type, _data}, state) do
-    {:noreply, state}
+    @impl true
+    def handle_cast({:send_data, _channel_ref, _data_type, _data}, state) do
+      {:noreply, state}
+    end
+  else
+    @impl true
+    def handle_cast({:send_data, _channel_ref, _data_type, _data}, _state) do
+      raise("#{@sctp_error_text} #{@sctp_tip}")
+    end
   end
 
   @impl true
@@ -1567,12 +1596,14 @@ defmodule ExWebRTC.PeerConnection do
     {:noreply, %{state | transceivers: transceivers}}
   end
 
-  @impl true
-  def handle_info(:sctp_timeout, state) do
-    {events, sctp_transport} = SCTPTransport.handle_timeout(state.sctp_transport)
-    handle_sctp_events(events, state)
+  if Code.ensure_loaded?(ExSCTP) do
+    @impl true
+    def handle_info(:sctp_timeout, state) do
+      {events, sctp_transport} = SCTPTransport.handle_timeout(state.sctp_transport)
+      handle_sctp_events(events, state)
 
-    {:noreply, %{state | sctp_transport: sctp_transport}}
+      {:noreply, %{state | sctp_transport: sctp_transport}}
+    end
   end
 
   @impl true
