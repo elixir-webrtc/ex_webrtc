@@ -968,7 +968,9 @@ defmodule ExWebRTC.PeerConnectionTest do
                bytes_sent: 0,
                bytes_received: 0,
                packets_sent: 0,
-               packets_received: 0
+               packets_received: 0,
+               selected_candidate_pair_changes: 0,
+               unmatched_requests: 0
              }
            } = stats = PeerConnection.get_stats(pc1)
 

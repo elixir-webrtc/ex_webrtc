@@ -1155,13 +1155,22 @@ defmodule ExWebRTC.PeerConnection do
         type: :candidate_pair,
         local_candidate_id: pair.local_cand_id,
         remote_candidate_id: pair.remote_cand_id,
+        priority: pair.priority,
         state: pair.state,
+        valid: pair.valid?,
+        last_seen: pair.last_seen,
         nominated: pair.nominated?,
-        requests_received: pair.requests_received,
+        packets_sent: pair.packets_sent,
+        packets_received: pair.packets_received,
+        bytes_sent: pair.bytes_sent,
+        bytes_received: pair.bytes_received,
         requests_sent: pair.requests_sent,
+        requests_received: pair.requests_received,
+        responses_sent: pair.responses_sent,
         responses_received: pair.responses_received,
         non_symmetric_responses_received: pair.non_symmetric_responses_received,
-        responses_sent: pair.responses_sent
+        packets_discarded_on_send: pair.packets_discarded_on_send,
+        bytes_discarded_on_send: pair.bytes_discarded_on_send
       }
     end
 
@@ -1223,7 +1232,9 @@ defmodule ExWebRTC.PeerConnection do
         bytes_sent: ice_stats.bytes_sent,
         bytes_received: ice_stats.bytes_received,
         packets_sent: ice_stats.packets_sent,
-        packets_received: ice_stats.packets_received
+        packets_received: ice_stats.packets_received,
+        selected_candidate_pair_changes: ice_stats.selected_candidate_pair_changes,
+        unmatched_requests: ice_stats.unmatched_requests
       }
     }
 
