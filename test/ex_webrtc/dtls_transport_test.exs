@@ -130,7 +130,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     remote_dtls = ExDTLS.init(mode: :client, dtls_srtp: true)
     {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
 
-    ice_transport.send_dtls(ice_pid, {:data, packets})
+    Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
     refute_receive {:mock_ice, _packets}
 
     :ok = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
@@ -182,7 +182,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     remote_dtls = ExDTLS.init(mode: :client, dtls_srtp: true)
     {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
 
-    ice_transport.send_dtls(ice_pid, {:data, packets})
+    Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
     refute_receive {:mock_ice, _packets}
 
     :ok = DTLSTransport.set_ice_connected(dtls)
@@ -231,7 +231,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
     :ok = DTLSTransport.set_ice_connected(dtls)
 
-    ice_transport.send_dtls(ice_pid, {:data, packets})
+    Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
 
     assert :ok == check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
@@ -282,12 +282,15 @@ defmodule ExWebRTC.DTLSTransportTest do
     assert_receive {:mock_ice, packets}
 
     case ExDTLS.handle_data(remote_dtls, packets) do
+      :handshake_want_read ->
+        check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
+
       {:handshake_packets, packets, _timeout} ->
-        ice_transport.send_dtls(ice_pid, {:data, packets})
+        Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
         check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
 
       {:handshake_finished, _, _, _, packets} ->
-        ice_transport.send_dtls(ice_pid, {:data, packets})
+        Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
         :ok
 
       {:handshake_finished, _, _, _} ->
