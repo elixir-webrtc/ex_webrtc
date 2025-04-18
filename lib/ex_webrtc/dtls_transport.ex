@@ -242,7 +242,7 @@ defmodule ExWebRTC.DTLSTransport do
   @impl true
   def handle_cast({:send_rtp, data}, %{dtls_state: :connected, ice_connected: true} = state) do
     case ExLibSRTP.protect(state.out_srtp, data) do
-      {:ok, protected} -> do_send(state, protected)
+      {:ok, protected} -> :ok = do_send(state, protected)
       {:error, reason} -> Logger.warning("Unable to protect RTP: #{inspect(reason)}")
     end
 
@@ -274,7 +274,7 @@ defmodule ExWebRTC.DTLSTransport do
   @impl true
   def handle_cast({:send_data, data}, %{dtls_state: :connected, ice_connected: true} = state) do
     case ExDTLS.write_data(state.dtls, data) do
-      {:ok, protected} -> do_send(state, protected)
+      {:ok, packets} -> :ok = do_send(state, packets)
       {:error, reason} -> Logger.warning("Unable to protect data: #{inspect(reason)}")
     end
 
@@ -297,7 +297,7 @@ defmodule ExWebRTC.DTLSTransport do
   def handle_info(:dtls_timeout, %{buffered_local_packets: buffered_local_packets} = state) do
     case ExDTLS.handle_timeout(state.dtls) do
       {:retransmit, packets, timeout} when state.ice_connected ->
-        do_send(state, packets)
+        :ok = do_send(state, packets)
         Logger.debug("Retransmitted DTLS packets")
         Process.send_after(self(), :dtls_timeout, timeout)
 
@@ -374,7 +374,7 @@ defmodule ExWebRTC.DTLSTransport do
       {:handshake_finished, lkm, rkm, profile, packets} ->
         Logger.debug("DTLS handshake finished")
         state = update_remote_cert_info(state)
-        do_send(state, packets)
+        :ok = do_send(state, packets)
 
         peer_fingerprint =
           state.dtls
@@ -492,6 +492,10 @@ defmodule ExWebRTC.DTLSTransport do
     end
 
     %{state | buffered_remote_rtp_packets: []}
+  end
+
+  defp do_send(state, data) when is_list(data) do
+    Enum.each(data, &(:ok = do_send(state, &1)))
   end
 
   defp do_send(%{packet_loss: 0} = state, data),
