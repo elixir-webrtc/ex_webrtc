@@ -13,13 +13,11 @@ defmodule ExWebRTC.RTP.Depayloader.G711 do
   defstruct []
 
   @impl true
-  @spec new() :: t()
   def new() do
     %__MODULE__{}
   end
 
   @impl true
-  @spec depayload(t(), Packet.t()) :: {binary(), t()}
   def depayload(%__MODULE__{} = depayloader, %Packet{payload: payload}),
     do: {payload, depayloader}
 end

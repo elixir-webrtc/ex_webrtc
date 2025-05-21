@@ -24,10 +24,11 @@ defmodule ExWebRTC.RTP.Depayloader do
   @doc """
   Processes binary data from a single RTP packet, and outputs a frame if assembled.
 
-  Returns the frame (or `nil` if a frame could not be depayloaded yet)
-  together with the updated depayloader.
+  Returns a tuple where the first element is a frame, dtmf event (map), or `nil` if a frame/dtmf event
+  could not be depayloaded yet, and the second element is the updated depayloader.
   """
-  @spec depayload(depayloader(), ExRTP.Packet.t()) :: {binary() | nil, depayloader()}
+  @spec depayload(depayloader(), ExRTP.Packet.t()) ::
+          {(frame :: binary()) | (dtmf_event :: map()) | nil, depayloader()}
   def depayload(%module{} = depayloader, packet) do
     module.depayload(depayloader, packet)
   end
@@ -38,6 +39,7 @@ defmodule ExWebRTC.RTP.Depayloader do
       "audio/opus" -> {:ok, ExWebRTC.RTP.Depayloader.Opus}
       "audio/pcma" -> {:ok, ExWebRTC.RTP.Depayloader.G711}
       "audio/pcmu" -> {:ok, ExWebRTC.RTP.Depayloader.G711}
+      "audio/telephone-event" -> {:ok, ExWebRTC.RTP.Depayloader.DTMF}
       _other -> {:error, :no_depayloader_for_codec}
     end
   end

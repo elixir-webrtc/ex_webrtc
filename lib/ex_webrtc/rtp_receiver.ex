@@ -16,7 +16,9 @@ defmodule ExWebRTC.RTPReceiver do
   @type receiver() :: %{
           id: id(),
           track: MediaStreamTrack.t(),
+          # codec is the codec (to be precise its clock rate) used for initializing RTCP report generators
           codec: RTPCodecParameters.t() | nil,
+          codecs: %{(payload_type :: non_neg_integer()) => RTPCodecParameters.t()},
           simulcast_demuxer: SimulcastDemuxer.t(),
           reports?: boolean(),
           inbound_rtx?: boolean(),
@@ -41,7 +43,8 @@ defmodule ExWebRTC.RTPReceiver do
   The fields mostly match these of [RTCRtpReceiver](https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpReceiver),
   except for:
   * `id` - to uniquely identify the receiver.
-  * `codec` - codec this receiver is expected to receive.
+  * `codec` - codec whose clock rate was used to initialize RTCP report generators. Can change after renegotiation.
+  To see all codecs this receiver is able to receive, see transceiver's codecs.
   """
   @type t() :: %__MODULE__{
           id: id(),
@@ -65,12 +68,14 @@ defmodule ExWebRTC.RTPReceiver do
   def new(track, codecs, rtp_hdr_exts, features) do
     {_rtx_codecs, media_codecs} = Utils.split_rtx_codecs(codecs)
     codec = List.first(media_codecs)
+    codecs = Map.new(media_codecs, fn codec -> {codec.payload_type, codec} end)
 
     # layer `nil` is for the packets without RID/ no simulcast
     %{
       id: Utils.generate_id(),
       track: track,
       codec: codec,
+      codecs: codecs,
       simulcast_demuxer: SimulcastDemuxer.new(rtp_hdr_exts),
       reports?: :rtcp_reports in features,
       inbound_rtx?: :inbound_rtx in features,
@@ -83,6 +88,7 @@ defmodule ExWebRTC.RTPReceiver do
   def update(receiver, codecs, rtp_hdr_exts, stream_ids) do
     {_rtx_codecs, media_codecs} = Utils.split_rtx_codecs(codecs)
     codec = List.first(media_codecs)
+    codecs = Map.new(media_codecs, fn codec -> {codec.payload_type, codec} end)
     simulcast_demuxer = SimulcastDemuxer.update(receiver.simulcast_demuxer, rtp_hdr_exts)
     track = %MediaStreamTrack{receiver.track | streams: stream_ids}
 
@@ -99,6 +105,7 @@ defmodule ExWebRTC.RTPReceiver do
     %{
       receiver
       | codec: codec,
+        codecs: codecs,
         simulcast_demuxer: simulcast_demuxer,
         layers: layers,
         track: track
@@ -107,11 +114,23 @@ defmodule ExWebRTC.RTPReceiver do
 
   @doc false
   @spec receive_packet(receiver(), ExRTP.Packet.t(), non_neg_integer()) ::
-          {String.t() | nil, receiver()}
+          {:ok, String.t() | nil, receiver()} | {:error, receiver()}
   def receive_packet(receiver, packet, size) do
-    if packet.payload_type != receiver.codec.payload_type do
-      Logger.warning("Received packet with unexpected payload_type \
-(received #{packet.payload_type}, expected #{receiver.codec.payload_type})")
+    packet_codec = Map.get(receiver.codecs, packet.payload_type)
+
+    if packet_codec == nil do
+      Logger.warning("""
+      Received packet with unexpected payload_type \
+      (received #{packet.payload_type}, expected #{inspect(Map.keys(receiver.codecs), charlists: :as_lists)})\
+      """)
+    end
+
+    if packet_codec != nil and receiver.codec.clock_rate != packet_codec.clock_rate do
+      Logger.warning("""
+      Received packet with non-matching clock-rate. This can result \
+      in incorrect jitter in RTCP reports. Expected: #{receiver.codec.clock_rate}, \
+      received: #{packet_codec.clock_rate}\
+      """)
     end
 
     {rid, simulcast_demuxer} = SimulcastDemuxer.demux_packet(receiver.simulcast_demuxer, packet)
@@ -151,7 +170,11 @@ defmodule ExWebRTC.RTPReceiver do
         simulcast_demuxer: simulcast_demuxer
     }
 
-    {rid, receiver}
+    if packet_codec == nil do
+      {:error, receiver}
+    else
+      {:ok, rid, receiver}
+    end
   end
 
   @doc false

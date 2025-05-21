@@ -4,7 +4,7 @@ defmodule ExWebRTC.RTP.VP8.DepayloaderTest do
   alias ExWebRTC.RTP.Depayloader
   alias ExWebRTC.RTP.VP8.Payload
 
-  test "write/2" do
+  test "depayload/2" do
     depayloader = Depayloader.VP8.new()
     # random vp8 data, not necessarily correct
     data = <<0, 1, 2, 3>>
