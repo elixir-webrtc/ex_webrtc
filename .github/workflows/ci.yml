@@ -14,74 +14,85 @@ jobs:
     name: CI on OTP ${{matrix.otp}} / Elixir ${{matrix.elixir}}
     strategy:
       matrix:
-        otp: ['27']
-        elixir: ['1.17']
+        otp: ["27"]
+        elixir: ["1.17"]
     steps:
-    - name: Set up Elixir
-      uses: erlef/setup-beam@v1
-      with:
-        otp-version: ${{matrix.otp}}
-        elixir-version: ${{matrix.elixir}}
+      - name: "Interfaces"
+        run: |
+          echo "Listing Network Interfaces:"
+          ip link show
 
-    - name: Checkout the code
-      uses: actions/checkout@v4
+      - name: Check if Docker is installed and running on Linux
+        run: |
+          echo "Checking Docker..."
+          docker -v
+          systemctl status docker.service --no-pager
 
-    - name: Cache dependencies
-      uses: actions/cache@v4
-      with:
-        path: deps
-        key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-mix-deps-
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+          elixir-version: ${{matrix.elixir}}
 
-    - name: Cache compiled build
-      uses: actions/cache@v4
-      with:
-        path: _build
-        key: ${{ runner.os }}-mix-build-${{ hashFiles('**/mix.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-mix-build-
-          ${{ runner.os }}-mix-
+      - name: Checkout the code
+        uses: actions/checkout@v4
 
-    - name: Cache dialyzer artifacts
-      uses: actions/cache@v4
-      with:
-        path: _dialyzer
-        key: ${{ runner.os }}-dialyzer-${{ hashFiles('**/mix.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-dialyzer-
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-deps-
 
-    - name: Install dependencies
-      run: mix deps.get
+      - name: Cache compiled build
+        uses: actions/cache@v4
+        with:
+          path: _build
+          key: ${{ runner.os }}-mix-build-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-build-
+            ${{ runner.os }}-mix-
 
-    - name: Compile without warnings
-      id: compile
-      run: mix compile --warnings-as-errors
+      - name: Cache dialyzer artifacts
+        uses: actions/cache@v4
+        with:
+          path: _dialyzer
+          key: ${{ runner.os }}-dialyzer-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-dialyzer-
 
-    - name: Check formatting
-      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-      run: mix format --check-formatted
+      - name: Install dependencies
+        run: mix deps.get
 
-    - name: Check with credo
-      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-      run: mix credo
+      - name: Compile without warnings
+        id: compile
+        run: mix compile --warnings-as-errors
 
-    - name: Check with dialyzer
-      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-      run: mix dialyzer
+      - name: Check formatting
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        run: mix format --check-formatted
 
-    - name: Check docs
-      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-      run: mix docs 2>&1 | (! grep -q "warning:")
+      - name: Check with credo
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        run: mix credo
 
-    - name: Run tests and check test coverage
-      if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-      id: test
-      run: mix coveralls.json
+      - name: Check with dialyzer
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        run: mix dialyzer
 
-    - name: Upload test coverage results to Codecov
-      if: ${{ !cancelled() && steps.test.outcome == 'success' }}
-      uses: codecov/codecov-action@v4
-      with:
-        fail_ci_if_error: true,
-        token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Check docs
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        run: mix docs 2>&1 | (! grep -q "warning:")
+
+      - name: Run tests and check test coverage
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        id: test
+        run: mix coveralls.json
+
+      - name: Upload test coverage results to Codecov
+        if: ${{ !cancelled() && steps.test.outcome == 'success' }}
+        uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: true,
+          token: ${{ secrets.CODECOV_TOKEN }}
