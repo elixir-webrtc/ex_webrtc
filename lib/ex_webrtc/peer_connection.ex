@@ -1469,8 +1469,8 @@ defmodule ExWebRTC.PeerConnection do
             notify(state.owner, {:rtp, t.receiver.track.id, rid, packet})
             List.replace_at(state.transceivers, idx, t)
 
-          :error ->
-            state.transceivers
+          {:error, t} ->
+            List.replace_at(state.transceivers, idx, t)
         end
 
       state = %{

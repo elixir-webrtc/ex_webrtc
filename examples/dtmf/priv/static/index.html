@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Elixir WebRTC Dtmf Example</title>
+</head>
+
+<body>
+  <h1>Elixir WebRTC Dtmf Example</h1>
+  <p>A simple example showing how to send DTMF tones using JS API and receive them in Elixir WebRTC. <br />
+    Click buttons on the dial pad and observe that DTMF events are logged in the terminal runnig Elixir code.
+  </p>
+  <div id="dial-pad" style="display: flex; flex-direction: column; padding: 10px; gap: 5px;">
+    <div style="display: flex; flex-direction: row; gap: 5px;">
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">1</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">2</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">3</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">A</button>
+    </div>
+    <div style="display: flex; flex-direction: row; gap: 5px;">
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">4</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">5</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">6</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">B</button>
+    </div>
+    <div style="display: flex; flex-direction: row; gap: 5px;">
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">7</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">8</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">9</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">C</button>
+    </div>
+    <div style="display: flex; flex-direction: row; gap: 5px;">
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">*</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">0</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">#</button>
+      <button style="padding: 15px; border-style: solid; border-color: gray; background-color: antiquewhite;">D</button>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; padding: 10px; gap: 5px">
+    Sent tones:
+    <input id="sent-tones" type="text" disabled style="max-width: 400px;">
+  </div>
+
+  <div id="connection-state" style="display: flex; flex-direction: column; padding: 10px; gap: 5px">
+  </div>
+
+  <script src="script.js"></script>
+</body>
+
+</html>

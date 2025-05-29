@@ -61,6 +61,20 @@ defmodule ExWebRTC.RTP.DepayloaderTest do
              Depayloader.G711.depayload(depayloader, @packet)
   end
 
+  test "creates an DTMF depayloader and dispatches calls to its module" do
+    assert {:ok, depayloader} =
+             %RTPCodecParameters{
+               payload_type: 110,
+               mime_type: "audio/telephone-event",
+               clock_rate: 8_000,
+               channels: 1
+             }
+             |> Depayloader.new()
+
+    assert Depayloader.depayload(depayloader, @packet) ==
+             Depayloader.DTMF.depayload(depayloader, @packet)
+  end
+
   test "returns error if no depayloader exists for given codec" do
     assert {:error, :no_depayloader_for_codec} =
              %RTPCodecParameters{payload_type: 97, mime_type: "video/H264", clock_rate: 90_000}

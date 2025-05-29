@@ -317,7 +317,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
   @doc false
   @spec receive_packet(transceiver(), ExRTP.Packet.t(), non_neg_integer()) ::
-          {:ok, {String.t() | nil, ExRTP.Packet.t()}, transceiver()} | :error
+          {:ok, {String.t() | nil, ExRTP.Packet.t()}, transceiver()} | {:error, transceiver()}
   def receive_packet(transceiver, packet, size) do
     case check_if_rtx(transceiver.codecs, packet) do
       {:ok, apt} -> RTPReceiver.receive_rtx(transceiver.receiver, packet, apt)
@@ -325,12 +325,18 @@ defmodule ExWebRTC.RTPTransceiver do
     end
     |> case do
       {:ok, packet, receiver} ->
-        {rid, receiver} = RTPReceiver.receive_packet(receiver, packet, size)
-        transceiver = %{transceiver | receiver: receiver}
-        {:ok, {rid, packet}, transceiver}
+        case RTPReceiver.receive_packet(receiver, packet, size) do
+          {:ok, rid, receiver} ->
+            transceiver = %{transceiver | receiver: receiver}
+            {:ok, {rid, packet}, transceiver}
+
+          {:error, receiver} ->
+            transceiver = %{transceiver | receiver: receiver}
+            {:error, transceiver}
+        end
 
       _other ->
-        :error
+        {:error, transceiver}
     end
   end
 

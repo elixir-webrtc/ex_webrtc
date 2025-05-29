@@ -16,7 +16,6 @@ defmodule ExWebRTC.RTP.Payloader.G711 do
   end
 
   @impl true
-  @spec payload(t(), binary()) :: {[ExRTP.Packet.t()], t()}
   def payload(%__MODULE__{} = payloader, packet) when packet != <<>> do
     {[ExRTP.Packet.new(packet)], payloader}
   end
