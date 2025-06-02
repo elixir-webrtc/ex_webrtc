@@ -101,6 +101,11 @@ defmodule ExWebRTC.DTLSTransport do
     GenServer.cast(dtls_transport, {:set_packet_loss, packet_loss})
   end
 
+  @spec close(dtls_transport()) :: :ok
+  def close(dtls_transport) do
+    GenServer.call(dtls_transport, :close)
+  end
+
   @spec stop(dtls_transport()) :: :ok
   def stop(dtls_transport) do
     GenServer.stop(dtls_transport)
@@ -146,7 +151,7 @@ defmodule ExWebRTC.DTLSTransport do
     state = %{state | ice_connected: true}
 
     if state.mode == :active do
-      {packets, timeout} = ExDTLS.do_handshake(state.dtls)
+      {:ok, packets, timeout} = ExDTLS.do_handshake(state.dtls)
       Process.send_after(self(), :dtls_timeout, timeout)
       :ok = do_send(state, packets)
       state = update_dtls_state(state, :connecting)
@@ -158,7 +163,7 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def handle_call(:set_ice_connected, _from, state) do
+  def handle_call(:set_ice_connected, _from, %{dtls_state: :connecting} = state) do
     state = %{state | ice_connected: true}
 
     if state.buffered_local_packets do
@@ -169,6 +174,17 @@ defmodule ExWebRTC.DTLSTransport do
     else
       {:reply, :ok, state}
     end
+  end
+
+  @impl true
+  def handle_call(:set_ice_connected, _from, state) do
+    Logger.debug("""
+    Setting ice connected in unexpected DTLS state: #{state.dtls_state}. \
+    DTLS handshake won't be performed.\
+    """)
+
+    state = %{state | ice_connected: true}
+    {:reply, :ok, state}
   end
 
   @impl true
@@ -237,6 +253,19 @@ defmodule ExWebRTC.DTLSTransport do
   def handle_call({:start_dtls, _mode, _peer_fingerprint}, _from, state) do
     # is there a case when mode will change and new handshake will be needed?
     {:reply, {:error, :already_started}, state}
+  end
+
+  @impl true
+  def handle_call(:close, _from, %{state: :closed} = state) do
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_call(:close, _from, state) do
+    {:ok, packets} = ExDTLS.close(state.dtls)
+    :ok = do_send(state, packets)
+    state = update_dtls_state(state, :closed, notify: false)
+    {:reply, :ok, state}
   end
 
   @impl true
@@ -327,6 +356,14 @@ defmodule ExWebRTC.DTLSTransport do
       {:ok, state} ->
         {:noreply, state}
 
+      {:error, :peer_closed_for_writing} ->
+        # See W3C WebRTC sec. 5.5.1
+        # peer_closed_for_writing is returned when the remote side
+        # sends close_notify alert
+        ExDTLS.close(state.dtls)
+        state = update_dtls_state(state, :closed)
+        {:noreply, state}
+
       {:error, _reason} ->
         # See W3C WebRTC sec. 5.5.
         state = update_dtls_state(state, :failed)
@@ -343,6 +380,12 @@ defmodule ExWebRTC.DTLSTransport do
   @impl true
   def terminate(reason, _state) do
     Logger.debug("Stopping DTLSTransport with reason: #{inspect(reason)}")
+  end
+
+  defp handle_ice_data({:data, _data}, %{dtls_state: dtls_state} = state)
+       when dtls_state in [:failed, :closed] do
+    Logger.debug("Received DTLS packets in state #{dtls_state}. Ignoring.")
+    {:ok, state}
   end
 
   defp handle_ice_data({:data, data}, %{dtls: nil} = state) do
@@ -470,11 +513,16 @@ defmodule ExWebRTC.DTLSTransport do
     :ok
   end
 
-  defp update_dtls_state(%{dtls_state: dtls_state} = state, dtls_state), do: state
+  defp update_dtls_state(state, dtls_state, otps \\ [])
+  defp update_dtls_state(%{dtls_state: dtls_state} = state, dtls_state, _opts), do: state
 
-  defp update_dtls_state(state, new_dtls_state) do
+  defp update_dtls_state(state, new_dtls_state, opts) do
     Logger.debug("Changing DTLS state: #{state.dtls_state} -> #{new_dtls_state}")
-    notify(state.owner, {:state_change, new_dtls_state})
+
+    if opts[:notify] != false do
+      notify(state.owner, {:state_change, new_dtls_state})
+    end
+
     %{state | dtls_state: new_dtls_state}
   end
 

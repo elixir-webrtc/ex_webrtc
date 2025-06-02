@@ -206,17 +206,21 @@ defmodule ExWebRTC.PeerConnectionTest do
   test "controlling process" do
     test_pid = self()
 
-    spawn(fn ->
-      # The first notifications are sent in PeerConnection's init callback -
-      # assert they will land in the outer process.
-      {:ok, pid} = PeerConnection.start_link(controlling_process: test_pid)
-      # From now, all notifications should land in the inner process.
-      assert :ok = PeerConnection.controlling_process(pid, self())
-      :ok = PeerConnection.add_transceiver(pid, :audio)
-      assert_receive {:ex_webrtc, _pid, :negotiation_needed}
-    end)
+    task =
+      Task.async(fn ->
+        # The first notifications are sent in PeerConnection's init callback -
+        # assert they will land in the outer process.
+        {:ok, pid} = PeerConnection.start_link(controlling_process: test_pid)
+        # From now, all notifications should land in the inner process.
+        assert :ok = PeerConnection.controlling_process(pid, self())
+        {:ok, _tr} = PeerConnection.add_transceiver(pid, :audio)
+        assert_receive {:ex_webrtc, _pid, :negotiation_needed}
+        :ok
+      end)
 
     assert_receive {:ex_webrtc, _pid, {:connection_state_change, :new}}
+
+    assert Task.await(task) == :ok
   end
 
   test "set_sender_codec/3" do
@@ -289,13 +293,13 @@ defmodule ExWebRTC.PeerConnectionTest do
     # we can't compare `all` and `expected` with `==`.
     assert MapSet.subset?(expected, all)
 
-    :ok = PeerConnection.close(pc1)
+    :ok = PeerConnection.stop(pc1)
     all = PeerConnection.get_all_running() |> MapSet.new()
 
     refute MapSet.member?(all, pc1)
     assert MapSet.member?(all, pc2)
 
-    :ok = PeerConnection.close(pc2)
+    :ok = PeerConnection.stop(pc2)
   end
 
   test "get_dtls_transport_state/1" do
@@ -1068,10 +1072,96 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert length(Map.get(groups, :candidate_pair, [])) > 0
   end
 
-  test "close/1" do
+  describe "close/1" do
+    test "caller" do
+      # test how does the side that calls close/1 behave
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      track = MediaStreamTrack.new(:audio)
+      {:ok, _sender} = PeerConnection.add_track(pc1, track)
+      {:ok, data_channel} = PeerConnection.create_data_channel(pc1, "label")
+      :ok = negotiate(pc1, pc2)
+      :ok = connect(pc1, pc2)
+
+      # wait for data channel to be open
+      assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, _dc_ref, :open}}
+
+      assert :ok = PeerConnection.close(pc1)
+      assert true = Process.alive?(pc1)
+
+      # Calling close/1 shouldn't result in emitting following events.
+      # See https://www.w3.org/TR/webrtc/#dom-rtcpeerconnection-close
+      refute_received {:ex_webrtc, ^pc1, {:signaling_state_change, :closed}}
+      refute_received {:ex_webrtc, ^pc1, {:ice_connection_state_change, :closed}}
+      refute_received {:ex_webrtc, ^pc1, {:dtls_transport_state_change, :closed}}
+      refute_received {:ex_webrtc, ^pc1, {:connection_state_change, :closed}}
+
+      # Transceivers and data channels should be stopped/closed
+      [%{stopped: true}] = PeerConnection.get_transceivers(pc1)
+      %{ready_state: :closed} = PeerConnection.get_data_channel(pc1, data_channel.ref)
+
+      # Try to send RTP, it should be ignored
+      packet = ExRTP.Packet.new(<<1, 2, 3>>)
+      :ok = PeerConnection.send_rtp(pc1, track.id, packet)
+      refute_receive {:ex_webrtc, ^pc2, {:rtp, _track_id, nil, _packet}}
+
+      # Try to send data, it should be ignored
+      :ok = PeerConnection.send_data(pc1, data_channel.ref, <<1, 2, 3>>)
+      refute_receive {:ex_webrtc, ^pc2, {:data, _dc_ref, _data}}
+
+      # Try to send RTCP, it should be ignored
+      :ok = PeerConnection.send_pli(pc1, track.id)
+      refute_receive {:ex_webrtc, ^pc2, {:rtcp, _}}
+    end
+
+    test "receiver" do
+      # test how does the side that receives close_notify alert behave
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      track = MediaStreamTrack.new(:audio)
+      {:ok, _sender} = PeerConnection.add_track(pc1, track)
+      {:ok, data_channel} = PeerConnection.create_data_channel(pc1, "label")
+      :ok = negotiate(pc1, pc2)
+      :ok = connect(pc1, pc2)
+
+      # wait for data channel to be open
+      assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, _dc_ref, :open}}
+
+      assert :ok = PeerConnection.close(pc2)
+
+      assert_receive {:ex_webrtc, ^pc1, {:signaling_state_change, :closed}}
+      assert_receive {:ex_webrtc, ^pc1, {:ice_connection_state_change, :closed}}
+      assert_receive {:ex_webrtc, ^pc1, {:dtls_transport_state_change, :closed}}
+      assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :closed}}
+
+      # the process should still be alive
+      assert true = Process.alive?(pc1)
+
+      # Here, we don't really know what should be the state of transceivers and data channels.
+      # W3C and browser behavior are unclear at the moment of writing this tes.
+      # To be consistent, we just mark them as stopped/closed.
+      [%{stopped: true}] = PeerConnection.get_transceivers(pc1)
+      %{ready_state: :closed} = PeerConnection.get_data_channel(pc1, data_channel.ref)
+
+      # Try to send RTP, it should be ignored
+      packet = ExRTP.Packet.new(<<1, 2, 3>>)
+      :ok = PeerConnection.send_rtp(pc1, track.id, packet)
+      refute_receive {:ex_webrtc, ^pc2, {:rtp, _track_id, nil, _packet}}
+
+      # Try to send data, it should be ignored
+      :ok = PeerConnection.send_data(pc1, data_channel.ref, <<1, 2, 3>>)
+      refute_receive {:ex_webrtc, ^pc2, {:data, _dc_ref, _data}}
+
+      # Try to send RTCP, it should be ignored
+      :ok = PeerConnection.send_pli(pc1, track.id)
+      refute_receive {:ex_webrtc, ^pc2, {:rtcp, _}}
+    end
+  end
+
+  test "stop/1" do
     {:ok, pc} = PeerConnection.start()
     {:links, links} = Process.info(pc, :links)
-    assert :ok == PeerConnection.close(pc)
+    assert :ok == PeerConnection.stop(pc)
     assert false == Process.alive?(pc)
 
     Enum.each(links, fn link ->
@@ -1361,8 +1451,8 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert ExSDP.get_attributes(audio1, :fmtp) == ExSDP.get_attributes(audio2, :fmtp)
 
-    :ok = PeerConnection.close(pc1)
-    :ok = PeerConnection.close(pc2)
+    :ok = PeerConnection.stop(pc1)
+    :ok = PeerConnection.stop(pc2)
   end
 
   test "reject incoming track" do
