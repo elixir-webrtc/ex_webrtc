@@ -3,7 +3,7 @@ defmodule ExWebRTC.ICETransport do
 
   # module implementing this behaviour
   @type t() :: module()
-  @type state() :: :checking | :connected | :completed | :failed
+  @type state() :: :checking | :connected | :completed | :failed | :closed
 
   @callback start_link(Keyword.t()) :: {:ok, pid()}
   @callback on_data(pid(), pid()) :: :ok
@@ -19,6 +19,7 @@ defmodule ExWebRTC.ICETransport do
   @callback set_role(pid(), ExICE.ICEAgent.role()) :: :ok
   @callback set_remote_credentials(pid(), ufrag :: binary(), pwd :: binary()) :: :ok
   @callback get_stats(pid()) :: map()
+  @callback close(pid()) :: :ok
   @callback stop(pid()) :: :ok
 end
 
@@ -57,6 +58,8 @@ defmodule ExWebRTC.DefaultICETransport do
   defdelegate set_remote_credentials(pid, ufrag, pwd), to: ICEAgent
   @impl true
   defdelegate get_stats(pid), to: ICEAgent
+  @impl true
+  defdelegate close(pid), to: ICEAgent
   @impl true
   defdelegate stop(pid), to: ICEAgent
 end

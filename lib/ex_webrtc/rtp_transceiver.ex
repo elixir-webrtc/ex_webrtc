@@ -469,7 +469,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
   @doc false
   @spec stop(transceiver(), (-> term())) :: transceiver()
-  def stop(transceiver, on_track_ended) do
+  def stop(transceiver, on_track_ended \\ fn -> :ok end) do
     transceiver =
       if transceiver.stopping,
         do: transceiver,

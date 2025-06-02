@@ -63,7 +63,7 @@ defmodule ExWebRTC.PeerConnection do
 
   For the exact meaning, refer to the [RTCDtlsTransport: state property](https://developer.mozilla.org/en-US/docs/Web/API/RTCDtlsTransport/state)
   """
-  @type dtls_transport_state() :: :new | :connecting | :connected | :failed
+  @type dtls_transport_state() :: :new | :connecting | :connected | :closed | :failed
 
   @typedoc """
   Possible signaling states.
@@ -105,8 +105,8 @@ defmodule ExWebRTC.PeerConnection do
            | {:track_muted, MediaStreamTrack.id()}
            | {:track_ended, MediaStreamTrack.id()}
            | {:data, DataChannel.ref(), binary()}
-           | {:rtp, MediaStreamTrack.id(), String.t() | nil, ExRTP.Packet.t()}}
-          | {:rtcp, [{MediaStreamTrack.id() | nil, ExRTCP.Packet.packet()}]}
+           | {:rtp, MediaStreamTrack.id(), String.t() | nil, ExRTP.Packet.t()}
+           | {:rtcp, [{MediaStreamTrack.id() | nil, ExRTCP.Packet.packet()}]}}
 
   #### NON-MDN-API ####
 
@@ -472,7 +472,7 @@ defmodule ExWebRTC.PeerConnection do
           peer_connection(),
           RTPTransceiver.kind() | MediaStreamTrack.t(),
           direction: RTPTransceiver.direction()
-        ) :: {:ok, RTPTransceiver.t()}
+        ) :: {:ok, RTPTransceiver.t()} | {:error, term()}
   def add_transceiver(peer_connection, kind_or_track, options \\ []) do
     GenServer.call(peer_connection, {:add_transceiver, kind_or_track, options})
   end
@@ -507,7 +507,8 @@ defmodule ExWebRTC.PeerConnection do
 
   For more information, refer to the [RTCPeerConnection: addTrack() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addTrack).
   """
-  @spec add_track(peer_connection(), MediaStreamTrack.t()) :: {:ok, RTPSender.t()}
+  @spec add_track(peer_connection(), MediaStreamTrack.t()) ::
+          {:ok, RTPSender.t()} | {:error, term()}
   def add_track(peer_connection, track) do
     GenServer.call(peer_connection, {:add_track, track})
   end
@@ -574,11 +575,20 @@ defmodule ExWebRTC.PeerConnection do
   @doc """
   Closes the PeerConnection.
 
-  This function kills the `peer_connection` process.
+  This function doest not kill the `peer_connection` process.
+  If you want to stop the `peer_connection` process, see `stop/1`.
   For more information, refer to the [RTCPeerConnection: close() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/close).
   """
   @spec close(peer_connection()) :: :ok
   def close(peer_connection) do
+    GenServer.call(peer_connection, :close)
+  end
+
+  @doc """
+  Closes and stops PeerConnection process.
+  """
+  @spec stop(peer_connection()) :: :ok
+  def stop(peer_connection) do
     GenServer.stop(peer_connection)
   end
 
@@ -1067,6 +1077,14 @@ defmodule ExWebRTC.PeerConnection do
 
   if Code.ensure_loaded?(ExSCTP) do
     @impl true
+    def handle_call(
+          {:create_data_channel, _label, _opts},
+          _from,
+          %{connection_state: :closed} = state
+        ) do
+      {:reply, {:error, :closed}, state}
+    end
+
     def handle_call({:create_data_channel, label, opts}, _from, state) do
       ordered = Keyword.get(opts, :ordered, true)
       lifetime = Keyword.get(opts, :max_packet_life_time)
@@ -1075,7 +1093,7 @@ defmodule ExWebRTC.PeerConnection do
 
       with true <- byte_size(label) < 65_535,
            true <- lifetime == nil or max_rtx == nil do
-        {events, channel, sctp_transport} =
+        {:ok, events, channel, sctp_transport} =
           SCTPTransport.add_channel(
             state.sctp_transport,
             label,
@@ -1272,8 +1290,16 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_call(:close, _from, state) do
+    Logger.debug("Closing peer connection")
+    # don't emit state change events
+    state = do_close(state, notify: false)
+    {:reply, :ok, state}
+  end
+
+  @impl true
   def handle_cast({:send_rtp, track_id, packet, opts}, %{conn_state: conn_state} = state)
-      when conn_state != :failed do
+      when conn_state not in [:failed, :closed] do
     rtx? = Keyword.get(opts, :rtx?, false)
 
     # TODO: iterating over transceivers is not optimal
@@ -1331,7 +1357,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_cast({:send_pli, track_id, rid}, %{conn_state: conn_state} = state)
-      when conn_state != :failed do
+      when conn_state not in [:failed, :closed] do
     state.transceivers
     |> Enum.with_index()
     |> Enum.find(fn {tr, _idx} -> tr.receiver.track.id == track_id end)
@@ -1365,7 +1391,7 @@ defmodule ExWebRTC.PeerConnection do
   if Code.ensure_loaded?(ExSCTP) do
     @impl true
     def handle_cast({:send_data, channel_ref, data_type, data}, %{conn_state: conn_state} = state)
-        when conn_state != :failed do
+        when conn_state not in [:failed, :closed] do
       {events, sctp_transport} =
         SCTPTransport.send(state.sctp_transport, channel_ref, data_type, data)
 
@@ -1432,12 +1458,17 @@ defmodule ExWebRTC.PeerConnection do
 
     next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
 
-    state =
-      %{state | dtls_state: new_dtls_state}
-      |> update_conn_state(next_conn_state)
-      |> maybe_connect_sctp()
+    if next_conn_state == :closed and state.conn_state != :closed do
+      state = do_close(state)
+      {:noreply, state}
+    else
+      state =
+        %{state | dtls_state: new_dtls_state}
+        |> update_conn_state(next_conn_state)
+        |> maybe_connect_sctp()
 
-    {:noreply, state}
+      {:noreply, state}
+    end
   end
 
   @impl true
@@ -1955,15 +1986,24 @@ defmodule ExWebRTC.PeerConnection do
   defp next_signaling_state(:have_remote_pranswer, :remote, :answer), do: {:ok, :stable}
   defp next_signaling_state(:have_remote_pranswer, _, _), do: {:error, :invalid_state}
 
-  defp update_signaling_state(%{signaling_state: signaling_state} = state, signaling_state),
-    do: state
+  defp update_signaling_state(state, signaling_state, opts \\ [])
 
-  defp update_signaling_state(state, new_signaling_state) do
+  defp update_signaling_state(
+         %{signaling_state: signaling_state} = state,
+         signaling_state,
+         _opts
+       ),
+       do: state
+
+  defp update_signaling_state(state, new_signaling_state, opts) do
     Logger.debug(
       "Changing PeerConnection signaling state state: #{state.signaling_state} -> #{new_signaling_state}"
     )
 
-    notify(state.owner, {:signaling_state_change, new_signaling_state})
+    if opts[:notify] != false do
+      notify(state.owner, {:signaling_state_change, new_signaling_state})
+    end
+
     %{state | signaling_state: new_signaling_state}
   end
 
@@ -2192,12 +2232,15 @@ defmodule ExWebRTC.PeerConnection do
   defp get_last_answer(%{current_remote_desc: {:answer, desc}}), do: desc
 
   # TODO support :disconnected state - our ICE doesn't provide disconnected state for now
-  # TODO support :closed state
   # the order of these clauses is important
   defp next_conn_state(ice_state, dtls_state)
 
-  defp next_conn_state(ice_state, dtls_state) when ice_state == :failed or dtls_state == :failed,
-    do: :failed
+  # Give closed precedence over failed.
+  # Failed connection can be restarted.
+  # Closed connection can't be reused.
+  defp next_conn_state(:closed, _dtls_state), do: :closed
+
+  defp next_conn_state(_ice_state, :closed), do: :closed
 
   defp next_conn_state(:failed, _dtls_state), do: :failed
 
@@ -2212,11 +2255,16 @@ defmodule ExWebRTC.PeerConnection do
   defp next_conn_state(ice_state, :connected) when ice_state in [:connected, :completed],
     do: :connected
 
-  defp update_conn_state(%{conn_state: conn_state} = state, conn_state), do: state
+  defp update_conn_state(state, conn_state, opts \\ [])
+  defp update_conn_state(%{conn_state: conn_state} = state, conn_state, _opts), do: state
 
-  defp update_conn_state(state, new_conn_state) do
+  defp update_conn_state(state, new_conn_state, opts) do
     Logger.debug("Changing PeerConnection state: #{state.conn_state} -> #{new_conn_state}")
-    notify(state.owner, {:connection_state_change, new_conn_state})
+
+    if opts[:notify] != false do
+      notify(state.owner, {:connection_state_change, new_conn_state})
+    end
+
     %{state | conn_state: new_conn_state}
   end
 
@@ -2411,6 +2459,27 @@ defmodule ExWebRTC.PeerConnection do
   defp do_get_description({type, sdp}, candidates) do
     sdp = SDPUtils.add_ice_candidates(sdp, candidates)
     %SessionDescription{type: type, sdp: to_string(sdp)}
+  end
+
+  defp do_close(state, opts \\ []) do
+    transceivers = Enum.map(state.transceivers, &RTPTransceiver.stop(&1))
+    sctp_transport = SCTPTransport.close_abruptly(state.sctp_transport)
+    :ok = DTLSTransport.close(state.dtls_transport)
+    :ok = state.ice_transport.close(state.ice_pid)
+
+    if opts[:notify] != false do
+      notify(state.owner, {:ice_connection_state_change, :closed})
+    end
+
+    %{
+      state
+      | ice_state: :closed,
+        dtls_state: :closed,
+        transceivers: transceivers,
+        sctp_transport: sctp_transport
+    }
+    |> update_signaling_state(:closed, opts)
+    |> update_conn_state(:closed, opts)
   end
 
   defp generate_ssrcs(state) do
