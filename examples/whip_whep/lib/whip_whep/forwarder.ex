@@ -69,16 +69,12 @@ defmodule WhipWhep.Forwarder do
   end
 
   @impl true
-  def handle_info(
-        {:ex_webrtc, pc, {:connection_state_change, conn_state}},
-        %{input_pc: pc} = state
-      )
-      when conn_state in [:failed, :closed] do
-    Logger.info("Input peer connection (#{inspect(pc)}) state change: #{conn_state}. Removing.")
+  def handle_info({:ex_webrtc, pc, {:connection_state_change, :failed}}, %{input_pc: pc} = state) do
+    Logger.info("Input peer connection (#{inspect(pc)}) state change: failed. Removing.")
     :ok = PeerConnection.stop(state.input_pc)
 
-    Enum.each(state.pending_outputs, &PeerConnection.close(&1))
-    Enum.each(state.outputs, fn {pc, _output} -> PeerConnection.close(pc) end)
+    Enum.each(state.pending_outputs, &PeerConnection.stop(&1))
+    Enum.each(state.outputs, fn {pc, _output} -> PeerConnection.stop(pc) end)
 
     state = %{
       state
@@ -124,9 +120,8 @@ defmodule WhipWhep.Forwarder do
   end
 
   @impl true
-  def handle_info({:ex_webrtc, pc, {:connection_state_change, conn_state}}, state)
-      when conn_state in [:failed, :closed] do
-    Logger.info("Output peer connection (#{inspect(pc)}) state change: #{conn_state}. Removing.")
+  def handle_info({:ex_webrtc, pc, {:connection_state_change, :failed}}, state) do
+    Logger.info("Output peer connection (#{inspect(pc)}) state change: failed. Removing.")
     :ok = PeerConnection.stop(pc)
     pending_outputs = List.delete(state.pending_outputs, pc)
     outputs = Map.delete(state.outputs, pc)

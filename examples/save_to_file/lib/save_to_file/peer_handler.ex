@@ -136,8 +136,8 @@ defmodule SaveToFile.PeerHandler do
   defp handle_webrtc_msg({:connection_state_change, conn_state}, state) do
     Logger.info("Connection state changed: #{conn_state}")
 
-    if conn_state in [:failed, :closed] do
-      {:stop, {:shutdown, :pc_failed_or_closed}, state}
+    if conn_state == :failed do
+      {:stop, {:shutdown, :pc_failed}, state}
     else
       {:ok, state}
     end

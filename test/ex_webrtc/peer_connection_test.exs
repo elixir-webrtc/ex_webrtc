@@ -1129,32 +1129,31 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       assert :ok = PeerConnection.close(pc2)
 
-      assert_receive {:ex_webrtc, ^pc1, {:signaling_state_change, :closed}}
-      assert_receive {:ex_webrtc, ^pc1, {:ice_connection_state_change, :closed}}
+      # only dtls transport should move to the closed state
+      # this way peer connection can do ice restart with a different peer
       assert_receive {:ex_webrtc, ^pc1, {:dtls_transport_state_change, :closed}}
-      assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :closed}}
+      refute_receive {:ex_webrtc, ^pc1, {:signaling_state_change, :closed}}
+      refute_receive {:ex_webrtc, ^pc1, {:ice_connection_state_change, :closed}}
+      refute_receive {:ex_webrtc, ^pc1, {:connection_state_change, :closed}}
 
       # the process should still be alive
       assert true = Process.alive?(pc1)
 
-      # Here, we don't really know what should be the state of transceivers and data channels.
-      # W3C and browser behavior are unclear at the moment of writing this tes.
-      # To be consistent, we just mark them as stopped/closed.
-      [%{stopped: true}] = PeerConnection.get_transceivers(pc1)
-      %{ready_state: :closed} = PeerConnection.get_data_channel(pc1, data_channel.ref)
+      [%{stopped: false}] = PeerConnection.get_transceivers(pc1)
+      %{ready_state: :open} = PeerConnection.get_data_channel(pc1, data_channel.ref)
 
-      # Try to send RTP, it should be ignored
-      packet = ExRTP.Packet.new(<<1, 2, 3>>)
-      :ok = PeerConnection.send_rtp(pc1, track.id, packet)
-      refute_receive {:ex_webrtc, ^pc2, {:rtp, _track_id, nil, _packet}}
+      # try to do ice-restart with a different peer
+      flush_mailbox(pc1)
 
-      # Try to send data, it should be ignored
-      :ok = PeerConnection.send_data(pc1, data_channel.ref, <<1, 2, 3>>)
-      refute_receive {:ex_webrtc, ^pc2, {:data, _dc_ref, _data}}
+      {:ok, pc3} = PeerConnection.start_link()
 
-      # Try to send RTCP, it should be ignored
-      :ok = PeerConnection.send_pli(pc1, track.id)
-      refute_receive {:ex_webrtc, ^pc2, {:rtcp, _}}
+      assert :ok = negotiate(pc1, pc3, ice_restart: true)
+      assert :ok = connect(pc1, pc3)
+
+      assert_received {:ex_webrtc, ^pc1, {:connection_state_change, :connecting}}
+
+      :ok = PeerConnection.send_rtp(pc1, track.id, ExRTP.Packet.new(<<1, 2, 3>>))
+      assert_receive {:ex_webrtc, ^pc3, {:rtp, _track_id, nil, _packet}}
     end
   end
 
@@ -1522,5 +1521,13 @@ defmodule ExWebRTC.PeerConnectionTest do
     # make sure there was only one negotiation_needed fired
     refute_receive {:ex_webrtc, ^pc1, :negotiation_needed}
     refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
+  end
+
+  defp flush_mailbox(pid) do
+    receive do
+      {:ex_webrtc, ^pid, _msg} -> flush_mailbox(pid)
+    after
+      0 -> :ok
+    end
   end
 end

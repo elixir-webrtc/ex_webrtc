@@ -685,7 +685,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call(
-        {:set_sender_code, _sender_id, _codec},
+        {:set_sender_codec, _sender_id, _codec},
         _from,
         %{signaling_state: :closed} = state
       ) do
@@ -1151,7 +1151,7 @@ defmodule ExWebRTC.PeerConnection do
     def handle_call(
           {:create_data_channel, _label, _opts},
           _from,
-          %{connection_state: :closed} = state
+          %{signaling_state: :closed} = state
         ) do
       {:reply, {:error, :invalid_state}, state}
     end
@@ -1382,14 +1382,28 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_call(:close, _from, %{signaling_state: :closed} = state) do
-    {:reply, {:error, :invalid_state}, state}
+    {:reply, :ok, state}
   end
 
   @impl true
   def handle_call(:close, _from, state) do
     Logger.debug("Closing peer connection")
-    # don't emit state change events
-    state = do_close(state, notify: false)
+    transceivers = Enum.map(state.transceivers, &RTPTransceiver.stop(&1))
+    sctp_transport = SCTPTransport.close_abruptly(state.sctp_transport)
+    :ok = DTLSTransport.close(state.dtls_transport)
+    :ok = state.ice_transport.close(state.ice_pid)
+
+    state =
+      %{
+        state
+        | ice_state: :closed,
+          dtls_state: :closed,
+          transceivers: transceivers,
+          sctp_transport: sctp_transport
+      }
+      |> update_signaling_state(:closed, notify: false)
+      |> update_conn_state(:closed, notify: false)
+
     {:reply, :ok, state}
   end
 
@@ -1518,6 +1532,10 @@ defmodule ExWebRTC.PeerConnection do
       :ok = DTLSTransport.set_ice_connected(state.dtls_transport)
     end
 
+    if new_ice_state == :failed do
+      :ok = DTLSTransport.set_ice_disconnected(state.dtls_transport)
+    end
+
     {:noreply, state}
   end
 
@@ -1548,17 +1566,12 @@ defmodule ExWebRTC.PeerConnection do
 
     next_conn_state = next_conn_state(state.ice_state, new_dtls_state)
 
-    if next_conn_state == :closed and state.conn_state != :closed do
-      state = do_close(state)
-      {:noreply, state}
-    else
-      state =
-        %{state | dtls_state: new_dtls_state}
-        |> update_conn_state(next_conn_state)
-        |> maybe_connect_sctp()
+    state =
+      %{state | dtls_state: new_dtls_state}
+      |> update_conn_state(next_conn_state)
+      |> maybe_connect_sctp()
 
-      {:noreply, state}
-    end
+    {:noreply, state}
   end
 
   @impl true
@@ -2325,12 +2338,7 @@ defmodule ExWebRTC.PeerConnection do
   # the order of these clauses is important
   defp next_conn_state(ice_state, dtls_state)
 
-  # Give closed precedence over failed.
-  # Failed connection can be restarted.
-  # Closed connection can't be reused.
   defp next_conn_state(:closed, _dtls_state), do: :closed
-
-  defp next_conn_state(_ice_state, :closed), do: :closed
 
   defp next_conn_state(:failed, _dtls_state), do: :failed
 
@@ -2342,8 +2350,13 @@ defmodule ExWebRTC.PeerConnection do
        when ice_state in [:new, :checking] or dtls_state in [:new, :connecting],
        do: :connecting
 
-  defp next_conn_state(ice_state, :connected) when ice_state in [:connected, :completed],
-    do: :connected
+  # DTLS closed state does not indicate peer connection closed state.
+  # When DTLS was closed by receiving close_notify alert, it can still
+  # be reused after doing an ice-restart with a different peer.
+  # See https://github.com/w3c/webrtc-pc/issues/3053.
+  defp next_conn_state(ice_state, dtls_state)
+       when ice_state in [:connected, :completed] and dtls_state in [:connected, :closed],
+       do: :connected
 
   defp update_conn_state(state, conn_state, opts \\ [])
   defp update_conn_state(%{conn_state: conn_state} = state, conn_state, _opts), do: state
@@ -2549,27 +2562,6 @@ defmodule ExWebRTC.PeerConnection do
   defp do_get_description({type, sdp}, candidates) do
     sdp = SDPUtils.add_ice_candidates(sdp, candidates)
     %SessionDescription{type: type, sdp: to_string(sdp)}
-  end
-
-  defp do_close(state, opts \\ []) do
-    transceivers = Enum.map(state.transceivers, &RTPTransceiver.stop(&1))
-    sctp_transport = SCTPTransport.close_abruptly(state.sctp_transport)
-    :ok = DTLSTransport.close(state.dtls_transport)
-    :ok = state.ice_transport.close(state.ice_pid)
-
-    if opts[:notify] != false do
-      notify(state.owner, {:ice_connection_state_change, :closed})
-    end
-
-    %{
-      state
-      | ice_state: :closed,
-        dtls_state: :closed,
-        transceivers: transceivers,
-        sctp_transport: sctp_transport
-    }
-    |> update_signaling_state(:closed, opts)
-    |> update_conn_state(:closed, opts)
   end
 
   defp generate_ssrcs(state) do
