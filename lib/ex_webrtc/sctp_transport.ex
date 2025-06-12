@@ -21,7 +21,7 @@ if Code.ensure_loaded?(ExSCTP) do
     def new do
       %{
         ref: ExSCTP.new(),
-        connected: false,
+        state: :new,
         id_type: nil,
         timer: nil,
         channels: %{},
@@ -30,12 +30,13 @@ if Code.ensure_loaded?(ExSCTP) do
     end
 
     @spec connect(t()) :: {[event()], t()}
-    def connect(%{connected: true} = sctp_transport), do: {[], sctp_transport}
-
-    def connect(sctp_transport) do
+    def connect(%{state: :new} = sctp_transport) do
       :ok = ExSCTP.connect(sctp_transport.ref)
+      sctp_transport = %{sctp_transport | state: :connecting}
       handle_events(sctp_transport)
     end
+
+    def connect(sctp_transport), do: {[], sctp_transport}
 
     @spec set_role(t(), :active | :passive) :: t()
     def set_role(%{id_type: t} = sctp_transport, _type) when t != nil, do: sctp_transport
@@ -74,7 +75,18 @@ if Code.ensure_loaded?(ExSCTP) do
             non_neg_integer() | nil,
             non_neg_integer() | nil
           ) ::
-            {[event()], DataChannel.t(), t()}
+            {:ok, [event()], DataChannel.t(), t()} | {:error, :closed, t()}
+    def add_channel(
+          %{state: :closed} = sctp_transport,
+          _label,
+          _ordered,
+          _protocol,
+          _lifetime,
+          _max_rtx
+        ) do
+      {:error, :closed, sctp_transport}
+    end
+
     def add_channel(sctp_transport, label, ordered, protocol, lifetime, max_rtx) do
       channel = %DataChannel{
         ref: make_ref(),
@@ -92,17 +104,21 @@ if Code.ensure_loaded?(ExSCTP) do
       sctp_transport = %{sctp_transport | channels: channels, stats: stats}
 
       {events, sctp_transport} =
-        if sctp_transport.connected do
+        if sctp_transport.state == :connected do
           sctp_transport = handle_pending_channels(sctp_transport)
           handle_events(sctp_transport)
         else
           {[], sctp_transport}
         end
 
-      {events, channel, sctp_transport}
+      {:ok, events, channel, sctp_transport}
     end
 
     @spec close_channel(t(), DataChannel.ref()) :: {[event()], t()}
+    def close_channel(%{state: :closed} = sctp_transport, _ref) do
+      {[], sctp_transport}
+    end
+
     def close_channel(sctp_transport, ref) do
       # TODO: according to spec, this should move to `closing` state
       # and only then be closed, but oh well...
@@ -132,6 +148,10 @@ if Code.ensure_loaded?(ExSCTP) do
     def get_channel(sctp_transport, ref), do: Map.get(sctp_transport.channels, ref)
 
     @spec send(t(), DataChannel.ref(), :string | :binary, binary()) :: {[event()], t()}
+    def send(%{state: :closed} = sctp_transport, _ref, _type, _data) do
+      {[], sctp_transport}
+    end
+
     def send(sctp_transport, ref, type, data) do
       {ppi, data} = to_raw_data(data, type)
 
@@ -142,10 +162,7 @@ if Code.ensure_loaded?(ExSCTP) do
           handle_events(%{sctp_transport | stats: stats})
 
         {:ok, %DataChannel{id: id}} ->
-          Logger.warning(
-            "Trying to send data over DataChannel with id #{id} that is not opened yet"
-          )
-
+          Logger.warning("Trying to send data over DataChannel with id #{id} that is not opened")
           {[], sctp_transport}
 
         :error ->
@@ -158,15 +175,35 @@ if Code.ensure_loaded?(ExSCTP) do
     end
 
     @spec handle_timeout(t()) :: {[event()], t()}
+    def handle_timeout(%{state: :closed} = sctp_transport) do
+      {[], sctp_transport}
+    end
+
     def handle_timeout(sctp_transport) do
       ExSCTP.handle_timeout(sctp_transport.ref)
       handle_events(sctp_transport)
     end
 
     @spec handle_data(t(), binary()) :: {[event()], t()}
+    def handle_data(%{state: :closed} = sctp_transport) do
+      {[], sctp_transport}
+    end
+
     def handle_data(sctp_transport, data) do
       :ok = ExSCTP.handle_data(sctp_transport.ref, data)
       handle_events(sctp_transport)
+    end
+
+    @spec close_abruptly(t()) :: t()
+    def close_abruptly(sctp_transport) do
+      # This function closes SCTP transport according to
+      # https://www.w3.org/TR/webrtc/#dom-rtcpeerconnection-close
+      channels =
+        Map.new(sctp_transport.channels, fn {ref, channel} ->
+          {ref, %{channel | ready_state: :closed}}
+        end)
+
+      %{sctp_transport | channels: channels, state: :closed}
     end
 
     defp handle_pending_channels(sctp_transport) do
@@ -216,7 +253,9 @@ if Code.ensure_loaded?(ExSCTP) do
     end
 
     # if SCTP disconnected, most likely DTLS disconnected, so we won't handle this here explcitly
-    defp handle_event(sctp_transport, :disconnected), do: {nil, sctp_transport}
+    defp handle_event(sctp_transport, :disconnected),
+      do: {nil, %{sctp_transport | state: :closed}}
+
     defp handle_event(sctp_transport, :none), do: {:none, sctp_transport}
     defp handle_event(sctp_transport, {:transmit, _data} = event), do: {event, sctp_transport}
 
@@ -244,7 +283,7 @@ if Code.ensure_loaded?(ExSCTP) do
       Logger.debug("SCTP connection has been established")
 
       sctp_transport =
-        %{sctp_transport | connected: true}
+        %{sctp_transport | state: :connected}
         |> handle_pending_channels()
 
       {nil, sctp_transport}
@@ -499,6 +538,8 @@ else
 
       {[], nil}
     end
+
+    def close_abruptly(_), do: nil
 
     defp error do
       text = "DataChannel support is turned off."

@@ -69,6 +69,34 @@ defmodule WhipWhep.Forwarder do
   end
 
   @impl true
+  def handle_info({:ex_webrtc, pc, {:connection_state_change, :failed}}, %{input_pc: pc} = state) do
+    Logger.info("Input peer connection (#{inspect(pc)}) state change: failed. Removing.")
+    :ok = PeerConnection.stop(state.input_pc)
+
+    Enum.each(state.pending_outputs, &PeerConnection.stop(&1))
+    Enum.each(state.outputs, fn {pc, _output} -> PeerConnection.stop(pc) end)
+
+    state = %{
+      state
+      | input_pc: nil,
+        audio_input: nil,
+        video_input: nil,
+        pending_outputs: [],
+        outputs: %{}
+    }
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(
+        {:ex_webrtc, pc, {:connection_state_change, _conn_state}},
+        %{input_pc: pc} = state
+      ) do
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info({:ex_webrtc, pc, {:connection_state_change, :connected}}, state) do
     state =
       if Enum.member?(state.pending_outputs, pc) do
@@ -94,7 +122,7 @@ defmodule WhipWhep.Forwarder do
   @impl true
   def handle_info({:ex_webrtc, pc, {:connection_state_change, :failed}}, state) do
     Logger.info("Output peer connection (#{inspect(pc)}) state change: failed. Removing.")
-    :ok = PeerConnection.close(pc)
+    :ok = PeerConnection.stop(pc)
     pending_outputs = List.delete(state.pending_outputs, pc)
     outputs = Map.delete(state.outputs, pc)
     state = %{state | pending_outputs: pending_outputs, outputs: outputs}

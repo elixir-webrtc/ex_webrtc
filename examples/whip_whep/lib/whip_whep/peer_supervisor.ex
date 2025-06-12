@@ -69,8 +69,8 @@ defmodule WhipWhep.PeerSupervisor do
 
       {:ok, pc, pc_id, answer.sdp}
     else
-      {:error, res} = err ->
-        Logger.info("Failed to complete negotiation for #{inspect(pc)}")
+      {:error, _res} = err ->
+        Logger.info("Failed to complete negotiation for #{inspect(pc)}, #{inspect(err)}")
         terminate_pc(pc)
         err
     end
