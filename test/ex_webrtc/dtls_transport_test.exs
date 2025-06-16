@@ -10,8 +10,10 @@ defmodule ExWebRTC.DTLSTransportTest do
                |> Utils.hex_dump()
 
   @rtp_header <<1::1, 0::1, 0::1, 0::1, 0::4, 0::1, 96::7, 1::16, 1::32, 1::32>>
+  @next_rtp_header <<1::1, 0::1, 0::1, 0::1, 0::4, 0::1, 96::7, 2::16, 1::32, 1::32>>
   @rtp_payload <<0>>
   @rtp_packet <<@rtp_header::binary, @rtp_payload::binary>>
+  @next_rtp_packet <<@next_rtp_header::binary, @rtp_payload::binary>>
 
   # empty rr packet
   @rtcp_rr_header <<2::2, 0::1, 0::5, 201::8, 1::16, 1::32>>
@@ -69,6 +71,9 @@ defmodule ExWebRTC.DTLSTransportTest do
     def get_stats(_ice_pid), do: %{}
 
     @impl true
+    def close(ice_pid), do: GenServer.call(ice_pid, :close)
+
+    @impl true
     def stop(ice_pid), do: GenServer.stop(ice_pid)
 
     def send_dtls(ice_pid, data), do: GenServer.cast(ice_pid, {:send_dtls, data})
@@ -85,6 +90,12 @@ defmodule ExWebRTC.DTLSTransportTest do
     @impl true
     def handle_call(:get_role, _from, state) do
       {:reply, state.role, state}
+    end
+
+    @impl true
+    def handle_call(:close, _from, state) do
+      # TODO implement
+      {:reply, :ok, state}
     end
 
     @impl true
@@ -114,7 +125,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     %{dtls: dtls, ice_transport: MockICETransport, ice_pid: ice_pid}
   end
 
-  test "cannot send data when handshake not finished", %{dtls: dtls} do
+  test "cannot send data when handshake has not finished", %{dtls: dtls} do
     DTLSTransport.send_rtp(dtls, @rtp_packet)
 
     refute_receive {:mock_ice, _data}
@@ -128,7 +139,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     :ok = DTLSTransport.set_ice_connected(dtls)
 
     remote_dtls = ExDTLS.init(mode: :client, dtls_srtp: true)
-    {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
+    {:ok, packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
 
     Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
     refute_receive {:mock_ice, _packets}
@@ -139,9 +150,40 @@ defmodule ExWebRTC.DTLSTransportTest do
     assert is_binary(packets)
   end
 
-  test "cannot start dtls more than once", %{dtls: dtls} do
+  test "cannot start dtls more than once if it is not closed", %{dtls: dtls} do
     assert :ok = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
     assert {:error, :already_started} = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
+  end
+
+  test "can restart dtls if it is closed", %{
+    dtls: dtls,
+    ice_transport: ice_transport,
+    ice_pid: ice_pid
+  } do
+    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
+    remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
+    :ok = DTLSTransport.set_ice_connected(dtls)
+
+    # perform DTLS-SRTP handshake
+    assert {:ok, _remote_lkm, _remote_rkm, _remote_profile} =
+             check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
+
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
+
+    # close and send close_notify from remote to local
+    assert {:ok, packets} = ExDTLS.close(remote_dtls)
+    Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
+
+    # assert local received close_notify and moved to the closed state
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :closed}}
+
+    # start dtls transport again
+    # flush old messages
+    flush_mailbox(dtls)
+    assert :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
+    # assert dlts moved to the new state
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :new}}
   end
 
   test "initiates DTLS handshake when in active mode", %{dtls: dtls} do
@@ -180,7 +222,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     :ok = DTLSTransport.start_dtls(dtls, :passive, @fingerprint)
 
     remote_dtls = ExDTLS.init(mode: :client, dtls_srtp: true)
-    {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
+    {:ok, packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
 
     Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
     refute_receive {:mock_ice, _packets}
@@ -200,7 +242,7 @@ defmodule ExWebRTC.DTLSTransportTest do
 
     :ok = DTLSTransport.set_ice_connected(dtls)
 
-    assert :ok = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
+    assert {:ok, _, _, _} = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
 
@@ -228,12 +270,12 @@ defmodule ExWebRTC.DTLSTransportTest do
 
     :ok = DTLSTransport.start_dtls(dtls, :passive, remote_fingerprint)
 
-    {packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
+    {:ok, packets, _timeout} = ExDTLS.do_handshake(remote_dtls)
     :ok = DTLSTransport.set_ice_connected(dtls)
 
     Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
 
-    assert :ok == check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
+    assert {:ok, _, _, _} = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
 
@@ -256,7 +298,7 @@ defmodule ExWebRTC.DTLSTransportTest do
 
     :ok = DTLSTransport.set_ice_connected(dtls)
 
-    assert :ok = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
+    assert {:ok, _, _, _} = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
     assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
 
@@ -278,6 +320,112 @@ defmodule ExWebRTC.DTLSTransportTest do
     refute_receive {:mock_ice, _datachannel_packet}
   end
 
+  test "closes on calling close/1", %{
+    dtls: dtls,
+    ice_transport: ice_transport,
+    ice_pid: ice_pid
+  } do
+    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
+    remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
+
+    :ok = DTLSTransport.set_ice_connected(dtls)
+
+    # perform DTLS-SRTP handshake
+    assert {:ok, remote_lkm, remote_rkm, remote_profile} =
+             check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
+
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
+
+    # create SRTP for remote side
+    {_remote_in_srtp, remote_out_srtp} = setup_srtp(remote_lkm, remote_rkm, remote_profile)
+
+    # assert packets can flow from local to remote
+    :ok = DTLSTransport.send_rtp(dtls, @rtp_packet)
+    assert_receive {:mock_ice, _rtp_packet}
+
+    # close transport
+    assert :ok = DTLSTransport.close(dtls)
+
+    # flush close notify
+    assert_receive {:mock_ice, _dtls_close_notify}
+
+    # assert that data cannot be sent by local
+    :ok = DTLSTransport.send_rtp(dtls, @rtp_packet)
+    refute_receive {:mock_ice, _rtp_packet}
+    :ok = DTLSTransport.send_rtcp(dtls, @rtcp_rr_packet)
+    refute_receive {:mock_ice, _rtcp_packet}
+    :ok = DTLSTransport.send_data(dtls, <<1, 2, 3>>)
+    refute_receive {:mock_ice, _datachannel_packet}
+
+    # assert that incoming data is ignored by local
+    {:ok, protected} = ExLibSRTP.protect(remote_out_srtp, @rtp_packet)
+    ice_transport.send_dtls(ice_pid, {:data, protected})
+    refute_receive {:dtls_transport, ^dtls, {:rtp, _data}}
+
+    # assert getting certs still works
+    assert %{local_cert_info: local_cert, remote_cert_info: remote_cert} =
+             DTLSTransport.get_certs_info(dtls)
+
+    assert local_cert != nil
+    assert remote_cert != nil
+    assert DTLSTransport.get_fingerprint(dtls) != nil
+  end
+
+  test "closes on receiving close_notify DTLS alert", %{
+    dtls: dtls,
+    ice_transport: ice_transport,
+    ice_pid: ice_pid
+  } do
+    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
+    remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
+
+    :ok = DTLSTransport.set_ice_connected(dtls)
+
+    # perform DTLS-SRTP handshake
+    assert {:ok, remote_lkm, remote_rkm, remote_profile} =
+             check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
+
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connecting}}
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :connected}}
+
+    # create SRTP for remote side
+    {_remote_in_srtp, remote_out_srtp} = setup_srtp(remote_lkm, remote_rkm, remote_profile)
+
+    # assert packets can flow from remote to local
+    {:ok, protected} = ExLibSRTP.protect(remote_out_srtp, @rtp_packet)
+    ice_transport.send_dtls(ice_pid, {:data, protected})
+    assert_receive {:dtls_transport, ^dtls, {:rtp, @rtp_packet}}
+
+    # close and send close_notify from remote to local
+    assert {:ok, packets} = ExDTLS.close(remote_dtls)
+    Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
+
+    # assert local received close_notify and moved to the closed state
+    assert_receive {:dtls_transport, ^dtls, {:state_change, :closed}}
+
+    # assert that data cannot be sent by local
+    :ok = DTLSTransport.send_rtp(dtls, @rtp_packet)
+    refute_receive {:mock_ice, _rtp_packet}
+    :ok = DTLSTransport.send_rtcp(dtls, @rtcp_rr_packet)
+    refute_receive {:mock_ice, _rtcp_packet}
+    :ok = DTLSTransport.send_data(dtls, <<1, 2, 3>>)
+    refute_receive {:mock_ice, _datachannel_packet}
+
+    # assert that incoming data is ignored by local
+    {:ok, protected} = ExLibSRTP.protect(remote_out_srtp, @next_rtp_packet)
+    ice_transport.send_dtls(ice_pid, {:data, protected})
+    refute_receive {:dtls_transport, ^dtls, {:rtp, _data}}
+
+    # assert getting certs still works
+    assert %{local_cert_info: local_cert, remote_cert_info: remote_cert} =
+             DTLSTransport.get_certs_info(dtls)
+
+    assert local_cert != nil
+    assert remote_cert != nil
+    assert DTLSTransport.get_fingerprint(dtls) != nil
+  end
+
   defp check_handshake(dtls, ice_transport, ice_pid, remote_dtls) do
     assert_receive {:mock_ice, packets}
 
@@ -289,17 +437,53 @@ defmodule ExWebRTC.DTLSTransportTest do
         Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
         check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
 
-      {:handshake_finished, _, _, _, packets} ->
+      {:handshake_finished, lkm, rkm, profile, packets} ->
         Enum.each(packets, &ice_transport.send_dtls(ice_pid, {:data, &1}))
-        :ok
+        {:ok, lkm, rkm, profile}
 
-      {:handshake_finished, _, _, _} ->
-        :ok
+      {:handshake_finished, lkm, rkm, profile} ->
+        {:ok, lkm, rkm, profile}
     end
   end
 
   test "stop/1", %{dtls: dtls} do
     assert :ok == DTLSTransport.stop(dtls)
     assert false == Process.alive?(dtls)
+  end
+
+  defp setup_srtp(lkm, rkm, profile) do
+    in_srtp = ExLibSRTP.new()
+    out_srtp = ExLibSRTP.new()
+
+    {:ok, crypto_profile} =
+      ExLibSRTP.Policy.crypto_profile_from_dtls_srtp_protection_profile(profile)
+
+    inbound_policy = %ExLibSRTP.Policy{
+      ssrc: :any_inbound,
+      key: rkm,
+      rtp: crypto_profile,
+      rtcp: crypto_profile
+    }
+
+    :ok = ExLibSRTP.add_stream(in_srtp, inbound_policy)
+
+    outbound_policy = %ExLibSRTP.Policy{
+      ssrc: :any_outbound,
+      key: lkm,
+      rtp: crypto_profile,
+      rtcp: crypto_profile
+    }
+
+    :ok = ExLibSRTP.add_stream(out_srtp, outbound_policy)
+
+    {in_srtp, out_srtp}
+  end
+
+  defp flush_mailbox(pid) do
+    receive do
+      {:dtls_transport, ^pid, _msg} -> flush_mailbox(pid)
+    after
+      0 -> :ok
+    end
   end
 end

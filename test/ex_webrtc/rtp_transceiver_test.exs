@@ -5,7 +5,7 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
   {:ok, pc} = PeerConnection.start_link()
   @config PeerConnection.get_configuration(pc)
-  :ok = PeerConnection.close(pc)
+  :ok = PeerConnection.stop(pc)
 
   @ssrc 1234
   @rtx_ssrc 2345
