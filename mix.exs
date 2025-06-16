@@ -57,11 +57,7 @@ defmodule ExWebRTC.MixProject do
   defp deps do
     [
       {:ex_sdp, "~> 1.0"},
-      # {:ex_ice, "~> 0.12.0"},
-      # {:ex_ice, path: "/home/michal/Repos/elixir-webrtc/ex_ice"},
-      {:ex_ice, github: "elixir-webrtc/ex_ice", branch: "close"},
-      # {:ex_dtls, "~> 0.17.0"},
-      # {:ex_dtls, path: "/home/michal/Repos/elixir-webrtc/ex_dtls"},
+      {:ex_ice, github: "elixir-webrtc/ex_ice"},
       {:ex_dtls, github: "elixir-webrtc/ex_dtls"},
       {:ex_libsrtp, "~> 0.7.1"},
       {:ex_rtp, "~> 0.4.0"},

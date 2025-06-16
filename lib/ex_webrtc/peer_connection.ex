@@ -2100,7 +2100,7 @@ defmodule ExWebRTC.PeerConnection do
 
   defp update_signaling_state(state, new_signaling_state, opts) do
     Logger.debug(
-      "Changing PeerConnection signaling state state: #{state.signaling_state} -> #{new_signaling_state}"
+      "Changing PeerConnection signaling state: #{state.signaling_state} -> #{new_signaling_state}"
     )
 
     if opts[:notify] != false do
