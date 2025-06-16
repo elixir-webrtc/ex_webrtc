@@ -305,7 +305,12 @@ defmodule ExWebRTC.DTLSTransport do
 
   @impl true
   def handle_cast({:send_rtp, _data}, state) do
-    Logger.debug("Attempted to send RTP in wrong DTLS state: #{state.dtls_state}. Ignoring.")
+    Logger.debug("""
+    Attempted to send RTP in wrong DTLS/ICE state. \
+    DTLS state: #{state.dtls_state}, ICE connected: #{state.ice_connected}. \
+    Ignoring.\
+    """)
+
     {:noreply, state}
   end
 
