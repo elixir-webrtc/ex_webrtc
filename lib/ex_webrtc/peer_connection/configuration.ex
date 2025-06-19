@@ -27,8 +27,6 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     clock_rate: 90_000
   }
 
-  # Ensure we are using H264 with packetization_mode=1 by default
-  # (packetization_mode=0 has issues when switching layers)
   @default_codec_params_h264 %RTPCodecParameters{
     payload_type: 99,
     mime_type: "video/H264",
