@@ -515,11 +515,13 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
 
     assert Configuration.expand_default_codecs(og_options) == og_options
 
-    [video_codecs: [vp8_params, h264_params]] =
+    # 2 packetization_modes for H264
+    [video_codecs: [vp8_params, h264_params_0, h264_params_1]] =
       Configuration.expand_default_codecs(video_codecs: [:vp8, :h264])
 
     assert vp8_params.mime_type == "video/VP8"
-    assert h264_params.mime_type == "video/H264"
+    assert h264_params_0.mime_type == "video/H264"
+    assert h264_params_1.mime_type == "video/H264"
 
     assert_raise RuntimeError, fn -> Configuration.expand_default_codecs(video_codecs: [:av2]) end
 
