@@ -74,13 +74,14 @@ defmodule ExWebRTC.RTPTransceiverTest do
         )
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
+      ssrc_value = ssrc_value(@stream_id, @track.id)
 
       assert [%ExSDP.Attribute.MSID{id: @stream_id}] =
                ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
       assert [] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
 
-      assert [%ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: @stream_id}] =
+      assert [%ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ^ssrc_value}] =
                ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
     end
 
@@ -93,16 +94,17 @@ defmodule ExWebRTC.RTPTransceiverTest do
         )
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
+      ssrc_value = ssrc_value(@stream_id, @track.id)
 
-      assert [%ExSDP.Attribute.MSID{id: @stream_id, app_data: nil}] =
+      assert [%ExSDP.Attribute.MSID{id: @stream_id, app_data: @track.id}] ==
                ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
       assert [%ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]}] =
                ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
 
       assert [
-               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: @stream_id},
-               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: @stream_id}
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ^ssrc_value},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: ^ssrc_value}
              ] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
     end
 
@@ -118,16 +120,16 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
 
-      assert [%ExSDP.Attribute.MSID{id: "-", app_data: nil}] =
+      assert [%ExSDP.Attribute.MSID{id: "-", app_data: track.id}] ==
                ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
       assert [%ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]}] =
                ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
 
       assert [
-               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: "-"},
-               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: "-"}
-             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: "- #{track.id}"},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: "- #{track.id}"}
+             ] == ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
     end
 
     test "with multiple media streams" do
@@ -145,20 +147,23 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
 
+      ssrc1_value = ssrc_value(s1_id, track.id)
+      ssrc2_value = ssrc_value(s2_id, track.id)
+
       assert [
-               %ExSDP.Attribute.MSID{id: ^s1_id, app_data: nil},
-               %ExSDP.Attribute.MSID{id: ^s2_id, app_data: nil}
-             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
+               %ExSDP.Attribute.MSID{id: s1_id, app_data: track.id},
+               %ExSDP.Attribute.MSID{id: s2_id, app_data: track.id}
+             ] == ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
       assert [%ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [@ssrc, @rtx_ssrc]}] =
                ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
 
       assert [
-               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ^s1_id},
-               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ^s2_id},
-               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: ^s1_id},
-               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: ^s2_id}
-             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ssrc1_value},
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: ssrc2_value},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: ssrc1_value},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: ssrc2_value}
+             ] == ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
     end
 
     test "without codecs" do
@@ -174,11 +179,29 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
 
-      assert [%ExSDP.Attribute.MSID{id: @stream_id, app_data: nil}] =
+      assert [%ExSDP.Attribute.MSID{id: @stream_id, app_data: @track.id}] ==
                ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
       assert [] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
       assert [] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
+    end
+
+    test "without track" do
+      tr =
+        RTPTransceiver.new(:video, nil, @config,
+          ssrc: @ssrc,
+          rtx_ssrc: @rtx_ssrc,
+          direction: :sendrecv
+        )
+
+      mline = RTPTransceiver.to_offer_mline(tr, @opts)
+
+      assert [] = ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
+
+      assert [
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: "- -"},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: "- -"}
+             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
     end
   end
 
@@ -201,4 +224,6 @@ defmodule ExWebRTC.RTPTransceiverTest do
     assert [] == ExSDP.get_attributes(mline, ExSDP.Attribute.SSRCGroup)
     assert [] == ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
   end
+
+  defp ssrc_value(stream, app_data), do: "#{stream} #{app_data}"
 end
