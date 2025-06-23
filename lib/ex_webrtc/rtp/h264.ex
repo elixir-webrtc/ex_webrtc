@@ -17,6 +17,9 @@ defmodule ExWebRTC.RTP.H264 do
   #
   # Janus also does it this way.
   # https://github.com/meetecho/janus-gateway/blob/3367f41de9225daed812ca0991c259f1458fe49f/src/utils.h#L352
+  #
+  # For more info, refer to the H264 spec and RFC 6184, sections 5.4 and 6
+  # https://datatracker.ietf.org/doc/html/rfc6184#section-5.4
 
   @doc """
   Returns a boolean telling if the packets contains a beginning of a H264 intra-frame.
@@ -27,14 +30,21 @@ defmodule ExWebRTC.RTP.H264 do
 
   def keyframe?(%Packet{}), do: false
 
+  # Reserved
   defp do_keyframe?(0, _), do: false
+
+  # Single NAL Unit packets: check if NALU contains SPS (type 7)
   defp do_keyframe?(nalu_type, _) when nalu_type in 1..23, do: nalu_type == 7
+
+  # STAP-A
   defp do_keyframe?(24, aus), do: check_aggr_units(24, aus)
 
+  # STAP-B, MTAP16, MTAP24
   defp do_keyframe?(nalu_type, <<_don::16, aus::binary>>)
        when nalu_type in 25..27,
        do: check_aggr_units(nalu_type, aus)
 
+  # FU-A, FU-B
   defp do_keyframe?(nalu_type, <<s::1, _e::1, _r::1, type::5, _fu_payload::binary>>)
        when nalu_type in 28..29,
        do: s == 1 and type == 7
