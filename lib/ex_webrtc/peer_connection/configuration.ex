@@ -27,31 +27,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     clock_rate: 90_000
   }
 
-  # Ensure we are using H264 with packetization_mode=1 by default
-  # (packetization_mode=0 has issues when switching layers)
-  @default_codec_params_h264 %RTPCodecParameters{
-    payload_type: 99,
-    mime_type: "video/H264",
-    clock_rate: 90_000,
-    sdp_fmtp_line: %FMTP{
-      pt: 99,
-      level_asymmetry_allowed: true,
-      packetization_mode: 1,
-      profile_level_id: 0x42E01F
-    }
-  }
-
-  @default_codec_params_av1 %RTPCodecParameters{
-    payload_type: 45,
-    mime_type: "video/AV1",
-    clock_rate: 90_000,
-    sdp_fmtp_line: %FMTP{pt: 45, level_idx: 5, profile: 0, tier: 0}
-  }
-
-  @default_audio_codecs [@default_codec_params_opus]
-
-  @default_video_codecs [
-    @default_codec_params_vp8,
+  @default_codec_params_h264 [
     %RTPCodecParameters{
       payload_type: 98,
       mime_type: "video/H264",
@@ -63,9 +39,33 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         profile_level_id: 0x42E01F
       }
     },
-    @default_codec_params_h264,
-    @default_codec_params_av1
+    %RTPCodecParameters{
+      payload_type: 99,
+      mime_type: "video/H264",
+      clock_rate: 90_000,
+      sdp_fmtp_line: %FMTP{
+        pt: 99,
+        level_asymmetry_allowed: true,
+        packetization_mode: 1,
+        profile_level_id: 0x42E01F
+      }
+    }
   ]
+
+  @default_codec_params_av1 %RTPCodecParameters{
+    payload_type: 45,
+    mime_type: "video/AV1",
+    clock_rate: 90_000,
+    sdp_fmtp_line: %FMTP{pt: 45, level_idx: 5, profile: 0, tier: 0}
+  }
+
+  @default_audio_codecs [@default_codec_params_opus]
+  @default_video_codecs [
+                          @default_codec_params_vp8,
+                          @default_codec_params_h264,
+                          @default_codec_params_av1
+                        ]
+                        |> List.flatten()
 
   @typedoc """
   Allowed audio codec names which will get expanded to the relevant default `t:ExWebRTC.RTPCodecParameters.t/0`
@@ -718,7 +718,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         options
 
       Enum.all?(codecs, &is_atom/1) ->
-        expanded_codecs = Enum.map(codecs, &expand_default_codec/1)
+        expanded_codecs = codecs |> Enum.map(&expand_default_codec/1) |> List.flatten()
         Keyword.put(options, key, expanded_codecs)
 
       true ->
