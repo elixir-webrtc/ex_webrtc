@@ -74,7 +74,7 @@ defmodule ExWebRTC.RTPTransceiverTest do
         )
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
-      ssrc_value = ssrc_value(@stream_id, @track.id)
+      ssrc_value = ssrc_msid_value(@stream_id, @track.id)
 
       assert [%ExSDP.Attribute.MSID{id: @stream_id}] =
                ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
@@ -94,7 +94,7 @@ defmodule ExWebRTC.RTPTransceiverTest do
         )
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
-      ssrc_value = ssrc_value(@stream_id, @track.id)
+      ssrc_value = ssrc_msid_value(@stream_id, @track.id)
 
       assert [%ExSDP.Attribute.MSID{id: @stream_id, app_data: @track.id}] ==
                ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
@@ -147,8 +147,8 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
 
-      ssrc1_value = ssrc_value(s1_id, track.id)
-      ssrc2_value = ssrc_value(s2_id, track.id)
+      ssrc1_value = ssrc_msid_value(s1_id, track.id)
+      ssrc2_value = ssrc_msid_value(s2_id, track.id)
 
       assert [
                %ExSDP.Attribute.MSID{id: s1_id, app_data: track.id},
@@ -225,5 +225,5 @@ defmodule ExWebRTC.RTPTransceiverTest do
     assert [] == ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
   end
 
-  defp ssrc_value(stream, app_data), do: "#{stream} #{app_data}"
+  defp ssrc_msid_value(stream, app_data), do: "#{stream} #{app_data}"
 end
