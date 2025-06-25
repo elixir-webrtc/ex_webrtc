@@ -199,9 +199,9 @@ defmodule ExWebRTC.RTPTransceiverTest do
       assert [] = ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
       assert [
-               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: "- -"},
-               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: "- -"}
-             ] = ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
+               %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: "- #{tr.sender.id}"},
+               %ExSDP.Attribute.SSRC{id: @rtx_ssrc, attribute: "msid", value: "- #{tr.sender.id}"}
+             ] == ExSDP.get_attributes(mline, ExSDP.Attribute.SSRC)
     end
   end
 
