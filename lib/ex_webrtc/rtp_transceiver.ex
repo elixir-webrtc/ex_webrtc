@@ -558,10 +558,8 @@ defmodule ExWebRTC.RTPTransceiver do
             else: transceiver.sender.codecs
 
         get_sender_attrs(
-          transceiver.sender.track,
-          codecs,
-          transceiver.sender.ssrc,
-          transceiver.sender.rtx_ssrc
+          transceiver.sender,
+          codecs
         )
       else
         []
@@ -577,75 +575,76 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  defp get_sender_attrs(track, codecs, ssrc, rtx_ssrc) do
-    # Don't include track id. See RFC 8829 sec. 5.2.1
+  defp get_sender_attrs(sender, codecs) do
+    # According to RFC 8829 sec. 5.2.1, track IDs should not be included.
+    # However, most browsers support track IDs in MSID. We will follow this practice.
     msid_attrs =
-      case track do
-        %MediaStreamTrack{streams: streams} when streams != [] ->
-          Enum.map(streams, &ExSDP.Attribute.MSID.new(&1, nil))
+      case sender.track do
+        %MediaStreamTrack{streams: streams, id: id} when streams != [] ->
+          Enum.map(streams, &ExSDP.Attribute.MSID.new(&1, id))
 
-        _other ->
+        %MediaStreamTrack{id: id} ->
           # In theory, we should do this "for each MediaStream that was associated with the transceiver",
           # but web browsers (chrome, ff) include MSID even when there aren't any MediaStreams
-          [ExSDP.Attribute.MSID.new("-", nil)]
+          [ExSDP.Attribute.MSID.new("-", id)]
+
+        nil ->
+          [ExSDP.Attribute.MSID.new("-", sender.id)]
       end
 
-    ssrc_attrs = get_ssrc_attrs(codecs, ssrc, rtx_ssrc, track)
+    ssrc_attrs = get_ssrc_attrs(sender, codecs)
 
     msid_attrs ++ ssrc_attrs
   end
 
-  defp get_ssrc_attrs(codecs, ssrc, rtx_ssrc, track) do
+  defp get_ssrc_attrs(sender, codecs) do
     codec = Enum.any?(codecs, fn codec -> not String.ends_with?(codec.mime_type, "/rtx") end)
     rtx_codec = Enum.any?(codecs, fn codec -> String.ends_with?(codec.mime_type, "/rtx") end)
 
-    do_get_ssrc_attrs(codec, rtx_codec, ssrc, rtx_ssrc, track)
+    do_get_ssrc_attrs(sender, codec, rtx_codec)
   end
 
   # we didn't manage to negotiate any codec
-  defp do_get_ssrc_attrs(false, _rtx_codec, _ssrc, _rtx_ssrc, _track) do
+  defp do_get_ssrc_attrs(_sender, false, _rtx_codec) do
     []
   end
 
   # we have a codec but not rtx codec
-  defp do_get_ssrc_attrs(_codec, false, ssrc, _rtx_ssrc, track) do
-    streams = (track && track.streams) || []
-
-    case streams do
-      [] ->
-        [%ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"}]
-
-      streams ->
+  defp do_get_ssrc_attrs(%{ssrc: ssrc} = sender, _codec, false) do
+    case sender.track do
+      %MediaStreamTrack{streams: streams, id: id} when streams != [] ->
         Enum.map(streams, fn stream ->
-          %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
+          %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "#{stream} #{id}"}
         end)
+
+      %MediaStreamTrack{id: id} ->
+        [%ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "- #{id}"}]
+
+      nil ->
+        # If the track_id is missing, we will default to using the sender_id, following Chromium's approach:
+        # See: https://source.chromium.org/chromium/chromium/src/+/main:third_party/webrtc/pc/sdp_offer_answer.cc;l=739;drc=b8b5768e5d0d1c2a84fe4896eae884d97fd1131e;bpv=1;bpt=1
+        [%ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "- #{sender.id}"}]
     end
   end
 
   # we have both codec and rtx codec
-  defp do_get_ssrc_attrs(_codec, _rtx_codec, ssrc, rtx_ssrc, track) do
-    streams = (track && track.streams) || []
-
+  defp do_get_ssrc_attrs(%{ssrc: ssrc, rtx_ssrc: rtx_ssrc} = sender, _codec, _rtx_codec) do
     fid = %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [ssrc, rtx_ssrc]}
 
     ssrc_attrs =
-      case streams do
-        [] ->
-          [
-            %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "-"},
-            %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: "-"}
-          ]
-
-        streams ->
+      case sender.track do
+        %MediaStreamTrack{streams: streams, id: id} when streams != [] ->
           {ssrc_attrs, rtx_ssrc_attrs} =
             Enum.reduce(streams, {[], []}, fn stream, {ssrc_attrs, rtx_ssrc_attrs} ->
-              ssrc_attr = %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: stream}
+              ssrc_value = "#{stream} #{id}"
+
+              ssrc_attr = %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: ssrc_value}
               ssrc_attrs = [ssrc_attr | ssrc_attrs]
 
               rtx_ssrc_attr = %ExSDP.Attribute.SSRC{
                 id: rtx_ssrc,
                 attribute: "msid",
-                value: stream
+                value: ssrc_value
               }
 
               rtx_ssrc_attrs = [rtx_ssrc_attr | rtx_ssrc_attrs]
@@ -654,6 +653,18 @@ defmodule ExWebRTC.RTPTransceiver do
             end)
 
           Enum.reverse(ssrc_attrs) ++ Enum.reverse(rtx_ssrc_attrs)
+
+        %MediaStreamTrack{id: id} ->
+          [
+            %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "- #{id}"},
+            %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: "- #{id}"}
+          ]
+
+        nil ->
+          [
+            %ExSDP.Attribute.SSRC{id: ssrc, attribute: "msid", value: "- #{sender.id}"},
+            %ExSDP.Attribute.SSRC{id: rtx_ssrc, attribute: "msid", value: "- #{sender.id}"}
+          ]
       end
 
     [fid | ssrc_attrs]
