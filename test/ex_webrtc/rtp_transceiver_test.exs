@@ -196,7 +196,8 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
       mline = RTPTransceiver.to_offer_mline(tr, @opts)
 
-      assert [] = ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
+      assert [%ExSDP.Attribute.MSID{id: "-", app_data: tr.sender.id}] ==
+               ExSDP.get_attributes(mline, ExSDP.Attribute.MSID)
 
       assert [
                %ExSDP.Attribute.SSRC{id: @ssrc, attribute: "msid", value: "- #{tr.sender.id}"},

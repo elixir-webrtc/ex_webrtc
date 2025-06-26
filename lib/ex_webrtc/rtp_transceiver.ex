@@ -589,7 +589,7 @@ defmodule ExWebRTC.RTPTransceiver do
           [ExSDP.Attribute.MSID.new("-", id)]
 
         nil ->
-          []
+          [ExSDP.Attribute.MSID.new("-", sender.id)]
       end
 
     ssrc_attrs = get_ssrc_attrs(sender, codecs)
