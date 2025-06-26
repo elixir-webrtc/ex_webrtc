@@ -559,9 +559,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
         get_sender_attrs(
           transceiver.sender,
-          codecs,
-          transceiver.sender.ssrc,
-          transceiver.sender.rtx_ssrc
+          codecs
         )
       else
         []
@@ -577,7 +575,7 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
-  defp get_sender_attrs(sender, codecs, ssrc, rtx_ssrc) do
+  defp get_sender_attrs(sender, codecs) do
     # According to RFC 8829 sec. 5.2.1, track IDs should not be included.
     # However, most browsers support track IDs in MSID. We will follow this practice.
     msid_attrs =
@@ -594,25 +592,25 @@ defmodule ExWebRTC.RTPTransceiver do
           []
       end
 
-    ssrc_attrs = get_ssrc_attrs(codecs, ssrc, rtx_ssrc, sender)
+    ssrc_attrs = get_ssrc_attrs(sender, codecs)
 
     msid_attrs ++ ssrc_attrs
   end
 
-  defp get_ssrc_attrs(codecs, ssrc, rtx_ssrc, sender) do
+  defp get_ssrc_attrs(sender, codecs) do
     codec = Enum.any?(codecs, fn codec -> not String.ends_with?(codec.mime_type, "/rtx") end)
     rtx_codec = Enum.any?(codecs, fn codec -> String.ends_with?(codec.mime_type, "/rtx") end)
 
-    do_get_ssrc_attrs(codec, rtx_codec, ssrc, rtx_ssrc, sender)
+    do_get_ssrc_attrs(sender, codec, rtx_codec)
   end
 
   # we didn't manage to negotiate any codec
-  defp do_get_ssrc_attrs(false, _rtx_codec, _ssrc, _rtx_ssrc, _sender) do
+  defp do_get_ssrc_attrs(_sender, false, _rtx_codec) do
     []
   end
 
   # we have a codec but not rtx codec
-  defp do_get_ssrc_attrs(_codec, false, ssrc, _rtx_ssrc, sender) do
+  defp do_get_ssrc_attrs(%{ssrc: ssrc} = sender, _codec, false) do
     case sender.track do
       %MediaStreamTrack{streams: streams, id: id} when streams != [] ->
         Enum.map(streams, fn stream ->
@@ -630,7 +628,7 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   # we have both codec and rtx codec
-  defp do_get_ssrc_attrs(_codec, _rtx_codec, ssrc, rtx_ssrc, sender) do
+  defp do_get_ssrc_attrs(%{ssrc: ssrc, rtx_ssrc: rtx_ssrc} = sender, _codec, _rtx_codec) do
     fid = %ExSDP.Attribute.SSRCGroup{semantics: "FID", ssrcs: [ssrc, rtx_ssrc]}
 
     ssrc_attrs =
