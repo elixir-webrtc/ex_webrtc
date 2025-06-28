@@ -8,7 +8,7 @@ defmodule ExWebRTC.DataChannel do
 
   For the exact meaning, refer to the [RTCDataChannel: order property](https://developer.mozilla.org/en-US/docs/Web/API/RTCDataChannel/readyState).
   """
-  @type order() :: :ordered | :unordered
+  @type order() :: boolean()
 
   @type ref() :: reference()
 
