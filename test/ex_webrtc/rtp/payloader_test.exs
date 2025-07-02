@@ -5,6 +5,7 @@ defmodule ExWebRTC.RTP.PayloaderTest do
   alias ExWebRTC.RTP.Payloader
 
   @frame <<0, 1, 2, 3>>
+  @av1_temporal_unit <<0::1, 2::4, 0::3>>
 
   test "creates a VP8 payloader and dispatches calls to its module" do
     assert {:ok, _payloader} =
@@ -17,6 +18,18 @@ defmodule ExWebRTC.RTP.PayloaderTest do
              |> Payloader.new(max_payload_size: 800)
 
     assert Payloader.payload(payloader, @frame) == Payloader.VP8.payload(payloader, @frame)
+  end
+
+  test "creates an AV1 payloader and dispatches calls to its module" do
+    assert {:ok, payloader} =
+             %RTPCodecParameters{payload_type: 45, mime_type: "video/AV1", clock_rate: 90_000}
+             |> Payloader.new()
+
+    assert Payloader.payload(payloader, @av1_temporal_unit) ==
+             Payloader.AV1.payload(payloader, @av1_temporal_unit)
+
+    # The sample frame is not a valid AV1 temporal unit
+    assert_raise RuntimeError, fn -> Payloader.payload(payloader, @frame) end
   end
 
   test "creates an Opus payloader and dispatches calls to its module" do
