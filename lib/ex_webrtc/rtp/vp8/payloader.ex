@@ -9,6 +9,8 @@ defmodule ExWebRTC.RTP.Payloader.VP8 do
 
   @behaviour ExWebRTC.RTP.Payloader.Behaviour
 
+  alias ExWebRTC.Utils
+
   @first_chunk_descriptor <<0::1, 0::1, 0::1, 1::1, 0::1, 0::3>>
 
   @next_chunk_descriptor <<0::1, 0::1, 0::1, 0::1, 0::1, 0::3>>
@@ -29,7 +31,7 @@ defmodule ExWebRTC.RTP.Payloader.VP8 do
 
   @impl true
   def payload(%__MODULE__{} = payloader, frame) when frame != <<>> do
-    rtp_payloads = chunk(frame, payloader.max_payload_size - @desc_size_bytes)
+    rtp_payloads = Utils.chunk(frame, payloader.max_payload_size - @desc_size_bytes)
 
     [first_rtp_payload | next_rtp_payloads] = rtp_payloads
 
@@ -44,18 +46,5 @@ defmodule ExWebRTC.RTP.Payloader.VP8 do
     rtp_packets = List.update_at(rtp_packets, -1, &%ExRTP.Packet{&1 | marker: true})
 
     {rtp_packets, payloader}
-  end
-
-  defp chunk(data, size, acc \\ [])
-  defp chunk(<<>>, _size, acc), do: Enum.reverse(acc)
-
-  defp chunk(data, size, acc) do
-    case data do
-      <<data::binary-size(size), rest::binary>> ->
-        chunk(rest, size, [data | acc])
-
-      _other ->
-        chunk(<<>>, size, [data | acc])
-    end
   end
 end

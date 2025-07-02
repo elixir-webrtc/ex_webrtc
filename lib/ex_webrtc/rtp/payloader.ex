@@ -39,6 +39,7 @@ defmodule ExWebRTC.RTP.Payloader do
   defp to_payloader_module(mime_type) do
     case String.downcase(mime_type) do
       "video/vp8" -> {:ok, ExWebRTC.RTP.Payloader.VP8}
+      "video/av1" -> {:ok, ExWebRTC.RTP.Payloader.AV1}
       "audio/opus" -> {:ok, ExWebRTC.RTP.Payloader.Opus}
       "audio/pcma" -> {:ok, ExWebRTC.RTP.Payloader.G711}
       "audio/pcmu" -> {:ok, ExWebRTC.RTP.Payloader.G711}
