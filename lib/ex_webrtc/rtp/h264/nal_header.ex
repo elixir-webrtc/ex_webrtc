@@ -1,4 +1,4 @@
-defmodule ExWebRTC.RTP.H264.NALHeader do
+defmodule ExWebRTC.RTP.H264.NAL.Header do
   @moduledoc """
   Defines a structure representing Network Abstraction Layer Unit Header
 
