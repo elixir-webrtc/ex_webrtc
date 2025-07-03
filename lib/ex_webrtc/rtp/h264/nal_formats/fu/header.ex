@@ -12,7 +12,7 @@ defmodule ExWebRTC.RTP.H264.FU.Header do
   ```
   """
 
-  alias Membrane.RTP.H264.NAL
+  alias ExWebRTC.RTP.H264.NAL
 
   @typedoc """
   MUST be set to true only in the first packet in a sequence.

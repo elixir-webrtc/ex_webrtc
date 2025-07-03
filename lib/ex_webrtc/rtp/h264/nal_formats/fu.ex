@@ -4,7 +4,7 @@ defmodule ExWebRTC.RTP.H264.FU do
   """
   use Bunch
   alias __MODULE__
-  alias Membrane.RTP.H264.NAL
+  alias ExWebRTC.RTP.H264.NAL
 
   defstruct data: []
 
