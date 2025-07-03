@@ -5,7 +5,7 @@ defmodule ExWebRTC.RTP.AV1.PayloadTest do
   alias ExWebRTC.Utils
 
   test "parse/1 and serialize/1" do
-    # test vectors are based on av1-rtp-spec
+    # test vectors are based on [RTP Payload Format for AV1](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html)
 
     # random av1 data, not necessarily correct
     av1_payload = <<0, 1, 2, 3>>

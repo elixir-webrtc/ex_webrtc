@@ -58,6 +58,8 @@ defmodule ExWebRTC.RTP.AV1.OBU do
          sid: sid,
          payload: payload
        }, rest}
+    else
+      {:error, _} = err -> err
     end
   end
 

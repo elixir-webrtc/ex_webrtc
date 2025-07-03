@@ -14,10 +14,10 @@ defmodule ExWebRTC.RTP.AV1.PayloaderTest do
         {:ok, frame} = Reader.next_frame(ivf_reader)
         {rtp_packets, av1_payloader} = Payloader.AV1.payload(av1_payloader, frame.data)
 
-        # assert all packets are no bigger than 200 bytes
+        # assert all packets are no bigger than 101 bytes
         rtp_packets
         |> Enum.each(fn rtp_packet ->
-          assert byte_size(rtp_packet.payload) <= 200
+          assert byte_size(rtp_packet.payload) <= 101
         end)
 
         last_rtp = List.last(rtp_packets)
