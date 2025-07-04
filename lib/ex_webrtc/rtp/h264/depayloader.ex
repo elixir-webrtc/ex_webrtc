@@ -1,6 +1,6 @@
 defmodule ExWebRTC.RTP.Depayloader.H264 do
   @moduledoc """
-  Depayloads H264 RTP payloads into H264 NAL Units.
+  Extracts H264 NAL Units from RTP packets.
 
   Based on [RFC 6184](https://tools.ietf.org/html/rfc6184).
 
@@ -27,8 +27,6 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
   end
 
   @impl true
-  def depayload(depayloader, packet)
-
   def depayload(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {nil, depayloader}
 
   def depayload(depayloader, packet) do
@@ -60,11 +58,11 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
          {header, payload}
        ) do
     if fu_parser_acc != nil and current_timestamp != packet.timestamp do
-      {:error, "fu-a colliding rtp timestamps"}
+      {:error, "Invalid timestamp inside FU-A"}
 
       Logger.debug("""
-      Received packet with timestamp from a new frame that is not a beginning of this frame \
-      and without finishing the previous frame. Dropping both.\
+      Received packet with FU-A type payload that is not a start of Fragmentation Unit with timestamp \
+      different than last start and without finishing the previous FU. Dropping FU.\
       """)
     end
 
@@ -92,10 +90,10 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
   end
 
   defp handle_unit_type(unsupported_type, _depayloader, _packet, _nal) do
-    {:error, "unsupported nal type #{unsupported_type}"}
+    {:error, "Unsupported nal type #{unsupported_type}"}
 
     Logger.debug("""
-      Received packet with unsupported NAL type. Supported types are: NAL unit types, STAP-A, FU-A. Dropping packet.
+      Received packet with unsupported NAL type. Supported types are: Single NALU, STAP-A, FU-A. Dropping packet.
     """)
   end
 
