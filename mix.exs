@@ -85,6 +85,8 @@ defmodule ExWebRTC.MixProject do
 
     deploying_guides = ["bare", "fly"]
 
+    for_developers_guides = ["fd_encryption", "fd_debugging", "fd_sdp"]
+
     [
       main: "readme",
       logo: "logo.svg",
@@ -92,7 +94,8 @@ defmodule ExWebRTC.MixProject do
         ["README.md"] ++
           Enum.map(intro_guides, &"guides/introduction/#{&1}.md") ++
           Enum.map(advanced_guides, &"guides/advanced/#{&1}.md") ++
-          Enum.map(deploying_guides, &"guides/deploying/#{&1}.md"),
+          Enum.map(deploying_guides, &"guides/deploying/#{&1}.md") ++
+          Enum.map(for_developers_guides, &"guides/for_developers/#{&1}.md"),
       assets: %{"guides/assets" => "assets"},
       source_ref: "v#{@version}",
       formatters: ["html"],
@@ -101,7 +104,8 @@ defmodule ExWebRTC.MixProject do
       groups_for_extras: [
         Introduction: Path.wildcard("guides/introduction/*.md"),
         Advanced: Path.wildcard("guides/advanced/*.md"),
-        Deploying: Path.wildcard("guides/deploying/*.md")
+        Deploying: Path.wildcard("guides/deploying/*.md"),
+        "For Developers": Path.wildcard("guides/for_developers/*.md")
       ],
       groups_for_modules: [
         MEDIA: ~r"ExWebRTC\.Media\..*",
