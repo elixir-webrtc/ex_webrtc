@@ -42,7 +42,7 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
         Resetting depayloader state. Payload: #{inspect(packet.payload)}.\
         """)
 
-        {:ok, %{depayloader | current_nal: nil, current_timestamp: nil}}
+        {nil, %{depayloader | current_timestamp: nil, fu_parser_acc: nil}}
     end
   end
 
@@ -58,27 +58,27 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
          {header, payload}
        ) do
     if fu_parser_acc != nil and current_timestamp != packet.timestamp do
-      {:error, "Invalid timestamp inside FU-A"}
-
-      Logger.debug("""
+      Logger.warning("""
       Received packet with FU-A type payload that is not a start of Fragmentation Unit with timestamp \
       different than last start and without finishing the previous FU. Dropping FU.\
       """)
-    end
 
-    case FU.parse(payload, fu_parser_acc || %FU{}) do
-      {:ok, {data, type}} ->
-        data = NAL.Header.add_header(data, 0, header.nal_ref_idc, type)
+      {:error, "Invalid timestamp inside FU-A"}
+    else
+      case FU.parse(payload, fu_parser_acc || %FU{}) do
+        {:ok, {data, type}} ->
+          data = NAL.Header.add_header(data, 0, header.nal_ref_idc, type)
 
-        {:ok,
-         {prefix_annexb(data),
-          %__MODULE__{current_timestamp: packet.timestamp, fu_parser_acc: nil}}}
+          {:ok,
+           {prefix_annexb(data),
+            %__MODULE__{current_timestamp: packet.timestamp, fu_parser_acc: nil}}}
 
-      {:incomplete, fu} ->
-        {:ok, {nil, %__MODULE__{fu_parser_acc: fu}}}
+        {:incomplete, fu} ->
+          {:ok, {nil, %__MODULE__{fu_parser_acc: fu, current_timestamp: packet.timestamp}}}
 
-      {:error, _reason} = error ->
-        error
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
 
@@ -90,11 +90,11 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
   end
 
   defp handle_unit_type(unsupported_type, _depayloader, _packet, _nal) do
-    {:error, "Unsupported nal type #{unsupported_type}"}
-
-    Logger.debug("""
-      Received packet with unsupported NAL type. Supported types are: Single NALU, STAP-A, FU-A. Dropping packet.
+    Logger.warning("""
+      Received packet with unsupported NAL type: #{unsupported_type}. Supported types are: Single NALU, STAP-A, FU-A. Dropping packet.
     """)
+
+    {:error, "Unsupported nal type #{unsupported_type}"}
   end
 
   defp prefix_annexb(nal) do
