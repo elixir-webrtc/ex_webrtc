@@ -93,6 +93,7 @@ defmodule ExWebRTC.RTP.H264.NAL.Header do
   defp do_decode_type(28), do: :fu_a
   defp do_decode_type(29), do: :fu_b
   defp do_decode_type(number) when number in [30, 31], do: :reserved
+  defp do_decode_type(_), do: :invalid
 
   @doc """
   Encodes given NAL type
