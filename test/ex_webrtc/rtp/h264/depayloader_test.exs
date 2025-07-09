@@ -71,6 +71,26 @@ defmodule ExWebRTC.RTP.H264.DepayloaderTest do
              {bin, depayloader}
   end
 
+  test "Check starting new without ending previous FU-A" do
+    payload_fuas = <<60, 133, 128>>
+    payload_fua = <<60, 133, 129>>
+
+    depayloader = Depayloader.H264.new()
+
+    packet1 = ExRTP.Packet.new(payload_fuas, timestamp: 10)
+    packet2 = ExRTP.Packet.new(payload_fua, timestamp: 10)
+
+    {bin, depayloader} = Depayloader.H264.depayload(depayloader, packet1)
+
+    assert {nil, %{current_timestamp: 10, fu_parser_acc: %{data: [<<128>>]}}} =
+             {bin, depayloader}
+
+    {bin, depayloader} = Depayloader.H264.depayload(depayloader, packet2)
+
+    assert {nil, %{current_timestamp: nil, fu_parser_acc: nil}} =
+             {bin, depayloader}
+  end
+
   test "Check all reserved NAL types" do
     # reserved NALu types (22, 23, 30, 31)
     payloads_nalu_reserved = [<<55, 131>>, <<56, 131>>, <<62, 131>>, <<63, 131>>]

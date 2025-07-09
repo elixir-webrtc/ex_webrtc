@@ -70,21 +70,24 @@ defmodule ExWebRTC.RTP.H264.FU do
 
   defp do_parse(header, packet, acc)
 
-  defp do_parse(%FU.Header{start_bit: true}, packet, acc),
-    do: {:incomplete, %__MODULE__{acc | data: [packet]}}
+  defp do_parse(%FU.Header{start_bit: true}, data, %{data: []} = acc),
+    do: {:incomplete, %__MODULE__{acc | data: [data]}}
+
+  defp do_parse(%FU.Header{start_bit: true}, _data, _acc),
+    do: {:error, :last_fu_not_finished}
 
   defp do_parse(%FU.Header{start_bit: false}, _data, %__MODULE__{data: []}),
     do: {:error, :invalid_first_packet}
 
-  defp do_parse(%FU.Header{end_bit: true, type: type}, packet, %__MODULE__{data: acc_data}) do
+  defp do_parse(%FU.Header{end_bit: true, type: type}, data, %__MODULE__{data: acc_data}) do
     result =
-      [packet | acc_data]
+      [data | acc_data]
       |> Enum.reverse()
       |> Enum.join()
 
     {:ok, {result, type}}
   end
 
-  defp do_parse(_header, packet, %__MODULE__{data: acc_data} = fu),
-    do: {:incomplete, %__MODULE__{fu | data: [packet | acc_data]}}
+  defp do_parse(_header, data, %__MODULE__{data: acc_data} = fu),
+    do: {:incomplete, %__MODULE__{fu | data: [data | acc_data]}}
 end
