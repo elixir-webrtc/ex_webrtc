@@ -14,7 +14,7 @@ defmodule ExWebRTC.RTP.H264.FU do
   is `NAL Unit` created by concatenating subsequent Fragmentation Units.
   """
   @spec parse(binary(), [binary()]) ::
-          {:ok, {binary(), NAL.Header.type()}}
+          {:ok, {binary(), NAL.Header.rbsp_type()}}
           | {:error, :packet_malformed | :invalid_first_packet}
           | {:incomplete, [binary()]}
   def parse(packet, acc) do
