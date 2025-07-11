@@ -136,17 +136,17 @@ defmodule ExWebRTC.RTP.H264.DepayloaderTest do
     end)
   end
 
-  test "empty RTP payload" do
+  test "drop RTP padding packets" do
     payload_empty = <<>>
 
     depayloader = Depayloader.H264.new()
-    packet = ExRTP.Packet.new(payload_empty, timestamp: 123)
+    packet = ExRTP.Packet.new(payload_empty, padding: true, timestamp: 123)
 
     assert {nil, %{current_timestamp: nil, fu_parser_acc: []}} =
              Depayloader.H264.depayload(depayloader, packet)
   end
 
-  test "malformed NAL" do
+  test "drop malformed NAL" do
     # forbidden zero bit set to 1
     payload_invalid = <<181, 0>>
 
@@ -157,7 +157,7 @@ defmodule ExWebRTC.RTP.H264.DepayloaderTest do
              Depayloader.H264.depayload(depayloader, packet)
   end
 
-  test "malformed STAP-A" do
+  test "drop malformed STAP-A" do
     # malformed STAP-A payload. First NAL should be 1-byte long, but is 2-bytes long
     payload_invalid = <<56, 0, 1, 128, 12, 0, 1, 129>>
 
