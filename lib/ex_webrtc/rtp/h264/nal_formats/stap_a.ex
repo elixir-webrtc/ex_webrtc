@@ -24,7 +24,6 @@ defmodule ExWebRTC.RTP.H264.StapA do
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
   ```
   """
-  alias ExWebRTC.RTP.H264.NAL
 
   @spec parse(binary()) :: {:ok, [binary()]} | {:error, :packet_malformed}
   def parse(data) do
