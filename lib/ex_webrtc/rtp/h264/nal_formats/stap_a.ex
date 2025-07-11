@@ -24,8 +24,6 @@ defmodule ExWebRTC.RTP.H264.StapA do
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
   ```
   """
-  use Bunch
-
   alias ExWebRTC.RTP.H264.NAL
 
   @spec parse(binary()) :: {:ok, [binary()]} | {:error, :packet_malformed}
@@ -39,16 +37,4 @@ defmodule ExWebRTC.RTP.H264.StapA do
     do: do_parse(rest, [nalu | acc])
 
   defp do_parse(_data, _acc), do: {:error, :packet_malformed}
-
-  @spec aggregation_unit_size(binary()) :: pos_integer()
-  def aggregation_unit_size(nalu), do: byte_size(nalu) + 2
-
-  @spec serialize([binary], 0..1, 0..3) :: binary
-  def serialize(payloads, f, nri) do
-    payloads
-    |> Enum.reverse()
-    |> Enum.map(&<<byte_size(&1)::16, &1::binary>>)
-    |> IO.iodata_to_binary()
-    |> NAL.Header.add_header(f, nri, NAL.Header.encode_type(:stap_a))
-  end
 end

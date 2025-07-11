@@ -83,4 +83,10 @@ defmodule ExWebRTC.RTP.DepayloaderTest do
     assert Depayloader.depayload(depayloader, @packet) ==
              Depayloader.H264.depayload(depayloader, @packet)
   end
+
+  test "returns error if no depayloader exists for given codec" do
+    assert {:error, :no_depayloader_for_codec} =
+             %RTPCodecParameters{payload_type: 45, mime_type: "video/AV1", clock_rate: 90_000}
+             |> Depayloader.new()
+  end
 end

@@ -1,11 +1,11 @@
 defmodule ExWebRTC.RTP.Depayloader.H264 do
-  @moduledoc """
-  Extracts H264 NAL Units from RTP packets.
+  @moduledoc false
+  # Extracts H264 NAL Units from RTP packets.
+  #
+  # Based on [RFC 6184](https://tools.ietf.org/html/rfc6184).
+  #
+  # Supported types: Single NALU, FU-A, STAP-A.
 
-  Based on [RFC 6184](https://tools.ietf.org/html/rfc6184).
-
-  Supported types: Single NALU, FU-A, STAP-A.
-  """
   @behaviour ExWebRTC.RTP.Depayloader.Behaviour
 
   require Logger
@@ -15,11 +15,11 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
   @annexb_prefix <<1::32>>
 
   @type t() :: %__MODULE__{
-          current_timestamp: nil,
-          fu_parser_acc: nil
+          current_timestamp: non_neg_integer() | nil,
+          fu_parser_acc: [binary()]
         }
 
-  defstruct [:current_timestamp, :fu_parser_acc]
+  defstruct current_timestamp: nil, fu_parser_acc: []
 
   @impl true
   def new() do
@@ -33,7 +33,7 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
     with {:ok, {header, _payload} = nal} <- NAL.Header.parse_unit_header(packet.payload),
          unit_type = NAL.Header.decode_type(header),
          {:ok, {nal, depayloader}} <-
-           handle_unit_type(unit_type, depayloader, packet, nal) do
+           do_depayload(unit_type, depayloader, packet, nal) do
       {nal, depayloader}
     else
       {:error, reason} ->
@@ -42,54 +42,60 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
         Resetting depayloader state. Payload: #{inspect(packet.payload)}.\
         """)
 
-        {nil, %{depayloader | current_timestamp: nil, fu_parser_acc: nil}}
+        {nil, %{depayloader | current_timestamp: nil, fu_parser_acc: []}}
     end
   end
 
-  defp handle_unit_type(:single_nalu, depayloader, packet, {_header, payload}) do
+  defp do_depayload(:single_nalu, depayloader, packet, {_header, payload}) do
     {:ok,
      {prefix_annexb(payload), %__MODULE__{depayloader | current_timestamp: packet.timestamp}}}
   end
 
-  defp handle_unit_type(
+  defp do_depayload(
          :fu_a,
          %{current_timestamp: current_timestamp, fu_parser_acc: fu_parser_acc},
          packet,
+         {_header, _payload}
+       )
+       when fu_parser_acc != [] and current_timestamp != packet.timestamp do
+    Logger.warning("""
+    received packet with fu-a type payload that is not a start of fragmentation unit with timestamp \
+    different than last start and without finishing the previous fu. dropping fu.\
+    """)
+
+    {:error, "invalid timestamp inside fu-a"}
+  end
+
+  defp do_depayload(
+         :fu_a,
+         %{fu_parser_acc: fu_parser_acc},
+         packet,
          {header, payload}
        ) do
-    if fu_parser_acc != nil and current_timestamp != packet.timestamp do
-      Logger.warning("""
-      Received packet with FU-A type payload that is not a start of Fragmentation Unit with timestamp \
-      different than last start and without finishing the previous FU. Dropping FU.\
-      """)
+    case FU.parse(payload, fu_parser_acc || []) do
+      {:ok, {data, type}} ->
+        data = NAL.Header.add_header(data, 0, header.nal_ref_idc, type)
 
-      {:error, "Invalid timestamp inside FU-A"}
-    else
-      case FU.parse(payload, fu_parser_acc || %FU{}) do
-        {:ok, {data, type}} ->
-          data = NAL.Header.add_header(data, 0, header.nal_ref_idc, type)
+        {:ok,
+         {prefix_annexb(data),
+          %__MODULE__{current_timestamp: packet.timestamp, fu_parser_acc: []}}}
 
-          {:ok,
-           {prefix_annexb(data),
-            %__MODULE__{current_timestamp: packet.timestamp, fu_parser_acc: nil}}}
+      {:incomplete, fu} ->
+        {:ok, {nil, %__MODULE__{fu_parser_acc: fu, current_timestamp: packet.timestamp}}}
 
-        {:incomplete, fu} ->
-          {:ok, {nil, %__MODULE__{fu_parser_acc: fu, current_timestamp: packet.timestamp}}}
-
-        {:error, _reason} = error ->
-          error
-      end
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  defp handle_unit_type(:stap_a, depayloader, packet, {_header, payload}) do
+  defp do_depayload(:stap_a, depayloader, packet, {_header, payload}) do
     with {:ok, result} <- StapA.parse(payload) do
-      nals = Enum.reduce(result, <<>>, fn nal, acc -> acc <> prefix_annexb(nal) end)
+      nals = result |> Stream.map(&prefix_annexb/1) |> Enum.join()
       {:ok, {nals, %__MODULE__{depayloader | current_timestamp: packet.timestamp}}}
     end
   end
 
-  defp handle_unit_type(unsupported_type, _depayloader, _packet, _nal) do
+  defp do_depayload(unsupported_type, _depayloader, _packet, _nal) do
     Logger.warning("""
       Received packet with unsupported NAL type: #{unsupported_type}. Supported types are: Single NALU, STAP-A, FU-A. Dropping packet.
     """)

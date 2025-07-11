@@ -44,7 +44,7 @@ defmodule ExWebRTC.RTP.H264.NAL.Header do
   | Reserved | 30-31          |
 
   """
-  @type type :: 1..31
+  @type rbsp_type :: 1..31
   @type supported_types :: :stap_a | :fu_a | :single_nalu
   @type unsupported_types :: :stap_b | :mtap_16 | :mtap_24 | :fu_b
   @type types :: supported_types | unsupported_types | :reserved
@@ -53,7 +53,7 @@ defmodule ExWebRTC.RTP.H264.NAL.Header do
 
   @type t :: %__MODULE__{
           nal_ref_idc: nri(),
-          type: type()
+          type: rbsp_type()
         }
 
   @spec parse_unit_header(binary()) :: {:error, :malformed_data} | {:ok, {t(), binary()}}
@@ -74,7 +74,7 @@ defmodule ExWebRTC.RTP.H264.NAL.Header do
   @doc """
   Adds NAL header to payload
   """
-  @spec add_header(binary(), 0 | 1, nri(), type()) :: binary()
+  @spec add_header(binary(), 0 | 1, nri(), rbsp_type()) :: binary()
   def add_header(payload, f, nri, type),
     do: <<f::1, nri::2, type::5>> <> payload
 
@@ -94,17 +94,4 @@ defmodule ExWebRTC.RTP.H264.NAL.Header do
   defp do_decode_type(29), do: :fu_b
   defp do_decode_type(number) when number in [30, 31], do: :reserved
   defp do_decode_type(_), do: :invalid
-
-  @doc """
-  Encodes given NAL type
-  """
-  @spec encode_type(types()) :: type()
-  def encode_type(:single_nalu), do: 1
-  def encode_type(:stap_a), do: 24
-  def encode_type(:stap_b), do: 25
-  def encode_type(:mtap_16), do: 26
-  def encode_type(:mtap_24), do: 27
-  def encode_type(:fu_a), do: 28
-  def encode_type(:fu_b), do: 29
-  def encode_type(:reserved), do: 30
 end
