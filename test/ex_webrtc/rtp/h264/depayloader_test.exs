@@ -72,13 +72,13 @@ defmodule ExWebRTC.RTP.H264.DepayloaderTest do
   end
 
   test "starting new without ending previous FU-A" do
-    payload_fuas = <<60, 133, 128>>
-    payload_fua = <<60, 133, 129>>
+    payload_fuas1 = <<60, 133, 128>>
+    payload_fuas2 = <<60, 133, 129>>
 
     depayloader = Depayloader.H264.new()
 
-    packet1 = ExRTP.Packet.new(payload_fuas, timestamp: 10)
-    packet2 = ExRTP.Packet.new(payload_fua, timestamp: 10)
+    packet1 = ExRTP.Packet.new(payload_fuas1, timestamp: 10)
+    packet2 = ExRTP.Packet.new(payload_fuas2, timestamp: 10)
 
     {bin, depayloader} = Depayloader.H264.depayload(depayloader, packet1)
 
@@ -89,6 +89,28 @@ defmodule ExWebRTC.RTP.H264.DepayloaderTest do
 
     assert {nil, %{current_timestamp: nil, fu_parser_acc: []}} =
              {bin, depayloader}
+  end
+
+  test "non-start packet without starting FU-A beforehand" do
+    payload_fua = <<60, 5, 128>>
+
+    depayloader = Depayloader.H264.new()
+
+    packet = ExRTP.Packet.new(payload_fua, timestamp: 10)
+
+    assert {nil, %{current_timestamp: nil, fu_parser_acc: []}} =
+             Depayloader.H264.depayload(depayloader, packet)
+  end
+
+  test "non-fragmented FU-A (start and end bits set to 1)" do
+    payload_fua = <<60, 197, 129>>
+
+    depayloader = Depayloader.H264.new()
+
+    packet = ExRTP.Packet.new(payload_fua, timestamp: 10)
+
+    assert {nil, %{current_timestamp: nil, fu_parser_acc: []}} =
+             Depayloader.H264.depayload(depayloader, packet)
   end
 
   test "all unsupported NAL types" do
@@ -114,7 +136,28 @@ defmodule ExWebRTC.RTP.H264.DepayloaderTest do
     end)
   end
 
+  test "empty RTP payload" do
+    payload_empty = <<>>
+
+    depayloader = Depayloader.H264.new()
+    packet = ExRTP.Packet.new(payload_empty, timestamp: 123)
+
+    assert {nil, %{current_timestamp: nil, fu_parser_acc: []}} =
+             Depayloader.H264.depayload(depayloader, packet)
+  end
+
   test "malformed NAL" do
+    # forbidden zero bit set to 1
+    payload_invalid = <<181, 0>>
+
+    depayloader = Depayloader.H264.new()
+    packet = ExRTP.Packet.new(payload_invalid, timestamp: 123)
+
+    assert {nil, %{current_timestamp: nil, fu_parser_acc: []}} =
+             Depayloader.H264.depayload(depayloader, packet)
+  end
+
+  test "malformed STAP-A" do
     # malformed STAP-A payload. First NAL should be 1-byte long, but is 2-bytes long
     payload_invalid = <<56, 0, 1, 128, 12, 0, 1, 129>>
 
