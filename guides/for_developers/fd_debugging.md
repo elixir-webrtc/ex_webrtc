@@ -75,7 +75,7 @@ If both session negotiation and connection establishment went well, you can obse
 1. We heavily rely on chrome://webrtc-internals here. 
 1. Check counters: packetsReceived, framesReceived, framesDecoded, framesDropped.
 1. E.g. if packetsReceived increases but framesReceived does not, it means that there is a problem in assembling video frames from RTP packets. This can happen when:
-    1. web browser is not able to correctly demux incomming RTP streams possibly because sender uses incorrect payload type in RTP packets (different than the one announced in SDP) or does not include MID in RTP headers. 
+    1. web browser is not able to correctly demux incoming RTP streams possibly because sender uses incorrect payload type in RTP packets (different than the one announced in SDP) or does not include MID in RTP headers. 
     Keep in mind that MID MAY be sent only at the beginning of the transmission to save bandwidth.
     This is enough to create a mapping between SSRC and MID on the receiver side.
     1. marker bit in RTP header is incorrectly set by the sender (although dependent on the codec, in case of video, marker bit is typically set when an RTP packet contains the end of a video frame)
@@ -83,7 +83,7 @@ If both session negotiation and connection establishment went well, you can obse
 1. E.g. if packetsReceived increases, framesReceived increases but framesDecoded does not, it probably means errors in decoding process. 
 In this case, framesDropped will probably also increase.
 1. framesDropped may also increase when frames are assembled too late i.e. their playout time has passed.
-1. Check borwser logs. 
+1. Check browser logs. 
 Some of the errors (e.g. decoder errors) might be logged.
 
 ## QoE
@@ -93,22 +93,22 @@ Mostly because it very often depends on a lot of factors (network condition, har
 Problems with QoE are hard to reproduce, very often don't occur in local/office environment.
 
 1. We heavily rely on chrome://webrtc-internals here.
-1. Check coutners: nackCount, retransmittedPacketsSent, packetsLost. 
+1. Check counters: nackCount, retransmittedPacketsSent, packetsLost. 
 Retransmissions (RTX) are must have. 
 Without RTX, even 1% of packet loss will have very big impact on QoE.
 1. Check incoming/outgoing bitrate and its stability.
-1. Check jitterBufferDelay/jitterBufferEmittedCount_in_ms - this is avg time each video frame spends in jitter buffer before being emitted for plaout.
+1. Check jitterBufferDelay/jitterBufferEmittedCount_in_ms - this is avg time each video frame spends in jitter buffer before being emitted for playout.
 1. JitterBuffer is adjusted dynamically. 
 
 ## Debugging in production
 
 1. Dump WebRTC stats via getStats() into db for later analysis.
 1. getStats() can still be called after PC has failed or has been closed.
-1. Continous storage WebRTC stats as time series might be challenging.
+1. Continuous storage WebRTC stats as time series might be challenging.
 We don't have a lot of experience doing it.
 1. Come up with custom metrics that will allow you to observe the scale of a given problem or monitor how something changes in time.
 1. E.g. if you feel like you very often encounter ICE failures, count them and compare to successful workflows or to the number of complete and successful SDP offer/answer exchanges.
-This way you will see the scale of the problem and you can observer how it changes in time,  after introducing fixes or new features.
+This way you will see the scale of the problem and you can observe how it changes in time,  after introducing fixes or new features.
 1. It's important to look at numbers instead of specific cases as there will always be someone who needs to refresh the page, restart the connection etc.
 What matters is the ratio of such problems and how it changes in time.
 1. E.g. this is a quote from Sean DuBois working on WebRTC in OpenAI:

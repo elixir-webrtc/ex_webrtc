@@ -116,7 +116,7 @@ In WebRTC this is a string "EXTRACTOR-dtls_srtp"
     ```mermaid
     flowchart TD
         K["KeyingMaterial"] --> CM["ClientMasterKey"]
-        K --> SM["ServertMasterKey"]
+        K --> SM["ServerMasterKey"]
         K --> CS["ClientMasterSalt"]
         K --> SS["ServerMasterSalt"]
     ```
