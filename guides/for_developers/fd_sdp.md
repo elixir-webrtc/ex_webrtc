@@ -1,6 +1,6 @@
 # WebRTC SDP
 
-WebRTC uses SDP offer/answer to negotiate session parameters (numer of audio/video tracks, their directions, codecs, etc.).
+WebRTC uses SDP offer/answer to negotiate session parameters (number of audio/video tracks, their directions, codecs, etc.).
 The way they are exchanged between both sides is not standardized. 
 Very often it is a websocket.
 WebRTC was standardized by (among others) Google, Cisco and Mozilla.
@@ -15,7 +15,7 @@ Cisco and Mozilla insisted on compatibility with SIP and telephone industry, hen
 * when transceiver is stopped, port number in mline is set to 0
 * port number in mline set to 9 means that connection address will be set dynamically via ICE
 * SDP can include ICE candidates but it doesn't have to.
-In particular, when you create the first offer it won't have any ICE candidates, but if you wait a couple of seconds and read peerconnection.localDescription it will contain ICE candidates that were gatherd throughout this time.
+In particular, when you create the first offer it won't have any ICE candidates, but if you wait a couple of seconds and read peerconnection.localDescription it will contain ICE candidates that were gathered throughout this time.
 * offerer can offer to both send and receive
 * mline includes a list of supported codecs.
 They are sorted in preference order
@@ -56,8 +56,8 @@ When the other side is an SFU, we have at least 3 options:
 Client sends SDP offer including both its own tracks and server's tracks.
 This requires a single negotiation.
 * client sends SDP offer only including its own tracks. 
-After this is negotiated succsessfully, server sends its SDP offer.
-This requries two negotiations.
+After this is negotiated successfully, server sends its SDP offer.
+This requires two negotiations.
 * we use two separate peer connections, one for sending and one for receiving.
 This way client and server can send their offers in parallel.
 This was used e.g. by LiveKit.
