@@ -651,6 +651,32 @@ defmodule ExWebRTC.PeerConnectionTest do
       assert sdp.media == []
     end
 
+    test "after remote offer" do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+
+      PeerConnection.add_transceiver(pc1, :video)
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      :ok = PeerConnection.set_local_description(pc1, offer)
+
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+      [tr] = PeerConnection.get_transceivers(pc2)
+      :ok = PeerConnection.stop_transceiver(pc2, tr.id)
+      assert [
+               %RTPTransceiver{
+                 current_direction: nil,
+                 direction: :inactive,
+                 stopping: true,
+                 stopped: false
+               }
+             ] = PeerConnection.get_transceivers(pc2)
+
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      [video] = ExSDP.parse!(answer.sdp).media
+
+      assert video.port == 9
+    end
+
     test "with renegotiation" do
       {:ok, pc1} = PeerConnection.start_link()
       {:ok, pc2} = PeerConnection.start_link()
