@@ -1,7 +1,7 @@
 defmodule ExWebRTC.RTP.H264.FU do
-  @moduledoc """
-  Module responsible for parsing H264 Fragmentation Unit.
-  """
+  @moduledoc false
+  # Module responsible for parsing H264 Fragmentation Unit.
+
   alias __MODULE__
   alias ExWebRTC.RTP.H264.NAL
 

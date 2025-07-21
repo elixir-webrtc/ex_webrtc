@@ -30,14 +30,14 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
   def depayload(depayloader, %ExRTP.Packet{payload: <<>>, padding: true}), do: {nil, depayloader}
 
   def depayload(depayloader, packet) do
-    with {:ok, {header, _payload} = nal} <- NAL.Header.parse_unit_header(packet.payload),
+    with {:ok, {header, _payload} = nal} <- NAL.Header.parse(packet.payload),
          unit_type = NAL.Header.decode_type(header),
          {:ok, {nal, depayloader}} <-
            do_depayload(unit_type, depayloader, packet, nal) do
       {nal, depayloader}
     else
       {:error, reason} ->
-        Logger.warning("""
+        Logger.debug("""
         Couldn't parse payload, reason: #{reason}. \
         Resetting depayloader state. Payload: #{inspect(packet.payload)}.\
         """)
@@ -63,7 +63,7 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
     different than last start and without finishing the previous fu. dropping fu.\
     """)
 
-    {:error, "invalid timestamp inside fu-a"}
+    {:error, :invalid_timestamp}
   end
 
   defp do_depayload(
@@ -74,7 +74,7 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
        ) do
     case FU.parse(payload, fu_parser_acc || []) do
       {:ok, {data, type}} ->
-        data = NAL.Header.add_header(data, 0, header.nal_ref_idc, type)
+        data = NAL.Header.add(data, 0, header.nal_ref_idc, type)
 
         {:ok,
          {prefix_annexb(data),
@@ -90,7 +90,7 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
 
   defp do_depayload(:stap_a, depayloader, packet, {_header, payload}) do
     with {:ok, result} <- StapA.parse(payload) do
-      nals = result |> Stream.map(&prefix_annexb/1) |> Enum.join()
+      nals = result |> Enum.map_join(&prefix_annexb/1)
       {:ok, {nals, %__MODULE__{depayloader | current_timestamp: packet.timestamp}}}
     end
   end
@@ -100,7 +100,7 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
       Received packet with unsupported NAL type: #{unsupported_type}. Supported types are: Single NALU, STAP-A, FU-A. Dropping packet.
     """)
 
-    {:error, "Unsupported nal type #{unsupported_type}"}
+    {:error, :unsupported_nal_type}
   end
 
   defp prefix_annexb(nal) do

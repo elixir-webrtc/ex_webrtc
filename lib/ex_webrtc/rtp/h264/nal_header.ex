@@ -56,10 +56,10 @@ defmodule ExWebRTC.RTP.H264.NAL.Header do
           type: rbsp_type()
         }
 
-  @spec parse_unit_header(binary()) :: {:error, :malformed_data} | {:ok, {t(), binary()}}
-  def parse_unit_header(raw_nal)
+  @spec parse(binary()) :: {:error, :malformed_data} | {:ok, {t(), binary()}}
+  def parse(raw_nal)
 
-  def parse_unit_header(<<0::1, nri::2, type::5, rest::binary>>) do
+  def parse(<<0::1, nri::2, type::5, rest::binary>>) do
     nal = %__MODULE__{
       nal_ref_idc: nri,
       type: type
@@ -69,13 +69,13 @@ defmodule ExWebRTC.RTP.H264.NAL.Header do
   end
 
   # If first bit is not set to 0 packet is flagged as malformed
-  def parse_unit_header(_binary), do: {:error, :malformed_data}
+  def parse(_binary), do: {:error, :malformed_data}
 
   @doc """
   Adds NAL header to payload
   """
-  @spec add_header(binary(), 0 | 1, nri(), rbsp_type()) :: binary()
-  def add_header(payload, f, nri, type),
+  @spec add(binary(), 0 | 1, nri(), rbsp_type()) :: binary()
+  def add(payload, f, nri, type),
     do: <<f::1, nri::2, type::5>> <> payload
 
   @doc """
