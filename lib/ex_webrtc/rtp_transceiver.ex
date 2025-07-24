@@ -434,7 +434,11 @@ defmodule ExWebRTC.RTPTransceiver do
         mline = to_mline(transceiver, opts)
         %ExSDP.Media{mline | port: 0}
 
-      transceiver.stopping == true or transceiver.stopped == true ->
+      transceiver.stopping == true ->
+        opts = Keyword.put(opts, :direction, :inactive)
+        to_mline(transceiver, opts)
+
+      transceiver.stopped == true ->
         opts = Keyword.put(opts, :direction, :inactive)
         mline = to_mline(transceiver, opts)
         %ExSDP.Media{mline | port: 0}
