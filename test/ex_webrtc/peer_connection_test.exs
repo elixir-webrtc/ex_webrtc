@@ -662,6 +662,7 @@ defmodule ExWebRTC.PeerConnectionTest do
       :ok = PeerConnection.set_remote_description(pc2, offer)
       [tr] = PeerConnection.get_transceivers(pc2)
       :ok = PeerConnection.stop_transceiver(pc2, tr.id)
+
       assert [
                %RTPTransceiver{
                  current_direction: nil,
