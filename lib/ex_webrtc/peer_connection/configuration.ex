@@ -164,6 +164,17 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   at the very end of the whole connection establishment process. To mitigate this issue, you can eitehr add an empty
   ICE candidate (this will indicate that there won't be further remote candidates and once all connectivity checks pass,
   ICE will nominate the pair), or use aggressive nomination. Defaults to false.
+  * `host_to_srflx_ip_mapper` - function called for each host candidate to derive a new "fabricated" srflx candidate from it.
+  This function takes host's ip as an argument and should return srflx's ip as a result or nil if for given host candidate
+  there should be no srflx one.
+
+  Note that each returned IP address must be unique.
+  If the mapping function repeatedly returns the same address,
+  it will be ignored, and only one server reflexive candidate will be created.
+
+  This function is meant to be used for server implementations where the public addresses are well known.
+  NAT uses 1 to 1 port mapping and using STUN server for discovering public IP is undesirable
+  (e.g. because of unknown response time).
   * `audio_codecs` and `video_codecs` - lists of audio and video codecs to negotiate. By default these are equal to
   `default_audio_codecs/0` and `default_video_codecs/0`. To extend the list with your own codecs, do
   `audio_codecs: Configuration.default_audio_codecs() ++ my_codecs`.
@@ -189,6 +200,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_ip_filter: ICEAgent.ip_filter(),
           ice_port_range: Enumerable.t(non_neg_integer()),
           ice_aggressive_nomination: boolean(),
+          host_to_srflx_ip_mapper: ICEAgent.host_to_srflx_ip_mapper(),
           audio_codecs: [RTPCodecParameters.t()] | [audio_codec_name()],
           video_codecs: [RTPCodecParameters.t()] | [video_codec_name()],
           features: [feature()],
@@ -209,6 +221,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_ip_filter: (:inet.ip_address() -> boolean()) | nil,
           ice_port_range: Enumerable.t(non_neg_integer()),
           ice_aggressive_nomination: boolean(),
+          host_to_srflx_ip_mapper: ICEAgent.host_to_srflx_ip_mapper() | nil,
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
           audio_extensions: [Extmap.t()],
@@ -228,6 +241,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
                 ice_transport_policy: :all,
                 ice_port_range: [0],
                 ice_aggressive_nomination: false,
+                host_to_srflx_ip_mapper: nil,
                 audio_codecs: @default_audio_codecs,
                 video_codecs: @default_video_codecs,
                 features: @default_features
