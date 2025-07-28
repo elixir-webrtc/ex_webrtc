@@ -674,8 +674,34 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       {:ok, answer} = PeerConnection.create_answer(pc2)
       [video] = ExSDP.parse!(answer.sdp).media
-
       assert video.port == 9
+
+      :ok = PeerConnection.set_local_description(pc2, answer)
+      :ok = PeerConnection.set_remote_description(pc1, answer)
+
+      assert_receive {:ex_webrtc, ^pc2, :negotiation_needed}
+
+      # Ensure transceiver is removed after renegotiation
+
+      {:ok, offer2} = PeerConnection.create_offer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, offer2)
+      [new_video] = ExSDP.parse!(offer2.sdp).media
+      assert new_video.port == 0
+
+      assert [
+               %RTPTransceiver{
+                 current_direction: :inactive,
+                 direction: :inactive,
+                 stopping: true,
+                 stopped: false
+               }
+             ] = PeerConnection.get_transceivers(pc2)
+
+      :ok = PeerConnection.set_remote_description(pc1, offer2)
+      {:ok, answer2} = PeerConnection.create_answer(pc1)
+
+      :ok = PeerConnection.set_remote_description(pc2, answer2)
+      assert [] = PeerConnection.get_transceivers(pc2)
     end
 
     test "with renegotiation" do
