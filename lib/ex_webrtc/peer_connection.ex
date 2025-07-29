@@ -2418,6 +2418,9 @@ defmodule ExWebRTC.PeerConnection do
   # https://www.w3.org/TR/webrtc/#dfn-check-if-negotiation-is-needed
   defp tr_negotiation_needed?([], _), do: false
 
+  defp tr_negotiation_needed?([tr | _transceivers], _state) when tr.stopping and not tr.stopped,
+    do: true
+
   defp tr_negotiation_needed?([tr | _transceivers], _state) when tr.mid == nil, do: true
 
   defp tr_negotiation_needed?([tr | transceivers], state) do
