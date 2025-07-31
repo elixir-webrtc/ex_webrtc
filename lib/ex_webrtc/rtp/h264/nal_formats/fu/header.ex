@@ -1,16 +1,15 @@
 defmodule ExWebRTC.RTP.H264.FU.Header do
-  @moduledoc """
-  Defines a structure representing Fragmentation Unit (FU) header
-  which is defined in [RFC6184](https://tools.ietf.org/html/rfc6184#page-31)
-
-  ```
-    +---------------+
-    |0|1|2|3|4|5|6|7|
-    +-+-+-+-+-+-+-+-+
-    |S|E|R|  Type   |
-    +---------------+
-  ```
-  """
+  @moduledoc false
+  # Defines a structure representing Fragmentation Unit (FU) header
+  # which is defined in [RFC6184](https://tools.ietf.org/html/rfc6184#page-31)
+  #
+  # 
+  #   +---------------+
+  #   |0|1|2|3|4|5|6|7|
+  #   +-+-+-+-+-+-+-+-+
+  #   |S|E|R|  Type   |
+  #   +---------------+
+  #
 
   alias ExWebRTC.RTP.H264.NAL
 
