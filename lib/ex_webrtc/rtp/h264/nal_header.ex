@@ -1,17 +1,16 @@
 defmodule ExWebRTC.RTP.H264.NAL.Header do
-  @moduledoc """
-  Defines a structure representing Network Abstraction Layer Unit Header
-
-  Defined in [RFC 6184](https://tools.ietf.org/html/rfc6184#section-5.3)
-
-  ```
-    +---------------+
-    |0|1|2|3|4|5|6|7|
-    +-+-+-+-+-+-+-+-+
-    |F|NRI|  Type   |
-    +---------------+
-  ```
-  """
+  @moduledoc false
+  # Defines a structure representing Network Abstraction Layer Unit Header
+  #
+  # Defined in [RFC 6184](https://tools.ietf.org/html/rfc6184#section-5.3)
+  #
+  #
+  #   +---------------+
+  #   |0|1|2|3|4|5|6|7|
+  #   +-+-+-+-+-+-+-+-+
+  #   |F|NRI|  Type   |
+  #   +---------------+
+  #
 
   @typedoc """
   NRI stands for nal_ref_idc. This value represents importance of
