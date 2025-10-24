@@ -17,7 +17,8 @@ defmodule ExWebRTC.RTP.VP8 do
     # for more information refer to RFC 7741 Sections 4.2 and 4.3
 
     with {:ok, vp8_payload} <- VP8.Payload.parse(rtp_payload),
-         <<_size0::3, _h::1, _ver::3, p::1, _size1::8, _size2::8, _rest::binary>> <- rtp_payload do
+         <<_size0::3, _h::1, _ver::3, p::1, _size1::8, _size2::8, _rest::binary>> <-
+           vp8_payload.payload do
       vp8_payload.s == 1 and vp8_payload.pid == 0 and p == 0
     else
       _err -> false
