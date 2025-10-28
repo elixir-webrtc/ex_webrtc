@@ -28,7 +28,7 @@ defmodule ExWebRTC.RTP.VP8Test do
     assert not VP8.keyframe?(packet2)
 
     # https://github.com/elixir-webrtc/ex_webrtc/issues/234
-    {:ok, binary_packet3} = File.read(@vp8_packet)
+    binary_packet3 = File.read!(@vp8_packet)
     packet3 = :erlang.binary_to_term(binary_packet3)
     assert not VP8.keyframe?(packet3)
   end
