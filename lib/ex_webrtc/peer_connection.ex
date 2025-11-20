@@ -1391,7 +1391,11 @@ defmodule ExWebRTC.PeerConnection do
     Logger.debug("Closing peer connection")
     transceivers = Enum.map(state.transceivers, &RTPTransceiver.stop(&1))
     sctp_transport = SCTPTransport.close_abruptly(state.sctp_transport)
-    :ok = DTLSTransport.close(state.dtls_transport)
+
+    if state.dtls_transport do
+      :ok = DTLSTransport.close(state.dtls_transport)
+    end
+
     :ok = state.ice_transport.close(state.ice_pid)
 
     state =
