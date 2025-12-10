@@ -2,11 +2,12 @@
 
 Elixir WebRTC-based apps can be easily deployed on [Fly.io](https://fly.io)!
 
-There are just three things you need to do:
+There are just four things you need to do:
 
 * configure a STUN server both on the client and server side
 * use a custom Fly.io IP filter on the server side
 * slightly modify the auto-generated Dockerfile 
+* ensure you have a static IP
 
 In JavaScript code:
 
@@ -55,7 +56,8 @@ Now:
     +     && apt-get clean && rm -f /var/lib/apt/lists/*_*
     ```
 
-3. Run `fly deploy` to retry.
+3. Follow instructions [here](https://fly.io/docs/networking/udp-and-tcp/#you-need-a-dedicated-ipv4-address) to add a dedicated IPv4 address.
+4. Run `fly deploy` to retry.
 
 That's it!
-No special UDP port exports or dedicated IP address are needed :)
+No special UDP port exports are needed :)
