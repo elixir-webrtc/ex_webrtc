@@ -196,7 +196,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @type options() :: [
           controlling_process: Process.dest(),
           ice_servers: [ice_server()],
-          ice_transport_policy: :relay | :all,
+          ice_transport_policy: :relay | :all | :no_host,
           ice_ip_filter: ICEAgent.ip_filter(),
           ice_port_range: Enumerable.t(non_neg_integer()),
           ice_aggressive_nomination: boolean(),
@@ -217,7 +217,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @type t() :: %__MODULE__{
           controlling_process: Process.dest(),
           ice_servers: [ice_server()],
-          ice_transport_policy: :relay | :all,
+          ice_transport_policy: :relay | :all | :no_host,
           ice_ip_filter: (:inet.ip_address() -> boolean()) | nil,
           ice_port_range: Enumerable.t(non_neg_integer()),
           ice_aggressive_nomination: boolean(),
