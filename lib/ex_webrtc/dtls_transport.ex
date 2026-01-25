@@ -46,15 +46,15 @@ defmodule ExWebRTC.DTLSTransport do
           base64_certificate: binary()
         }
 
-  @spec start_link(ICETransport.t(), pid()) :: GenServer.on_start()
-  def start_link(ice_transport \\ DefaultICETransport, ice_pid) do
+  @spec start_link(ICETransport.t(), pid(), Enumerable.t({atom(), term()})) :: GenServer.on_start()
+  def start_link(ice_transport \\ DefaultICETransport, ice_pid, logger_metadata) do
     behaviour = ice_transport.__info__(:attributes)[:behaviour] || []
 
     unless ICETransport in behaviour do
       raise "DTLSTransport requires ice_transport to implement ExWebRTC.ICETransport behaviour."
     end
 
-    GenServer.start_link(__MODULE__, [ice_transport, ice_pid, self()])
+    GenServer.start_link(__MODULE__, [ice_transport, ice_pid, self(), logger_metadata])
   end
 
   @spec set_ice_connected(dtls_transport()) :: :ok
@@ -117,7 +117,9 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def init([ice_transport, ice_pid, owner]) do
+  def init([ice_transport, ice_pid, owner, logger_metadata]) do
+    Logger.metadata(logger_metadata)
+
     {pkey, cert} = ExDTLS.generate_key_cert()
     fingerprint = ExDTLS.get_cert_fingerprint(cert)
 

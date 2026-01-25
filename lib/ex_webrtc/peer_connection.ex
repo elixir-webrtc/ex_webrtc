@@ -605,6 +605,8 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_continue(config, _state) do
+    Logger.metadata(config.logger_metadata)
+
     {:ok, _} = Registry.register(ExWebRTC.Registry, self(), self())
 
     ice_config = [
@@ -614,11 +616,12 @@ defmodule ExWebRTC.PeerConnection do
       aggressive_nomination: config.ice_aggressive_nomination,
       host_to_srflx_ip_mapper: config.host_to_srflx_ip_mapper,
       ports: config.ice_port_range,
-      on_data: nil
+      on_data: nil,
+      logger_metadata: config.logger_metadata
     ]
 
     {:ok, ice_pid} = DefaultICETransport.start_link(ice_config)
-    {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid)
+    {:ok, dtls_transport} = DTLSTransport.start_link(DefaultICETransport, ice_pid, config.logger_metadata)
     # route data to the DTLSTransport
     :ok = DefaultICETransport.on_data(ice_pid, dtls_transport)
 
