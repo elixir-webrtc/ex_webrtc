@@ -118,7 +118,10 @@ defmodule ExWebRTC.DTLSTransportTest do
 
   setup do
     {:ok, ice_pid} = MockICETransport.start_link(tester: self())
-    assert {:ok, dtls} = DTLSTransport.start_link(MockICETransport, ice_pid)
+
+    assert {:ok, dtls} =
+             DTLSTransport.start_link(ice_transport: MockICETransport, ice_pid: ice_pid)
+
     MockICETransport.on_data(ice_pid, dtls)
     assert_receive {:dtls_transport, ^dtls, {:state_change, :new}}
 

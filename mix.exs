@@ -57,7 +57,7 @@ defmodule ExWebRTC.MixProject do
   defp deps do
     [
       {:ex_sdp, "~> 1.0"},
-      {:ex_ice, github: "elixir-webrtc/ex_ice"},
+      {:ex_ice, github: "elixir-webrtc/ex_ice", ref: "34824b277fcbc88234a2945f68a1304e4d77a212"},
       {:ex_dtls, "~> 0.18.0"},
       {:ex_libsrtp, "~> 0.7.1"},
       {:ex_rtp, "~> 0.4.0"},
