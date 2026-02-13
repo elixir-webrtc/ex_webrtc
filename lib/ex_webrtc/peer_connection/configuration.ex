@@ -154,6 +154,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   * `controlling_process` - a pid of a process where all messages will be sent. `self()` by default,
   * `ice_servers` - list of STUN/TURN servers to use. By default, no servers are provided.
+  * `ice_transport_protocol` - which transport protocol should be used. Defaults to `:udp`.
+  Note that relay candidates for TCP transport are not yet supported.
   * `ice_transport_policy` - which type of ICE candidates should be used. Defaults to `:all`.
   * `ice_ip_filter` - filter applied when gathering local candidates. By default, all IP addresses are accepted.
   * `ice_port_range` - range of ports that ICE will use for gathering host candidates. Defaults to ephemeral ports.
@@ -197,6 +199,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @type options() :: [
           controlling_process: Process.dest(),
           ice_servers: [ice_server()],
+          ice_transport_protocol: :udp | :tcp,
           ice_transport_policy: :relay | :all,
           ice_ip_filter: ICEAgent.ip_filter(),
           ice_port_range: Enumerable.t(non_neg_integer()),
@@ -219,6 +222,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   @type t() :: %__MODULE__{
           controlling_process: Process.dest(),
           ice_servers: [ice_server()],
+          ice_transport_protocol: :udp | :tcp,
           ice_transport_policy: :relay | :all,
           ice_ip_filter: (:inet.ip_address() -> boolean()) | nil,
           ice_port_range: Enumerable.t(non_neg_integer()),
@@ -242,6 +246,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
               [
                 ice_servers: [],
                 ice_transport_policy: :all,
+                ice_transport_protocol: :udp,
                 ice_port_range: [0],
                 ice_aggressive_nomination: false,
                 host_to_srflx_ip_mapper: nil,
