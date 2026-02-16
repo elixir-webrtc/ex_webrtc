@@ -24,6 +24,7 @@ defmodule ExWebRTC.RTP.AV1.OBU do
 
   @obu_sequence_header 1
   @obu_temporal_delimiter 2
+  @obu_tile_list 8
   @obu_padding 15
 
   @type t :: %__MODULE__{
@@ -72,9 +73,18 @@ defmodule ExWebRTC.RTP.AV1.OBU do
 
   defp parse_extension_header(_, _), do: {:error, :invalid_av1_bitstream}
 
-  defp parse_payload(0, rest), do: {:ok, rest, <<>>}
+  @doc """
+  Parses a single OBU payload from the bitstream, taking the S bit into account.
+  On success, returns the parsed OBU as well as the remainder of the AV1 bitstream.
+  Can be used to parse OBU elements from RTP packet payloads.
+  """
+  @spec parse_payload(0 | 1, binary()) ::
+          {:ok, binary(), binary()} | {:error, :invalid_av1_bitstream}
+  def parse_payload(s, payload)
 
-  defp parse_payload(1, rest) do
+  def parse_payload(0, rest), do: {:ok, rest, <<>>}
+
+  def parse_payload(1, rest) do
     with {:ok, leb128_size, payload_size} <- LEB128.read(rest),
          <<_::binary-size(leb128_size), payload::binary-size(payload_size), rest::binary>> <- rest do
       {:ok, payload, rest}
@@ -141,4 +151,15 @@ defmodule ExWebRTC.RTP.AV1.OBU do
   end
 
   def disable_dropping_in_decoder_if_applicable(obu), do: obu
+
+  @doc """
+  Determines whether the OBU should be removed when transmitting, and must be ignored when receiving
+  in accordance with av1-rtp-spec sec. 5.
+  """
+  @spec should_be_transmitted?(t()) :: boolean()
+  def should_be_transmitted?(obu)
+
+  def should_be_transmitted?(%__MODULE__{type: @obu_temporal_delimiter}), do: false
+  def should_be_transmitted?(%__MODULE__{type: @obu_tile_list}), do: false
+  def should_be_transmitted?(_obu), do: true
 end
