@@ -656,6 +656,7 @@ defmodule ExWebRTC.PeerConnection do
       dtls_transport: dtls_transport,
       demuxer: %Demuxer{},
       transceivers: [],
+      dtls_role: :new,
       ice_state: :new,
       ice_gathering_state: :new,
       dtls_state: :new,
@@ -828,13 +829,19 @@ defmodule ExWebRTC.PeerConnection do
 
     fingerprint = DTLSTransport.get_fingerprint(state.dtls_transport)
 
+    dtls_role =
+      case state do
+        %{dtls_role: :new} -> :active
+        %{dtls_role: dtls_role} -> dtls_role
+      end
+
     opts =
       [
         ice_ufrag: ice_ufrag,
         ice_pwd: ice_pwd,
         ice_options: "trickle",
         fingerprint: {:sha256, Utils.hex_dump(fingerprint)},
-        setup: :active
+        setup: dtls_role
       ]
 
     mlines =
@@ -2007,8 +2014,19 @@ defmodule ExWebRTC.PeerConnection do
           state.owner
         )
 
-      # infer our role from the remote role
-      dtls_role = if dtls_role in [:actpass, :passive], do: :active, else: :passive
+      # Infer our role from the remote role, but maintain a role once set.
+      # Chrome in particular refuses to change roles and will fail setting
+      # the remote description.
+      dtls_role =
+        if state.dtls_role == :new do
+          if(dtls_role in [:actpass, :passive],
+            do: :active,
+            else: :passive
+          )
+        else
+          state.dtls_role
+        end
+
       DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
       sctp_transport = SCTPTransport.set_role(state.sctp_transport, dtls_role)
 
@@ -2030,6 +2048,7 @@ defmodule ExWebRTC.PeerConnection do
       state =
         state
         |> set_description(:remote, type, sdp)
+        |> Map.put(:dtls_role, dtls_role)
         |> Map.replace!(:transceivers, transceivers)
         |> remove_stopped_transceivers(type, sdp)
         |> update_signaling_state(next_sig_state)
