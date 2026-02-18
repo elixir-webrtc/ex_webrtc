@@ -37,8 +37,7 @@ defmodule ExWebRTC.RTPTransceiver do
           sender: RTPSender.sender(),
           stopping: boolean(),
           stopped: boolean(),
-          added_by_add_track: boolean(),
-          transport: :udp | :tcp
+          added_by_add_track: boolean()
         }
 
   @typedoc """
@@ -154,8 +153,7 @@ defmodule ExWebRTC.RTPTransceiver do
       header_extensions: header_extensions,
       added_by_add_track: Keyword.get(options, :added_by_add_track, false),
       stopping: false,
-      stopped: false,
-      transport: config.ice_transport_protocol
+      stopped: false
     }
   end
 
@@ -198,21 +196,6 @@ defmodule ExWebRTC.RTPTransceiver do
     sender = RTPSender.new(nil, ssrc, rtx_ssrc, config.features)
     sender = RTPSender.update(sender, mid, codecs, header_extensions)
 
-    %ExSDP.Media{protocol: proto} = mline
-
-    transport =
-      case String.downcase(proto) do
-        "udp/" <> _rest ->
-          :udp
-
-        "tcp/" <> _rest ->
-          :tcp
-
-        other ->
-          Logger.debug("Unknown transport protocol: #{inspect(other)}. Assuming UDP")
-          :udp
-      end
-
     %{
       id: id,
       direction: :recvonly,
@@ -227,8 +210,7 @@ defmodule ExWebRTC.RTPTransceiver do
       header_extensions: header_extensions,
       added_by_add_track: false,
       stopping: false,
-      stopped: false,
-      transport: transport
+      stopped: false
     }
   end
 
@@ -587,10 +569,8 @@ defmodule ExWebRTC.RTPTransceiver do
         []
       end
 
-    protocol = "#{transceiver.transport}/TLS/RTP/SAVPF" |> String.upcase()
-
     %ExSDP.Media{
-      ExSDP.Media.new(transceiver.kind, 9, protocol, pt)
+      ExSDP.Media.new(transceiver.kind, 9, "UDP/TLS/RTP/SAVPF", pt)
       | # mline must be followed by a cline, which must contain
         # the default value "IN IP4 0.0.0.0" (as there are no candidates yet)
         connection_data: [%ExSDP.ConnectionData{address: {0, 0, 0, 0}}]
