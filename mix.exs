@@ -26,8 +26,13 @@ defmodule ExWebRTC.MixProject do
       ],
 
       # code coverage
-      test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [
+      test_coverage: [tool: ExCoveralls]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.post": :test,
@@ -56,7 +61,7 @@ defmodule ExWebRTC.MixProject do
 
   defp deps do
     [
-      {:ex_sdp, "~> 1.1.3"},
+      {:ex_sdp, "~> 1.1"},
       {:ex_ice, github: "elixir-webrtc/ex_ice", ref: "34824b277fcbc88234a2945f68a1304e4d77a212"},
       {:ex_dtls, "~> 0.18.0"},
       {:ex_libsrtp, "~> 0.7.1"},

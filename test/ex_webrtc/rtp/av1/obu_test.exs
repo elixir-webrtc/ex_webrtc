@@ -5,6 +5,7 @@ defmodule ExWebRTC.RTP.VP8.OBUTest do
 
   @obu_sequence_header 1
   @obu_temporal_delimiter 2
+  @obu_tile_list 8
   @obu_padding 15
 
   test "parse/1 and serialize/1" do
@@ -180,6 +181,20 @@ defmodule ExWebRTC.RTP.VP8.OBUTest do
 
     assert obu_to_leave_unchanged ==
              OBU.disable_dropping_in_decoder_if_applicable(obu_to_leave_unchanged)
+  end
+
+  test "should_be_transmitted?/1" do
+    assert OBU.should_be_transmitted?(%OBU{type: @obu_sequence_header, x: 0, s: 0, payload: <<>>})
+    assert OBU.should_be_transmitted?(%OBU{type: @obu_padding, x: 0, s: 0, payload: <<>>})
+
+    refute OBU.should_be_transmitted?(%OBU{
+             type: @obu_temporal_delimiter,
+             x: 0,
+             s: 0,
+             payload: <<>>
+           })
+
+    refute OBU.should_be_transmitted?(%OBU{type: @obu_tile_list, x: 0, s: 0, payload: <<>>})
   end
 
   defp obu_header(type, x, s), do: <<0::1, type::4, x::1, s::1, 0::1>>

@@ -1,7 +1,7 @@
 defmodule ExWebRTC.RTP.AV1.PayloadTest do
   use ExUnit.Case, async: true
 
-  alias ExWebRTC.RTP.AV1.Payload
+  alias ExWebRTC.RTP.AV1.{LEB128, Payload}
   alias ExWebRTC.Utils
 
   test "parse/1 and serialize/1" do
@@ -135,5 +135,88 @@ defmodule ExWebRTC.RTP.AV1.PayloadTest do
       end
 
     assert first_obu_chunk <> middle_obu_chunks <> last_obu_chunk == obu
+  end
+
+  test "depayload_obu_elements/1" do
+    [elem1, elem2, elem3, elem4] =
+      for _ <- 1..4 do
+        for i <- 0..Enum.random(10..500), into: <<>> do
+          <<rem(i, 255)>>
+        end
+      end
+
+    with_size = fn elem -> LEB128.encode(byte_size(elem)) <> elem end
+
+    # W>0
+    payload = %Payload{
+      z: 0,
+      y: 0,
+      w: 3,
+      n: 0,
+      payload: with_size.(elem1) <> with_size.(elem2) <> elem3
+    }
+
+    assert [elem1, elem2, elem3] == Payload.depayload_obu_elements(payload)
+
+    payload = %Payload{
+      z: 0,
+      y: 0,
+      w: 2,
+      n: 0,
+      payload: with_size.(elem1) <> elem2
+    }
+
+    assert [elem1, elem2] == Payload.depayload_obu_elements(payload)
+
+    payload = %Payload{
+      z: 0,
+      y: 0,
+      w: 1,
+      n: 0,
+      payload: elem1
+    }
+
+    assert [elem1] == Payload.depayload_obu_elements(payload)
+
+    # W=0
+    payload = %Payload{
+      z: 0,
+      y: 0,
+      w: 0,
+      n: 0,
+      payload: with_size.(elem1) <> with_size.(elem2) <> with_size.(elem3)
+    }
+
+    assert [elem1, elem2, elem3] == Payload.depayload_obu_elements(payload)
+
+    payload = %Payload{
+      z: 0,
+      y: 0,
+      w: 0,
+      n: 0,
+      payload: with_size.(elem2) <> with_size.(elem3)
+    }
+
+    assert [elem2, elem3] == Payload.depayload_obu_elements(payload)
+
+    payload = %Payload{
+      z: 0,
+      y: 0,
+      w: 0,
+      n: 0,
+      payload: with_size.(elem3)
+    }
+
+    assert [elem3] == Payload.depayload_obu_elements(payload)
+
+    payload = %Payload{
+      z: 0,
+      y: 0,
+      w: 0,
+      n: 0,
+      payload: with_size.(elem4) <> with_size.(elem3) <> with_size.(elem2) <> with_size.(elem1)
+    }
+
+    assert [elem4, elem3, elem2, elem1] == Payload.depayload_obu_elements(payload)
   end
 end

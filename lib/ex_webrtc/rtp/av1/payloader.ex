@@ -10,11 +10,12 @@ defmodule ExWebRTC.RTP.Payloader.AV1 do
 
   @behaviour ExWebRTC.RTP.Payloader.Behaviour
 
+  require Logger
+
   alias ExWebRTC.RTP.AV1.{OBU, Payload}
   alias ExWebRTC.Utils
 
   @obu_sequence_header 1
-  @obu_temporal_delimiter 2
 
   @aggregation_header_size_bytes 1
 
@@ -34,20 +35,14 @@ defmodule ExWebRTC.RTP.Payloader.AV1 do
   def payload(payloader, temporal_unit) when temporal_unit != <<>> do
     # In AV1, a temporal unit consists of all OBUs associated with a specific time instant.
     # Temporal units always start with a temporal delimiter OBU. They may contain multiple AV1 frames.
-    #   av1-rtp-spec sec. 5: The temporal delimiter OBU should be removed when transmitting.
-    obus =
-      case parse_obus(temporal_unit) do
-        [%OBU{type: @obu_temporal_delimiter} | next_obus] ->
-          next_obus
-
-        _ ->
-          raise "Invalid AV1 temporal unit: does not start with temporal delimiter OBU"
-      end
 
     # With the current implementation, each RTP packet will contain one OBU element.
     # This element can be an entire OBU, or a fragment of an OBU bigger than max_payload_size.
     rtp_packets =
-      Stream.flat_map(obus, fn obu ->
+      temporal_unit
+      |> parse_obus()
+      |> Stream.filter(&OBU.should_be_transmitted?/1)
+      |> Stream.flat_map(fn obu ->
         n_bit = Utils.to_int(obu.type == @obu_sequence_header)
 
         obu
@@ -72,7 +67,11 @@ defmodule ExWebRTC.RTP.Payloader.AV1 do
         parse_obus(rest, [obu | obus])
 
       {:error, :invalid_av1_bitstream} ->
-        raise "Invalid AV1 bitstream: unable to parse OBU"
+        Logger.warning("""
+        Unable to parse OBU from invalid AV1 bitstream. Dropping rest of temporal unit.\
+        """)
+
+        parse_obus(<<>>, obus)
     end
   end
 end

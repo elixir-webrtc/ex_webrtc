@@ -11,8 +11,8 @@ defmodule ExWebRTC.RTP.Depayloader.VP8 do
   alias ExWebRTC.RTP.VP8.Payload
 
   @type t() :: %__MODULE__{
-          current_frame: nil,
-          current_timestamp: nil
+          current_frame: binary() | nil,
+          current_timestamp: ExRTP.Packet.uint32() | nil
         }
 
   defstruct [:current_frame, :current_timestamp]
@@ -38,7 +38,7 @@ defmodule ExWebRTC.RTP.Depayloader.VP8 do
         Resetting depayloader state. Payload: #{inspect(packet.payload)}.\
         """)
 
-        {:ok, %{depayloader | current_frame: nil, current_timestamp: nil}}
+        {nil, %{depayloader | current_frame: nil, current_timestamp: nil}}
     end
   end
 
