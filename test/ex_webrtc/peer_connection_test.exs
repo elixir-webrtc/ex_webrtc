@@ -1362,7 +1362,7 @@ defmodule ExWebRTC.PeerConnectionTest do
       # ExWebRTC does not support outbound Simulcast
       # so this needs to be a little hacky
       rids = ["h", "l", "m"]
-      sdp = ExSDP.parse!(offer.sdp)
+      %ExSDP{} = sdp = ExSDP.parse!(offer.sdp)
       [video] = sdp.media
 
       video =
@@ -1372,7 +1372,7 @@ defmodule ExWebRTC.PeerConnectionTest do
         end)
 
       video = ExSDP.add_attribute(video, %ExSDP.Attribute.Simulcast{send: rids})
-      sdp = %ExSDP{sdp | media: [video]}
+      sdp = %{sdp | media: [video]}
       offer = %ExWebRTC.SessionDescription{sdp: to_string(sdp), type: :offer}
 
       {:ok, pc2} = PeerConnection.start_link()

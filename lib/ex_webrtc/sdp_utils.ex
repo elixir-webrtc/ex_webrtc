@@ -196,22 +196,18 @@ defmodule ExWebRTC.SDPUtils do
   end
 
   @spec add_ice_candidates(ExSDP.t(), [String.t()]) :: ExSDP.t()
-  def add_ice_candidates(sdp, candidates) do
+  def add_ice_candidates(%ExSDP{media: media} = sdp, candidates) do
     # We only add candidates to the first mline
     # as we don't support bundle-policies other than "max-bundle".
     # See RFC 8829, sec. 4.1.1.
-    candidates = Enum.map(candidates, &{"candidate", &1})
+    case media do
+      [mline | tail] ->
+        candidates = Enum.map(candidates, &{"candidate", &1})
+        mline = ExSDP.add_attributes(mline, candidates)
+        %{sdp | media: [mline | tail]}
 
-    if sdp.media != [] do
-      mline =
-        sdp.media
-        |> List.first()
-        |> ExSDP.add_attributes(candidates)
-
-      media = List.replace_at(sdp.media, 0, mline)
-      %ExSDP{sdp | media: media}
-    else
-      sdp
+      [] ->
+        sdp
     end
   end
 

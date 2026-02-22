@@ -47,8 +47,8 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
 
   def record_packet(%{clock_rate: nil}, _packet, _time), do: raise("Clock rate was not set")
 
-  def record_packet(%{last_seq_no: nil} = recorder, packet, time) do
-    %__MODULE__{
+  def record_packet(%__MODULE__{last_seq_no: nil} = recorder, packet, time) do
+    %{
       recorder
       | last_rtp_timestamp: packet.timestamp,
         last_seq_no: packet.sequence_number,
@@ -58,20 +58,22 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
     }
   end
 
-  def record_packet(recorder, packet, time) do
-    %__MODULE__{
-      last_seq_no: last_seq_no,
-      packet_count: packet_count,
-      octet_count: octet_count
-    } = recorder
-
+  def record_packet(
+        %__MODULE__{
+          last_seq_no: last_seq_no,
+          packet_count: packet_count,
+          octet_count: octet_count
+        } = recorder,
+        packet,
+        time
+      ) do
     # a packet is in order when it is from the next cycle, or from current cycle with delta > 0
     delta = packet.sequence_number - last_seq_no
     in_order? = delta < -@breakpoint or (delta > 0 and delta < @breakpoint)
 
     recorder =
       if in_order? do
-        %__MODULE__{
+        %{
           recorder
           | last_seq_no: packet.sequence_number,
             last_rtp_timestamp: packet.timestamp,
@@ -81,7 +83,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
         recorder
       end
 
-    %__MODULE__{
+    %{
       recorder
       | packet_count: packet_count + 1,
         octet_count: octet_count + byte_size(packet.payload)

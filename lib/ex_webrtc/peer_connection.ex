@@ -1594,7 +1594,10 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:dtls_transport, _pid, {:rtp, data}}, state) do
+  def handle_info(
+        {:dtls_transport, _pid, {:rtp, data}},
+        %{twcc_recorder: %TWCCRecorder{} = twcc_recorder} = state
+      ) do
     with {:ok, packet} <- ExRTP.Packet.decode(data),
          {:ok, mid, demuxer} <- Demuxer.demux_packet(state.demuxer, packet),
          {idx, t} <- find_transceiver(state.transceivers, mid) do
@@ -1606,14 +1609,14 @@ defmodule ExWebRTC.PeerConnection do
              {:ok, %{sequence_number: seq_no}} <- ExRTP.Packet.Extension.TWCC.from_raw(raw_ext) do
           # we always update the ssrc's for the one's from the latest packet
           # although this is not a necessity, the feedbacks are transport-wide
-          %TWCCRecorder{
-            state.twcc_recorder
+          %{
+            twcc_recorder
             | media_ssrc: packet.ssrc,
               sender_ssrc: t.sender.ssrc
           }
           |> TWCCRecorder.record_packet(seq_no)
         else
-          _other -> state.twcc_recorder
+          _other -> twcc_recorder
         end
 
       transceivers =

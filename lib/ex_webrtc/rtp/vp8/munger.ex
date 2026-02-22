@@ -34,14 +34,14 @@ defmodule ExWebRTC.RTP.VP8.Munger do
   end
 
   @spec init(t(), binary()) :: t()
-  def init(vp8_munger, rtp_payload) do
+  def init(%__MODULE__{} = vp8_munger, rtp_payload) do
     {:ok, vp8_payload} = VP8.Payload.parse(rtp_payload)
 
     last_pic_id = vp8_payload.picture_id || 0
     last_tl0picidx = vp8_payload.tl0picidx || 0
     last_keyidx = vp8_payload.keyidx || 0
 
-    %__MODULE__{
+    %{
       vp8_munger
       | pic_id_used: vp8_payload.picture_id != nil,
         last_pic_id: last_pic_id,
@@ -53,7 +53,7 @@ defmodule ExWebRTC.RTP.VP8.Munger do
   end
 
   @spec update(t(), binary()) :: t()
-  def update(vp8_munger, rtp_payload) do
+  def update(%__MODULE__{} = vp8_munger, rtp_payload) do
     {:ok, vp8_payload} = VP8.Payload.parse(rtp_payload)
 
     %VP8.Payload{
@@ -69,7 +69,7 @@ defmodule ExWebRTC.RTP.VP8.Munger do
 
     keyidx_offset = (vp8_munger.keyidx_used && keyidx - vp8_munger.last_keyidx - 1) || 0
 
-    %__MODULE__{
+    %{
       vp8_munger
       | pic_id_offset: pic_id_offset,
         tl0picidx_offset: tl0picidx_offset,
@@ -78,16 +78,15 @@ defmodule ExWebRTC.RTP.VP8.Munger do
   end
 
   @spec munge(t(), binary()) :: {t(), binary()}
-  def munge(vp8_munger, <<>> = rtp_payload), do: {vp8_munger, rtp_payload}
+  def munge(%__MODULE__{} = vp8_munger, <<>> = rtp_payload), do: {vp8_munger, rtp_payload}
 
-  def munge(vp8_munger, rtp_payload) do
-    {:ok, vp8_payload} = VP8.Payload.parse(rtp_payload)
-
-    %VP8.Payload{
-      keyidx: keyidx,
-      picture_id: pic_id,
-      tl0picidx: tl0picidx
-    } = vp8_payload
+  def munge(%__MODULE__{} = vp8_munger, rtp_payload) do
+    {:ok,
+     %VP8.Payload{
+       keyidx: keyidx,
+       picture_id: pic_id,
+       tl0picidx: tl0picidx
+     } = vp8_payload} = VP8.Payload.parse(rtp_payload)
 
     munged_pic_id = pic_id && rem(pic_id + (1 <<< 15) - vp8_munger.pic_id_offset, 1 <<< 15)
 
@@ -97,7 +96,7 @@ defmodule ExWebRTC.RTP.VP8.Munger do
     munged_keyidx = keyidx && rem(keyidx + (1 <<< 5) - vp8_munger.keyidx_offset, 1 <<< 5)
 
     vp8_payload =
-      %VP8.Payload{
+      %{
         vp8_payload
         | keyidx: munged_keyidx,
           picture_id: munged_pic_id,
@@ -105,7 +104,7 @@ defmodule ExWebRTC.RTP.VP8.Munger do
       }
       |> VP8.Payload.serialize()
 
-    vp8_munger = %__MODULE__{
+    vp8_munger = %{
       vp8_munger
       | last_pic_id: munged_pic_id,
         last_tl0picidx: munged_tl0picidx,

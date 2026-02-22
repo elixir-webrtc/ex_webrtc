@@ -81,13 +81,13 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStore do
   end
 
   defp do_insert_packet(%__MODULE__{flush_index: nil} = store, packet, 0) do
-    store = add_entry(store, Entry.new(packet, @seq_number_limit), :next)
-    {:ok, %__MODULE__{store | flush_index: @seq_number_limit - 1}}
+    %__MODULE__{} = store = add_entry(store, Entry.new(packet, @seq_number_limit), :next)
+    {:ok, %{store | flush_index: @seq_number_limit - 1}}
   end
 
   defp do_insert_packet(%__MODULE__{flush_index: nil} = store, packet, seq_num) do
-    store = add_entry(store, Entry.new(packet, seq_num), :current)
-    {:ok, %__MODULE__{store | flush_index: seq_num - 1}}
+    %__MODULE__{} = store = add_entry(store, Entry.new(packet, seq_num), :current)
+    {:ok, %{store | flush_index: seq_num - 1}}
   end
 
   defp do_insert_packet(
@@ -237,7 +237,7 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStore do
     if set |> MapSet.member?(entry.index) do
       store
     else
-      %__MODULE__{store | heap: Heap.push(heap, entry), set: MapSet.put(set, entry.index)}
+      %{store | heap: Heap.push(heap, entry), set: MapSet.put(set, entry.index)}
       |> update_highest_incoming_index(entry.index)
       |> update_roc(entry_rollover)
     end
@@ -248,7 +248,7 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStore do
          added_index
        )
        when added_index > last or last == nil,
-       do: %__MODULE__{store | highest_incoming_index: added_index}
+       do: %{store | highest_incoming_index: added_index}
 
   defp update_highest_incoming_index(
          %__MODULE__{highest_incoming_index: last} = store,
@@ -257,8 +257,8 @@ defmodule ExWebRTC.RTP.JitterBuffer.PacketStore do
        when last >= added_index,
        do: store
 
-  defp update_roc(%{rollover_count: roc} = store, :next),
-    do: %__MODULE__{store | rollover_count: roc + 1}
+  defp update_roc(%__MODULE__{rollover_count: roc} = store, :next),
+    do: %{store | rollover_count: roc + 1}
 
   defp update_roc(store, _entry_rollover), do: store
 
