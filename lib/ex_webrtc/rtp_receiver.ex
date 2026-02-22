@@ -85,17 +85,23 @@ defmodule ExWebRTC.RTPReceiver do
 
   @doc false
   @spec update(receiver(), [RTPCodecParameters.t()], [Extmap.t()], [String.t()]) :: receiver()
-  def update(receiver, codecs, rtp_hdr_exts, stream_ids) do
+  def update(
+        %{simulcast_demuxer: simulcast_demuxer, track: %MediaStreamTrack{} = track} = receiver,
+        codecs,
+        rtp_hdr_exts,
+        stream_ids
+      ) do
     {_rtx_codecs, media_codecs} = Utils.split_rtx_codecs(codecs)
     codec = List.first(media_codecs)
     codecs = Map.new(media_codecs, fn codec -> {codec.payload_type, codec} end)
-    simulcast_demuxer = SimulcastDemuxer.update(receiver.simulcast_demuxer, rtp_hdr_exts)
-    track = %MediaStreamTrack{receiver.track | streams: stream_ids}
+    simulcast_demuxer = SimulcastDemuxer.update(simulcast_demuxer, rtp_hdr_exts)
+    track = %{track | streams: stream_ids}
 
     layers =
-      Map.new(receiver.layers, fn {rid, layer} ->
-        report_recorder = %ReportRecorder{
-          layer.report_recorder
+      Map.new(receiver.layers, fn {rid,
+                                   %{report_recorder: %ReportRecorder{} = report_recorder} = layer} ->
+        report_recorder = %{
+          report_recorder
           | clock_rate: codec && codec.clock_rate
         }
 
@@ -180,14 +186,14 @@ defmodule ExWebRTC.RTPReceiver do
   @doc false
   @spec receive_rtx(receiver(), ExRTP.Packet.t(), non_neg_integer()) ::
           {:ok, ExRTP.Packet.t()} | :error
-  def receive_rtx(receiver, packet, apt) do
+  def receive_rtx(receiver, %ExRTP.Packet{} = packet, apt) do
     {rid, demuxer} = SimulcastDemuxer.demux_packet(receiver.simulcast_demuxer, packet, rtx?: true)
 
     with {:ok, layer} <- Map.fetch(receiver.layers, rid),
          ssrc when ssrc != nil <- layer.ssrc,
          <<seq_no::16, rest::binary>> <- packet.payload do
       # TODO remove rrid extension
-      packet = %ExRTP.Packet{
+      packet = %{
         packet
         | ssrc: ssrc,
           sequence_number: seq_no,
@@ -216,9 +222,13 @@ defmodule ExWebRTC.RTPReceiver do
   @spec update_sender_ssrc(receiver(), non_neg_integer()) :: receiver()
   def update_sender_ssrc(receiver, ssrc) do
     layers =
-      Map.new(receiver.layers, fn {rid, layer} ->
-        report_recorder = %ReportRecorder{layer.report_recorder | sender_ssrc: ssrc}
-        nack_generator = %NACKGenerator{layer.nack_generator | sender_ssrc: ssrc}
+      Map.new(receiver.layers, fn {rid,
+                                   %{
+                                     report_recorder: %ReportRecorder{} = report_recorder,
+                                     nack_generator: %NACKGenerator{} = nack_generator
+                                   } = layer} ->
+        report_recorder = %{report_recorder | sender_ssrc: ssrc}
+        nack_generator = %{nack_generator | sender_ssrc: ssrc}
         %{layer | report_recorder: report_recorder, nack_generator: nack_generator}
         {rid, layer}
       end)

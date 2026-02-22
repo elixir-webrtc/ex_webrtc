@@ -431,8 +431,8 @@ defmodule ExWebRTC.RTPTransceiver do
         codecs = SDPUtils.get_rtp_codec_parameters(mline)
         transceiver = %{transceiver | codecs: codecs}
         opts = Keyword.put(opts, :direction, :inactive)
-        mline = to_mline(transceiver, opts)
-        %ExSDP.Media{mline | port: 0}
+        %ExSDP.Media{} = mline = to_mline(transceiver, opts)
+        %{mline | port: 0}
 
       transceiver.stopping == true ->
         opts = Keyword.put(opts, :direction, :inactive)
@@ -440,8 +440,8 @@ defmodule ExWebRTC.RTPTransceiver do
 
       transceiver.stopped == true ->
         opts = Keyword.put(opts, :direction, :inactive)
-        mline = to_mline(transceiver, opts)
-        %ExSDP.Media{mline | port: 0}
+        %ExSDP.Media{} = mline = to_mline(transceiver, opts)
+        %{mline | port: 0}
 
       true ->
         offered_direction = SDPUtils.get_media_direction(mline)
@@ -460,8 +460,8 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec to_offer_mline(transceiver(), Keyword.t()) :: ExSDP.Media.t()
   def to_offer_mline(transceiver, opts) do
-    mline = to_mline(transceiver, opts)
-    if transceiver.stopping, do: %ExSDP.Media{mline | port: 0}, else: mline
+    %ExSDP.Media{} = mline = to_mline(transceiver, opts)
+    if transceiver.stopping, do: %{mline | port: 0}, else: mline
   end
 
   @doc false
@@ -518,6 +518,7 @@ defmodule ExWebRTC.RTPTransceiver do
     end
   end
 
+  @spec to_mline(transceiver(), Keyword.t()) :: ExSDP.Media.t()
   defp to_mline(transceiver, opts) do
     pt = Enum.map(transceiver.codecs, fn codec -> codec.payload_type end)
 

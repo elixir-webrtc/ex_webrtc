@@ -29,10 +29,10 @@ defmodule ExWebRTC.RTPReceiver.SimulcastDemuxer do
   end
 
   @spec update(t(), [Extmap.t()]) :: t()
-  def update(demuxer, rtp_hdr_exts) do
+  def update(%__MODULE__{} = demuxer, rtp_hdr_exts) do
     {rid, rrid} = find_rid_ids(rtp_hdr_exts)
 
-    %__MODULE__{demuxer | rid_ext_id: rid, rrid_ext_id: rrid}
+    %{demuxer | rid_ext_id: rid, rrid_ext_id: rrid}
   end
 
   @spec demux_packet(t(), Packet.t(), rtx?: boolean()) :: {String.t() | nil, t()}

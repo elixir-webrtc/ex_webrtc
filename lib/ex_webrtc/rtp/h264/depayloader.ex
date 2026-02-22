@@ -46,14 +46,14 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
     end
   end
 
-  defp do_depayload(:single_nalu, depayloader, packet, {_header, payload}) do
+  defp do_depayload(:single_nalu, %__MODULE__{} = depayloader, packet, {_header, payload}) do
     {:ok,
-     {prefix_annexb(payload), %__MODULE__{depayloader | current_timestamp: packet.timestamp}}}
+     {prefix_annexb(payload), %{depayloader | current_timestamp: packet.timestamp}}}
   end
 
   defp do_depayload(
          :fu_a,
-         %{current_timestamp: current_timestamp, fu_parser_acc: fu_parser_acc},
+         %__MODULE__{current_timestamp: current_timestamp, fu_parser_acc: fu_parser_acc},
          packet,
          {_header, _payload}
        )
@@ -68,7 +68,7 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
 
   defp do_depayload(
          :fu_a,
-         %{fu_parser_acc: fu_parser_acc},
+         %__MODULE__{fu_parser_acc: fu_parser_acc},
          packet,
          {header, payload}
        ) do
@@ -88,10 +88,10 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
     end
   end
 
-  defp do_depayload(:stap_a, depayloader, packet, {_header, payload}) do
+  defp do_depayload(:stap_a, %__MODULE__{} = depayloader, packet, {_header, payload}) do
     with {:ok, result} <- StapA.parse(payload) do
       nals = result |> Enum.map_join(&prefix_annexb/1)
-      {:ok, {nals, %__MODULE__{depayloader | current_timestamp: packet.timestamp}}}
+      {:ok, {nals, %{depayloader | current_timestamp: packet.timestamp}}}
     end
   end
 

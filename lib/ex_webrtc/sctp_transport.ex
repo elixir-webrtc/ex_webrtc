@@ -215,7 +215,7 @@ if Code.ensure_loaded?(ExSCTP) do
       end)
     end
 
-    defp handle_pending_channel(sctp_transport, channel) do
+    defp handle_pending_channel(sctp_transport, %DataChannel{} = channel) do
       id = new_id(sctp_transport)
       :ok = ExSCTP.open_stream(sctp_transport.ref, id)
 
@@ -237,7 +237,7 @@ if Code.ensure_loaded?(ExSCTP) do
 
       :ok = ExSCTP.send(sctp_transport.ref, id, @dcep_ppi, DCEP.encode(dco))
 
-      channel = %DataChannel{channel | id: id}
+      channel = %{channel | id: id}
       %{sctp_transport | channels: Map.replace!(sctp_transport.channels, channel.ref, channel)}
     end
 

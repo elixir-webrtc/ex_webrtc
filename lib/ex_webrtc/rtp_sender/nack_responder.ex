@@ -15,15 +15,15 @@ defmodule ExWebRTC.RTPSender.NACKResponder do
             seq_no: Enum.random(0..0xFFFF)
 
   @spec record_packet(t(), Packet.t()) :: t()
-  def record_packet(responder, packet) do
+  def record_packet(%__MODULE__{} = responder, packet) do
     key = rem(packet.sequence_number, @max_packets)
     packets = Map.put(responder.packets, key, packet)
 
-    %__MODULE__{responder | packets: packets}
+    %{responder | packets: packets}
   end
 
   @spec get_rtx(t(), NACK.t()) :: {[ExRTP.Packet.t()], t()}
-  def get_rtx(responder, nack) do
+  def get_rtx(%__MODULE__{} = responder, nack) do
     seq_nos = NACK.to_sequence_numbers(nack)
 
     {packets, seq_no} =
@@ -35,8 +35,8 @@ defmodule ExWebRTC.RTPSender.NACKResponder do
         packet != nil and packet.sequence_number == seq_no
       end)
       # ssrc will be assigned by the sender
-      |> Enum.map_reduce(responder.seq_no, fn {seq_no, packet}, rtx_seq_no ->
-        rtx_packet = %Packet{
+      |> Enum.map_reduce(responder.seq_no, fn {seq_no, %Packet{} = packet}, rtx_seq_no ->
+        rtx_packet = %{
           packet
           | sequence_number: rtx_seq_no,
             payload: <<seq_no::16, packet.payload::binary>>

@@ -352,14 +352,15 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     |> Enum.reduce(config, fn feature, config -> add_feature(feature, config) end)
   end
 
-  defp add_feature(:twcc, config) do
-    %__MODULE__{
-      video_codecs: video_codecs,
-      audio_codecs: audio_codecs,
-      audio_extensions: audio_extensions,
-      video_extensions: video_extensions
-    } = config
-
+  defp add_feature(
+         :twcc,
+         %__MODULE__{
+           video_codecs: video_codecs,
+           audio_codecs: audio_codecs,
+           audio_extensions: audio_extensions,
+           video_extensions: video_extensions
+         } = config
+       ) do
     [free_id | _] = get_free_extension_ids(video_extensions ++ audio_extensions)
     video_extensions = add_extension(video_extensions, %Extmap{id: free_id, uri: @twcc_uri})
     audio_extensions = add_extension(audio_extensions, %Extmap{id: free_id, uri: @twcc_uri})
@@ -367,7 +368,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     audio_codecs = Enum.map(audio_codecs, &add_feedback(&1, :twcc))
     video_codecs = Enum.map(video_codecs, &add_feedback(&1, :twcc))
 
-    %__MODULE__{
+    %{
       config
       | video_codecs: video_codecs,
         audio_codecs: audio_codecs,
@@ -376,14 +377,15 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     }
   end
 
-  defp add_feature(:rtx, config) do
-    %__MODULE__{
-      video_extensions: video_extensions,
-      audio_extensions: audio_extensions,
-      audio_codecs: audio_codecs,
-      video_codecs: video_codecs
-    } = config
-
+  defp add_feature(
+         :rtx,
+         %__MODULE__{
+           video_extensions: video_extensions,
+           audio_extensions: audio_extensions,
+           audio_codecs: audio_codecs,
+           video_codecs: video_codecs
+         } = config
+       ) do
     video_codecs = Enum.map(video_codecs, &add_feedback(&1, :nack))
 
     [id | _] = get_free_extension_ids(video_extensions ++ audio_extensions)
@@ -411,17 +413,18 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         end
       end)
 
-    %__MODULE__{config | video_codecs: video_codecs ++ rtxs, video_extensions: video_extensions}
+    %{config | video_codecs: video_codecs ++ rtxs, video_extensions: video_extensions}
   end
 
   defp add_feature(:rtcp_reports, config), do: config
 
-  defp populate_feedbacks(config, feedbacks) do
-    %__MODULE__{
-      audio_codecs: audio_codecs,
-      video_codecs: video_codecs
-    } = config
-
+  defp populate_feedbacks(
+         %__MODULE__{
+           audio_codecs: audio_codecs,
+           video_codecs: video_codecs
+         } = config,
+         feedbacks
+       ) do
     audio_codecs =
       audio_codecs
       |> Enum.map(fn codec ->
@@ -438,7 +441,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
         |> Enum.reduce(codec, fn fb, codec -> add_feedback(codec, fb.feedback) end)
       end)
 
-    %__MODULE__{config | audio_codecs: audio_codecs, video_codecs: video_codecs}
+    %{config | audio_codecs: audio_codecs, video_codecs: video_codecs}
   end
 
   defp get_free_extension_ids(extensions) do
@@ -460,15 +463,16 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     end
   end
 
-  defp add_feedback(codec, fb_type) do
-    %RTPCodecParameters{rtcp_fbs: fbs, payload_type: pt} = codec
-
+  defp add_feedback(
+         %RTPCodecParameters{rtcp_fbs: fbs, payload_type: pt} = codec,
+         fb_type
+       ) do
     if rtx?(codec) do
       codec
     else
       fb = %RTCPFeedback{pt: pt, feedback_type: fb_type}
       fbs = Enum.uniq([fb | fbs])
-      %RTPCodecParameters{codec | rtcp_fbs: fbs}
+      %{codec | rtcp_fbs: fbs}
     end
   end
 
@@ -491,9 +495,12 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     |> ensure_unique_payload_types()
   end
 
-  defp update_extensions(config, sdp) do
+  defp update_extensions(
+         %__MODULE__{audio_extensions: audio_extensions, video_extensions: video_extensions} =
+           config,
+         sdp
+       ) do
     # we assume that extension have the same id no matter the mline
-    %__MODULE__{audio_extensions: audio_extensions, video_extensions: video_extensions} = config
     sdp_extensions = SDPUtils.get_extensions(sdp)
     free_ids = get_free_extension_ids(sdp_extensions)
 
@@ -503,24 +510,24 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     {video_extensions, _free_ids} =
       do_update_extensions(video_extensions, sdp_extensions, free_ids)
 
-    %__MODULE__{config | audio_extensions: audio_extensions, video_extensions: video_extensions}
+    %{config | audio_extensions: audio_extensions, video_extensions: video_extensions}
   end
 
   defp do_update_extensions(extensions, sdp_extensions, free_ids) do
     # we replace extension ids in config to ids from the SDP
     # in case we have an extension in config but not in SDP, we replace
     # its id only when it's occupied to some free (not present in SDP) id, so it doesn't conflict
-    Enum.map_reduce(extensions, free_ids, fn ext, free_ids ->
+    Enum.map_reduce(extensions, free_ids, fn %Extmap{} = ext, free_ids ->
       case find_in_sdp_rtp_extensions(sdp_extensions, ext) do
         {nil, false} ->
           {ext, free_ids}
 
         {nil, true} ->
           [id | rest] = free_ids
-          {%Extmap{ext | id: id}, rest}
+          {%{ext | id: id}, rest}
 
         {other, _id_used} ->
-          {%Extmap{ext | id: other.id}, free_ids}
+          {%{ext | id: other.id}, free_ids}
       end
     end)
   end
@@ -540,15 +547,17 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     end
   end
 
-  defp update_codecs(config, sdp) do
-    %__MODULE__{audio_codecs: audio_codecs, video_codecs: video_codecs} = config
+  defp update_codecs(
+         %__MODULE__{audio_codecs: audio_codecs, video_codecs: video_codecs} = config,
+         sdp
+       ) do
     sdp_codecs = SDPUtils.get_rtp_codec_parameters(sdp)
     free_pts = get_free_payload_types(audio_codecs ++ video_codecs ++ sdp_codecs)
 
     {audio_codecs, free_pts} = do_update_codecs(audio_codecs, sdp_codecs, free_pts)
     {video_codecs, _free_pts} = do_update_codecs(video_codecs, sdp_codecs, free_pts)
 
-    %__MODULE__{config | audio_codecs: audio_codecs, video_codecs: video_codecs}
+    %{config | audio_codecs: audio_codecs, video_codecs: video_codecs}
   end
 
   defp do_update_codecs(codecs, sdp_codecs, free_pts) do
@@ -636,10 +645,16 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     end
   end
 
-  defp do_update_codec(codec, new_pt) do
+  defp do_update_codec(%RTPCodecParameters{} = codec, new_pt) do
     %RTPCodecParameters{rtcp_fbs: fbs, sdp_fmtp_line: fmtp} = codec
-    new_fbs = Enum.map(fbs, &%RTCPFeedback{&1 | pt: new_pt})
-    new_fmtp = if(fmtp == nil, do: nil, else: %FMTP{fmtp | pt: new_pt})
+    new_fbs = Enum.map(fbs, fn %RTCPFeedback{} = fb -> %{fb | pt: new_pt} end)
+
+    new_fmtp =
+      case fmtp do
+        %FMTP{} = fmtp -> %{fmtp | pt: new_pt}
+        _ -> nil
+      end
+
     %RTPCodecParameters{codec | payload_type: new_pt, rtcp_fbs: new_fbs, sdp_fmtp_line: new_fmtp}
   end
 
@@ -657,7 +672,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
     mline
     |> SDPUtils.get_rtp_codec_parameters()
-    |> Enum.flat_map(fn sdp_codec ->
+    |> Enum.flat_map(fn %RTPCodecParameters{} = sdp_codec ->
       codecs
       |> Enum.find(&codec_equal?(&1, sdp_codec))
       |> case do
@@ -666,7 +681,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
         other ->
           fbs = Enum.filter(sdp_codec.rtcp_fbs, &(&1 in other.rtcp_fbs))
-          [%RTPCodecParameters{sdp_codec | rtcp_fbs: fbs}]
+          [%{sdp_codec | rtcp_fbs: fbs}]
       end
     end)
   end
@@ -712,7 +727,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
     mline
     |> ExSDP.get_attributes(Extmap)
-    |> Enum.flat_map(fn sdp_extension ->
+    |> Enum.flat_map(fn %Extmap{} = sdp_extension ->
       extensions
       |> Enum.find(
         &(&1.id == sdp_extension.id and
@@ -720,7 +735,7 @@ defmodule ExWebRTC.PeerConnection.Configuration do
       )
       |> case do
         nil -> []
-        _other -> [%Extmap{sdp_extension | direction: nil}]
+        _other -> [%{sdp_extension | direction: nil}]
       end
     end)
   end

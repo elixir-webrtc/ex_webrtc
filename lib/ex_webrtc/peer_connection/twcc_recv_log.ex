@@ -88,11 +88,11 @@ defmodule ExWebRTC.PeerConnection.TWCCRecvLog do
   end
 
   @spec record_packet(t(), non_neg_integer()) :: t()
-  def record_packet(%{start_seq_no: nil, end_seq_no: nil} = recorder, seq_no) do
+  def record_packet(%__MODULE__{start_seq_no: nil, end_seq_no: nil} = recorder, seq_no) do
     # initial case, should only occur once
     timestamp = Timer.get_time(recorder.timer)
 
-    %__MODULE__{
+    %{
       recorder
       | base_seq_no: seq_no,
         start_seq_no: seq_no,
@@ -101,14 +101,15 @@ defmodule ExWebRTC.PeerConnection.TWCCRecvLog do
     }
   end
 
-  def record_packet(recorder, raw_seq_no) do
-    %__MODULE__{
-      base_seq_no: base_seq_no,
-      start_seq_no: start_seq_no,
-      end_seq_no: end_seq_no,
-      timestamps: timestamps
-    } = recorder
-
+  def record_packet(
+        %__MODULE__{
+          base_seq_no: base_seq_no,
+          start_seq_no: start_seq_no,
+          end_seq_no: end_seq_no,
+          timestamps: timestamps
+        } = recorder,
+        raw_seq_no
+      ) do
     timestamp = Timer.get_time(recorder.timer)
 
     # internally, we don't wrap the sequence number around 2^16
@@ -124,7 +125,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecvLog do
         true -> {start_seq_no, end_seq_no}
       end
 
-    %__MODULE__{
+    %{
       recorder
       | base_seq_no: base_seq_no,
         start_seq_no: start_seq_no,
@@ -148,14 +149,15 @@ defmodule ExWebRTC.PeerConnection.TWCCRecvLog do
     end_seq_no + delta
   end
 
-  defp remove_old_packets(recorder, cur_timestamp) do
-    %__MODULE__{
-      base_seq_no: base_seq_no,
-      start_seq_no: start_seq_no,
-      end_seq_no: end_seq_no,
-      timestamps: timestamps
-    } = recorder
-
+  defp remove_old_packets(
+         %__MODULE__{
+           base_seq_no: base_seq_no,
+           start_seq_no: start_seq_no,
+           end_seq_no: end_seq_no,
+           timestamps: timestamps
+         } = recorder,
+         cur_timestamp
+       ) do
     min_ts = cur_timestamp - Timer.packet_window()
     last_old = find_last_old(timestamps, min_ts, start_seq_no, end_seq_no)
 
@@ -170,7 +172,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecvLog do
       start_seq_no = last_old + 1
       base_seq_no = if start_seq_no > base_seq_no, do: start_seq_no, else: base_seq_no
 
-      %__MODULE__{
+      %{
         recorder
         | base_seq_no: base_seq_no,
           start_seq_no: start_seq_no,
@@ -199,19 +201,20 @@ defmodule ExWebRTC.PeerConnection.TWCCRecvLog do
   @spec get_feedback(t()) :: {[CC.t()], t()}
   def get_feedback(recorder, feedbacks \\ [])
 
-  def get_feedback(%{base_seq_no: seq_no, end_seq_no: seq_no} = recorder, feedbacks),
+  def get_feedback(%__MODULE__{base_seq_no: seq_no, end_seq_no: seq_no} = recorder, feedbacks),
     do: {Enum.reverse(feedbacks), recorder}
 
-  def get_feedback(recorder, feedbacks) do
-    %__MODULE__{
-      sender_ssrc: sender_ssrc,
-      media_ssrc: media_ssrc,
-      fb_pkt_count: fb_pkt_count,
-      base_seq_no: base_seq_no,
-      end_seq_no: end_seq_no,
-      timestamps: timestamps
-    } = recorder
-
+  def get_feedback(
+        %__MODULE__{
+          sender_ssrc: sender_ssrc,
+          media_ssrc: media_ssrc,
+          fb_pkt_count: fb_pkt_count,
+          base_seq_no: base_seq_no,
+          end_seq_no: end_seq_no,
+          timestamps: timestamps
+        } = recorder,
+        feedbacks
+      ) do
     ref_timestamp =
       base_seq_no..(end_seq_no - 1)
       |> Enum.find_value(&Map.get(timestamps, &1))
@@ -233,7 +236,7 @@ defmodule ExWebRTC.PeerConnection.TWCCRecvLog do
       recv_deltas: Enum.reverse(deltas)
     }
 
-    recorder = %__MODULE__{
+    recorder = %{
       recorder
       | fb_pkt_count: fb_pkt_count + 1,
         base_seq_no: new_base

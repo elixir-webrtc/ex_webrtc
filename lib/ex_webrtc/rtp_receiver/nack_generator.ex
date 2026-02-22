@@ -28,17 +28,14 @@ defmodule ExWebRTC.RTPReceiver.NACKGenerator do
   @spec record_packet(t(), ExRTP.Packet.t()) :: t()
   def record_packet(generator, packet)
 
-  def record_packet(%{last_sn: nil} = generator, packet) do
-    %__MODULE__{generator | media_ssrc: packet.ssrc, last_sn: packet.sequence_number}
+  def record_packet(%__MODULE__{last_sn: nil} = generator, packet) do
+    %{generator | media_ssrc: packet.ssrc, last_sn: packet.sequence_number}
   end
 
-  def record_packet(generator, packet) do
-    %__MODULE__{
-      lost_packets: lost_packets,
-      last_sn: last_sn,
-      max_nack: max_nack
-    } = generator
-
+  def record_packet(
+        %__MODULE__{lost_packets: lost_packets, last_sn: last_sn, max_nack: max_nack} = generator,
+        packet
+      ) do
     delta = packet.sequence_number - last_sn
     in_order? = delta < -@breakpoint or (delta > 0 and delta < @breakpoint)
 
@@ -51,7 +48,7 @@ defmodule ExWebRTC.RTPReceiver.NACKGenerator do
         {lost_packets, last_sn}
       end
 
-    %__MODULE__{
+    %{
       generator
       | lost_packets: lost_packets,
         last_sn: last_sn
@@ -75,13 +72,13 @@ defmodule ExWebRTC.RTPReceiver.NACKGenerator do
   end
 
   @spec get_feedback(t()) :: {NACK.t() | nil, t()}
-  def get_feedback(generator) do
-    %__MODULE__{
-      media_ssrc: media_ssrc,
-      sender_ssrc: sender_ssrc,
-      lost_packets: lost_packets
-    } = generator
-
+  def get_feedback(
+        %__MODULE__{
+          media_ssrc: media_ssrc,
+          sender_ssrc: sender_ssrc,
+          lost_packets: lost_packets
+        } = generator
+      ) do
     missing_sn = Map.keys(lost_packets)
 
     lost_packets =
@@ -97,7 +94,7 @@ defmodule ExWebRTC.RTPReceiver.NACKGenerator do
 
     if missing_sn != [] do
       feedback = NACK.from_sequence_numbers(sender_ssrc, media_ssrc, missing_sn)
-      generator = %__MODULE__{generator | lost_packets: lost_packets}
+      generator = %{generator | lost_packets: lost_packets}
 
       {feedback, generator}
     else
