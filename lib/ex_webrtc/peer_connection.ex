@@ -1680,6 +1680,11 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
+  def handle_info(:send_twcc_feedback, %{conn_state: conn_state} = state)
+      when conn_state in [:failed, :closed],
+      do: {:noreply, state}
+
+  @impl true
   def handle_info(:send_twcc_feedback, %{twcc_recorder: twcc_recorder} = state) do
     Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
 
@@ -1696,6 +1701,11 @@ defmodule ExWebRTC.PeerConnection do
       {:noreply, state}
     end
   end
+
+  @impl true
+  def handle_info({:send_reports, _transceiver_id}, %{conn_state: conn_state} = state)
+      when conn_state in [:failed, :closed],
+      do: {:noreply, state}
 
   @impl true
   def handle_info({:send_reports, transceiver_id}, state) do
@@ -1722,6 +1732,11 @@ defmodule ExWebRTC.PeerConnection do
 
     {:noreply, %{state | transceivers: transceivers}}
   end
+
+  @impl true
+  def handle_info({:send_nacks, _transceiver_id}, %{conn_state: conn_state} = state)
+      when conn_state in [:failed, :closed],
+      do: {:noreply, state}
 
   @impl true
   def handle_info({:send_nacks, transceiver_id}, state) do
