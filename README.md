@@ -30,7 +30,7 @@ adding optional `ex_sctp` dependency
 def deps do
   [
     {:ex_webrtc, "~> 0.16.0"},
-    {:ex_sctp, "~> 0.1.0"}
+    {:ex_sctp, "~> 0.1.2"}
   ]
 end
 ```
