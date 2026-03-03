@@ -81,6 +81,7 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       assert %Configuration{
                ice_servers: [],
                ice_transport_policy: :all,
+               ice_transport_protocol: :udp,
                audio_codecs: [%RTPCodecParameters{rtcp_fbs: []}],
                video_codecs: [%RTPCodecParameters{rtcp_fbs: []}],
                audio_extensions: [@mid_ext],

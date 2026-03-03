@@ -95,7 +95,7 @@ defmodule ExWebRTC.RTPReceiver.NACKGenerator do
         end
       end)
 
-    if length(missing_sn) != 0 do
+    if missing_sn != [] do
       feedback = NACK.from_sequence_numbers(sender_ssrc, media_ssrc, missing_sn)
       generator = %__MODULE__{generator | lost_packets: lost_packets}
 
