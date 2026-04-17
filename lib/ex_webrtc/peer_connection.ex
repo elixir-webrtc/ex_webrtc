@@ -10,7 +10,7 @@ defmodule ExWebRTC.PeerConnection do
   require Logger
 
   alias ExWebRTC.RTPCodecParameters
-  alias __MODULE__.{Configuration, Demuxer, TWCCRecorder}
+  alias __MODULE__.{Configuration, Demuxer, TWCCRecvLog, TWCCSendLog}
 
   alias ExWebRTC.{
     DataChannel,
@@ -88,7 +88,8 @@ defmodule ExWebRTC.PeerConnection do
   is not used.
   * each of the packets in `:rtcp` message is in the form of `{track_id, packet}` tuple, where `track_id` is the id of the corrsponding track.
   In case of PLI and NACK, this is the id of an outgoing (sender's) track id, in case of Sender and Receiver Reports - incoming (receiver's) track id.
-  If matching to a track was not possible (like in the case of TWCC packedts), `track_id` is set to `nil`.
+  If matching to a track was not possible (like in the case of TWCC packets), `track_id` is set to `nil`.
+  To correlate TWCC feedback with departure times of outgoing packets, use `get_twcc_departure_log/1`.
   """
   @type message() ::
           {:ex_webrtc, pid(),
@@ -276,6 +277,25 @@ defmodule ExWebRTC.PeerConnection do
   @spec set_packet_loss(peer_connection(), 0..100) :: :ok | {:error, term()}
   def set_packet_loss(peer_connection, value) when value in 0..100 do
     GenServer.cast(peer_connection, {:set_packet_loss, value})
+  end
+
+  @doc """
+  Returns the TWCC departure log for outgoing RTP packets.
+
+  The log maps 16-bit TWCC sequence numbers to `{departure_time, size}` tuples, where
+  `departure_time` is in microseconds (from `System.monotonic_time/1`) and `size` is
+  the packet size in bytes (pre-SRTP).
+
+  Use this to correlate incoming TWCC feedback (`ExRTCP.Packet.TransportFeedback.CC`)
+  received via `{:rtcp, ...}` notifications with the departure times of the reported packets.
+
+  The log is bounded by a 2-second sliding window and entries expire automatically.
+  """
+  @spec get_twcc_departure_log(peer_connection()) :: %{
+          non_neg_integer() => {departure_time :: integer(), size :: non_neg_integer()}
+        }
+  def get_twcc_departure_log(peer_connection) do
+    GenServer.call(peer_connection, :get_twcc_departure_log)
   end
 
   #### MDN-API ####
@@ -668,7 +688,8 @@ defmodule ExWebRTC.PeerConnection do
       peer_fingerprint: nil,
       sent_packets: 0,
       twcc_extension_id: twcc_id,
-      twcc_recorder: TWCCRecorder.new()
+      twcc_recv_log: TWCCRecvLog.new(),
+      twcc_send_log: TWCCSendLog.new()
     }
 
     notify(state.owner, {:connection_state_change, :new})
@@ -754,6 +775,11 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_call(:get_signaling_state, _from, state) do
     {:reply, state.signaling_state, state}
+  end
+
+  @impl true
+  def handle_call(:get_twcc_departure_log, _from, state) do
+    {:reply, TWCCSendLog.to_map(state.twcc_send_log), state}
   end
 
   @impl true
@@ -1445,28 +1471,42 @@ defmodule ExWebRTC.PeerConnection do
         # Remove these extensions and add ours.
         packet = ExRTP.Packet.remove_extensions(packet)
 
-        {packet, state} =
+        {packet, twcc_seq_no, state} =
           case state.twcc_extension_id do
             nil ->
-              {packet, state}
+              {packet, nil, state}
 
             id ->
+              seq_no = state.sent_packets
+
               twcc =
-                ExRTP.Packet.Extension.TWCC.new(state.sent_packets)
+                ExRTP.Packet.Extension.TWCC.new(seq_no)
                 |> ExRTP.Packet.Extension.TWCC.to_raw(id)
 
               packet = ExRTP.Packet.add_extension(packet, twcc)
 
               state = %{state | sent_packets: state.sent_packets + 1 &&& 0xFFFF}
-              {packet, state}
+              {packet, seq_no, state}
           end
 
         {packet, tr} = RTPTransceiver.send_packet(tr, packet, rtx?)
 
         if packet != <<>>, do: :ok = DTLSTransport.send_rtp(state.dtls_transport, packet)
 
+        twcc_send_log =
+          if twcc_seq_no != nil and packet != <<>> do
+            TWCCSendLog.record_packet(
+              state.twcc_send_log,
+              twcc_seq_no,
+              System.monotonic_time(:microsecond),
+              byte_size(packet)
+            )
+          else
+            state.twcc_send_log
+          end
+
         transceivers = List.replace_at(state.transceivers, idx, tr)
-        state = %{state | transceivers: transceivers}
+        state = %{state | transceivers: transceivers, twcc_send_log: twcc_send_log}
 
         {:noreply, state}
 
@@ -1601,20 +1641,20 @@ defmodule ExWebRTC.PeerConnection do
          {idx, t} <- find_transceiver(state.transceivers, mid) do
       # id == nil means we either did not negotiate TWCC, or it was turned off
 
-      twcc_recorder =
+      twcc_recv_log =
         with id when id != nil <- state.twcc_extension_id,
              {:ok, raw_ext} <- ExRTP.Packet.fetch_extension(packet, id),
              {:ok, %{sequence_number: seq_no}} <- ExRTP.Packet.Extension.TWCC.from_raw(raw_ext) do
           # we always update the ssrc's for the one's from the latest packet
           # although this is not a necessity, the feedbacks are transport-wide
-          %TWCCRecorder{
-            state.twcc_recorder
+          %TWCCRecvLog{
+            state.twcc_recv_log
             | media_ssrc: packet.ssrc,
               sender_ssrc: t.sender.ssrc
           }
-          |> TWCCRecorder.record_packet(seq_no)
+          |> TWCCRecvLog.record_packet(seq_no)
         else
-          _other -> state.twcc_recorder
+          _other -> state.twcc_recv_log
         end
 
       transceivers =
@@ -1631,7 +1671,7 @@ defmodule ExWebRTC.PeerConnection do
         state
         | demuxer: demuxer,
           transceivers: transceivers,
-          twcc_recorder: twcc_recorder
+          twcc_recv_log: twcc_recv_log
       }
 
       {:noreply, state}
@@ -1681,18 +1721,18 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info(:send_twcc_feedback, %{twcc_recorder: twcc_recorder} = state) do
+  def handle_info(:send_twcc_feedback, %{twcc_recv_log: twcc_recv_log} = state) do
     Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
 
-    if twcc_recorder.media_ssrc != nil do
-      {feedbacks, twcc_recorder} = TWCCRecorder.get_feedback(twcc_recorder)
+    if twcc_recv_log.media_ssrc != nil do
+      {feedbacks, twcc_recv_log} = TWCCRecvLog.get_feedback(twcc_recv_log)
 
       for feedback <- feedbacks do
         encoded = ExRTCP.Packet.encode(feedback)
         :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
       end
 
-      {:noreply, %{state | twcc_recorder: twcc_recorder}}
+      {:noreply, %{state | twcc_recv_log: twcc_recv_log}}
     else
       {:noreply, state}
     end

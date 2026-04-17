@@ -1,6 +1,11 @@
-defmodule ExWebRTC.PeerConnection.TWCCRecorder do
+defmodule ExWebRTC.PeerConnection.TWCCRecvLog do
   @moduledoc false
-  # inspired by Pion's TWCC interceptor https://github.com/pion/interceptor/tree/master/pkg/twcc
+  # Receiver-side TWCC log.
+  # Records arrival timestamps for incoming RTP packets that carry a TWCC
+  # sequence number, then generates TransportFeedback.CC (TWCC) RTCP packets
+  # to report those timestamps back to the sender.
+  #
+  # Inspired by Pion's TWCC interceptor https://github.com/pion/interceptor/tree/master/pkg/twcc
   # and chrome's implementation https://source.chromium.org/chromium/chromium/src/+/main:third_party/webrtc/modules/remote_bitrate_estimator/remote_estimator_proxy.cc;l=276;drc=b5cd13bb6d5d157a5fbe3628b2dd1c1e106203c6;bpv=0
 
   defmodule Timer do
