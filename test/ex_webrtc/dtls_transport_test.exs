@@ -160,8 +160,15 @@ defmodule ExWebRTC.DTLSTransportTest do
     ice_transport: ice_transport,
     ice_pid: ice_pid
   } do
-    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
     remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
+
+    remote_fingerprint =
+      remote_dtls
+      |> ExDTLS.get_cert()
+      |> ExDTLS.get_cert_fingerprint()
+      |> Utils.hex_dump()
+
+    :ok = DTLSTransport.start_dtls(dtls, :active, remote_fingerprint)
     :ok = DTLSTransport.set_ice_connected(dtls)
 
     # perform DTLS-SRTP handshake
@@ -237,9 +244,15 @@ defmodule ExWebRTC.DTLSTransportTest do
     ice_transport: ice_transport,
     ice_pid: ice_pid
   } do
-    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
     remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
 
+    remote_fingerprint =
+      remote_dtls
+      |> ExDTLS.get_cert()
+      |> ExDTLS.get_cert_fingerprint()
+      |> Utils.hex_dump()
+
+    :ok = DTLSTransport.start_dtls(dtls, :active, remote_fingerprint)
     :ok = DTLSTransport.set_ice_connected(dtls)
 
     assert {:ok, _, _, _} = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
@@ -293,9 +306,15 @@ defmodule ExWebRTC.DTLSTransportTest do
     ice_transport: ice_transport,
     ice_pid: ice_pid
   } do
-    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
     remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
 
+    remote_fingerprint =
+      remote_dtls
+      |> ExDTLS.get_cert()
+      |> ExDTLS.get_cert_fingerprint()
+      |> Utils.hex_dump()
+
+    :ok = DTLSTransport.start_dtls(dtls, :active, remote_fingerprint)
     :ok = DTLSTransport.set_ice_connected(dtls)
 
     assert {:ok, _, _, _} = check_handshake(dtls, ice_transport, ice_pid, remote_dtls)
@@ -325,9 +344,15 @@ defmodule ExWebRTC.DTLSTransportTest do
     ice_transport: ice_transport,
     ice_pid: ice_pid
   } do
-    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
     remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
 
+    remote_fingerprint =
+      remote_dtls
+      |> ExDTLS.get_cert()
+      |> ExDTLS.get_cert_fingerprint()
+      |> Utils.hex_dump()
+
+    :ok = DTLSTransport.start_dtls(dtls, :active, remote_fingerprint)
     :ok = DTLSTransport.set_ice_connected(dtls)
 
     # perform DTLS-SRTP handshake
@@ -377,9 +402,15 @@ defmodule ExWebRTC.DTLSTransportTest do
     ice_transport: ice_transport,
     ice_pid: ice_pid
   } do
-    :ok = DTLSTransport.start_dtls(dtls, :active, @fingerprint)
     remote_dtls = ExDTLS.init(mode: :server, dtls_srtp: true)
 
+    remote_fingerprint =
+      remote_dtls
+      |> ExDTLS.get_cert()
+      |> ExDTLS.get_cert_fingerprint()
+      |> Utils.hex_dump()
+
+    :ok = DTLSTransport.start_dtls(dtls, :active, remote_fingerprint)
     :ok = DTLSTransport.set_ice_connected(dtls)
 
     # perform DTLS-SRTP handshake

@@ -461,34 +461,10 @@ defmodule ExWebRTC.DTLSTransport do
         {:ok, state}
 
       {:handshake_finished, lkm, rkm, profile, packets} ->
-        Logger.debug("DTLS handshake finished")
-        state = update_remote_cert_info(state)
-        :ok = do_send(state, packets)
-
-        peer_fingerprint =
-          state.dtls
-          |> ExDTLS.get_peer_cert()
-          |> ExDTLS.get_cert_fingerprint()
-          |> Utils.hex_dump()
-
-        if peer_fingerprint == state.peer_fingerprint do
-          :ok = setup_srtp(state, lkm, rkm, profile)
-          state = update_dtls_state(state, :connected)
-          state = flush_buffered_remote_rtp_packets(state)
-          {:ok, state}
-        else
-          Logger.debug("Non-matching peer cert fingerprint.")
-          state = update_dtls_state(state, :failed)
-          {:ok, state}
-        end
+        handle_handshake_finished(state, lkm, rkm, profile, packets)
 
       {:handshake_finished, lkm, rkm, profile} ->
-        Logger.debug("DTLS handshake finished")
-        :ok = setup_srtp(state, lkm, rkm, profile)
-        state = update_dtls_state(state, :connected)
-        state = flush_buffered_remote_rtp_packets(state)
-        state = update_remote_cert_info(state)
-        {:ok, state}
+        handle_handshake_finished(state, lkm, rkm, profile)
 
       :handshake_want_read ->
         {:ok, state}
@@ -532,6 +508,33 @@ defmodule ExWebRTC.DTLSTransport do
 
     state = %{state | buffered_remote_rtp_packets: [data | state.buffered_remote_rtp_packets]}
     {:ok, state}
+  end
+
+  defp handle_handshake_finished(state, lkm, rkm, profile, packets \\ []) do
+    Logger.debug("DTLS handshake finished")
+
+    if peer_fingerprint_matching?(state) do
+      :ok = setup_srtp(state, lkm, rkm, profile)
+      state = update_dtls_state(state, :connected)
+      state = flush_buffered_remote_rtp_packets(state)
+      state = update_remote_cert_info(state)
+      :ok = do_send(state, packets)
+      {:ok, state}
+    else
+      Logger.debug("Non-matching peer cert fingerprint.")
+      state = update_dtls_state(state, :failed)
+      {:ok, state}
+    end
+  end
+
+  defp peer_fingerprint_matching?(%{peer_fingerprint: expected_fp} = state) do
+    actual_fp =
+      state.dtls
+      |> ExDTLS.get_peer_cert()
+      |> ExDTLS.get_cert_fingerprint()
+      |> Utils.hex_dump()
+
+    expected_fp == actual_fp
   end
 
   defp setup_srtp(state, local_keying_material, remote_keying_material, profile) do
