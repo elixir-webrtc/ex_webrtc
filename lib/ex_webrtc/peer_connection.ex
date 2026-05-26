@@ -1637,11 +1637,11 @@ defmodule ExWebRTC.PeerConnection do
       {:noreply, state}
     else
       :error ->
-        Logger.error("Unable to demux RTP packet")
+        Logger.warning("Unable to demux RTP packet")
         {:noreply, state}
 
       {:error, reason} ->
-        Logger.error("Unable to handle RTP packet, reason: #{inspect(reason)}")
+        Logger.warning("Unable to handle RTP packet, reason: #{inspect(reason)}")
         {:noreply, state}
     end
   end
