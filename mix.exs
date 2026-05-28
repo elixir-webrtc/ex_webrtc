@@ -69,6 +69,7 @@ defmodule ExWebRTC.MixProject do
       {:ex_rtcp, "~> 0.4.0"},
       {:ex_sctp, "0.1.2", optional: true},
       {:crc, "~> 0.10"},
+      {:qex, "~> 0.5.2"},
 
       # dev/test
       {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},

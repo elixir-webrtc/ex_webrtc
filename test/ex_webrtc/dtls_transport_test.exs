@@ -398,6 +398,9 @@ defmodule ExWebRTC.DTLSTransportTest do
     assert local_cert != nil
     assert remote_cert != nil
     assert DTLSTransport.get_fingerprint(dtls) != nil
+
+    # assert that closing again won't raise
+    assert :ok = DTLSTransport.close(dtls)
   end
 
   test "closes on receiving close_notify DTLS alert", %{
@@ -458,6 +461,9 @@ defmodule ExWebRTC.DTLSTransportTest do
     assert local_cert != nil
     assert remote_cert != nil
     assert DTLSTransport.get_fingerprint(dtls) != nil
+
+    # assert that closing again won't raise
+    assert :ok = DTLSTransport.close(dtls)
   end
 
   defp check_handshake(dtls, ice_transport, ice_pid, remote_dtls) do

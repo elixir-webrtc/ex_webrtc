@@ -612,8 +612,10 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   defp do_close(state, opts \\ []) do
-    {:ok, packets} = ExDTLS.close(state.dtls)
-    :ok = do_send(state, packets)
+    if state.dtls != nil do
+      {:ok, packets} = ExDTLS.close(state.dtls)
+      :ok = do_send(state, packets)
+    end
 
     %{
       state
