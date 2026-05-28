@@ -1215,21 +1215,13 @@ defmodule ExWebRTC.PeerConnectionTest do
     {:links, links} = Process.info(pc, :links)
     assert :ok == PeerConnection.stop(pc)
     assert false == Process.alive?(pc)
-
-    Enum.each(links, fn link ->
-      assert false == Process.alive?(link) or
-               Process.info(link)[:registered_name] == ExWebRTC.Registry.PIDPartition0
-    end)
+    assert_linked_dead(links)
 
     {:ok, pc} = PeerConnection.start()
     {:links, links} = Process.info(pc, :links)
     assert true == Process.exit(pc, :shutdown)
     assert false == Process.alive?(pc)
-
-    Enum.each(links, fn link ->
-      assert false == Process.alive?(link) or
-               Process.info(link)[:registered_name] == ExWebRTC.Registry.PIDPartition0
-    end)
+    assert_linked_dead(links)
   end
 
   # MISC TESTS
@@ -1574,6 +1566,15 @@ defmodule ExWebRTC.PeerConnectionTest do
     # make sure there was only one negotiation_needed fired
     refute_receive {:ex_webrtc, ^pc1, :negotiation_needed}
     refute_receive {:ex_webrtc, ^pc2, :negotiation_needed}, 0
+  end
+
+  defp assert_linked_dead(links) do
+    Enum.each(links, fn link ->
+      if Process.info(link)[:registered_name] != ExWebRTC.Registry.PIDPartition0 do
+        ref = Process.monitor(link)
+        assert_receive {:DOWN, ^ref, :process, ^link, _}, 2000
+      end
+    end)
   end
 
   defp flush_mailbox(pid) do
