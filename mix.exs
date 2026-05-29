@@ -22,7 +22,8 @@ defmodule ExWebRTC.MixProject do
       # dialyzer
       dialyzer: [
         plt_local_path: "_dialyzer",
-        plt_core_path: "_dialyzer"
+        plt_core_path: "_dialyzer",
+        ignore_warnings: ".dialyzer_ignore.exs"
       ],
 
       # code coverage

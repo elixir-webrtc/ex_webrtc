@@ -47,8 +47,7 @@ defmodule ExWebRTC.RTP.Depayloader.H264 do
   end
 
   defp do_depayload(:single_nalu, %__MODULE__{} = depayloader, packet, {_header, payload}) do
-    {:ok,
-     {prefix_annexb(payload), %{depayloader | current_timestamp: packet.timestamp}}}
+    {:ok, {prefix_annexb(payload), %{depayloader | current_timestamp: packet.timestamp}}}
   end
 
   defp do_depayload(

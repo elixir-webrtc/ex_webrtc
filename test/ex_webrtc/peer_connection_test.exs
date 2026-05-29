@@ -1088,9 +1088,9 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert length(Map.get(groups, :inbound_rtp, [])) == 1
     assert length(Map.get(groups, :outbound_rtp, [])) == 1
-    assert length(Map.get(groups, :local_candidate, [])) > 0
-    assert length(Map.get(groups, :remote_candidate, [])) > 0
-    assert length(Map.get(groups, :candidate_pair, [])) > 0
+    assert Map.get(groups, :local_candidate, []) != []
+    assert Map.get(groups, :remote_candidate, []) != []
+    assert Map.get(groups, :candidate_pair, []) != []
 
     assert %{
              peer_connection: %{
@@ -1120,9 +1120,9 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert length(Map.get(groups, :inbound_rtp, [])) == 1
     assert length(Map.get(groups, :outbound_rtp, [])) == 1
-    assert length(Map.get(groups, :local_candidate, [])) > 0
-    assert length(Map.get(groups, :remote_candidate, [])) > 0
-    assert length(Map.get(groups, :candidate_pair, [])) > 0
+    assert Map.get(groups, :local_candidate, []) != []
+    assert Map.get(groups, :remote_candidate, []) != []
+    assert Map.get(groups, :candidate_pair, []) != []
   end
 
   describe "close/1" do

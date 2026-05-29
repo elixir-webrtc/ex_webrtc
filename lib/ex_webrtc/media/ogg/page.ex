@@ -40,8 +40,8 @@ defmodule ExWebRTC.Media.Ogg.Page do
   @spec read(File.io_device()) :: {:ok, t()} | {:error, term()} | :eof
   def read(file) do
     with <<@signature, @version, type, granule_pos::little-64, serial_no::little-32,
-           sequence_no::little-32, _checksum::little-32,
-           segment_no>> = header <- IO.binread(file, 27),
+           sequence_no::little-32, _checksum::little-32, segment_no>> = header <-
+           IO.binread(file, 27),
          raw_segment_table when is_binary(raw_segment_table) <- IO.binread(file, segment_no),
          segment_table <- :binary.bin_to_list(raw_segment_table),
          payload_length <- Enum.sum(segment_table),
