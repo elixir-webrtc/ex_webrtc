@@ -5,12 +5,12 @@
   <a href="https://hexdocs.pm/ex_webrtc"><img src="https://img.shields.io/badge/api-docs-yellow.svg?style=flat"  /></a>
   <a href="https://github.com/elixir-webrtc/ex_webrtc/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elixir-webrtc/ex_webrtc/ci.yml?logo=github&label=CI"  /></a>
   <a href="https://codecov.io/gh/elixir-webrtc/ex_webrtc"><img src="https://codecov.io/gh/elixir-webrtc/ex_webrtc/graph/badge.svg?token=PdnXfnnmNw"  /></a>
+  <a href="https://swm-delivery.com/www/delivery/ck-slug.php?zoneid=zone-gh-elixir-webrtc-1&n=1"><img src="https://swm-delivery.com/www/images/zone-gh-elixir-webrtc-1?n=1" /></a>
+  <a href="https://swm-delivery.com/www/delivery/ck-slug.php?zoneid=zone-gh-elixir-webrtc-2&n=1"><img src="https://swm-delivery.com/www/images/zone-gh-elixir-webrtc-2?n=1" /></a>
+  <a href="https://swm-delivery.com/www/delivery/ck-slug.php?zoneid=zone-gh-elixir-webrtc-3&n=1"><img src="https://swm-delivery.com/www/images/zone-gh-elixir-webrtc-3?n=1" /></a>
 </p>
 
 ---
-[![Ad](https://swm-delivery.com/www/images/zone-gh-elixir-webrtc-1?n=1)](https://swm-delivery.com/www/delivery/ck.php?zoneid=zone-gh-elixir-webrtc-1&n=1)
-[![Ad](https://swm-delivery.com/www/images/zone-gh-elixir-webrtc-2?n=1)](https://swm-delivery.com/www/delivery/ck.php?zoneid=zone-gh-elixir-webrtc-2&n=1)
-[![Ad](https://swm-delivery.com/www/images/zone-gh-elixir-webrtc-3?n=1)](https://swm-delivery.com/www/delivery/ck.php?zoneid=zone-gh-elixir-webrtc-3&n=1)
 
 **Elixir WebRTC** is an implementation of the [W3C WebRTC API](https://www.w3.org/TR/webrtc/) in the Elixir programming language.
 
