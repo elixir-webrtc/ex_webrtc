@@ -5,6 +5,9 @@ defmodule ExWebRTC.PeerConnection.TWCCSendLog do
   # that carry a TWCC sequence number, allowing the end user to correlate
   # incoming TWCC feedback (TransportFeedback.CC) with send times.
 
+  # dialyzer falsely complains about opaque subtype violation
+  @dialyzer {:no_opaque, new: 0}
+
   @packet_window_us 2_000_000
 
   @type t() :: %__MODULE__{
@@ -18,13 +21,13 @@ defmodule ExWebRTC.PeerConnection.TWCCSendLog do
   def new, do: %__MODULE__{}
 
   @spec record_packet(t(), non_neg_integer(), integer(), non_neg_integer()) :: t()
-  def record_packet(log, seq_no, departure_time, size) do
+  def record_packet(%__MODULE__{} = log, seq_no, departure_time, size) do
     seq_no_queue = Qex.push(log.seq_no_queue, {seq_no, departure_time})
     packets = Map.put(log.packets, seq_no, {departure_time, size})
 
     {seq_no_queue, packets} = remove_old_packets(packets, seq_no_queue, departure_time)
 
-    %__MODULE__{log | packets: packets, seq_no_queue: seq_no_queue}
+    %{log | packets: packets, seq_no_queue: seq_no_queue}
   end
 
   @spec to_map(t()) :: %{non_neg_integer() => {integer(), non_neg_integer()}}

@@ -66,15 +66,16 @@ defmodule ExWebRTC.Media.Ogg.Writer do
     seg_count = segment_count(packet)
     new_count = writer.seg_count + seg_count
 
-    with {:ok, writer} <- if(new_count > 255, do: write_page(writer), else: {:ok, writer}),
+    with {:ok, %__MODULE__{page: %Page{} = writer_page} = writer} <-
+           if(new_count > 255, do: write_page(writer), else: {:ok, writer}),
          {:ok, duration} <- Opus.duration(packet) do
       # sample count == duration in seconds * clock rate == our duration / 1000 * 48_000
       sample_count = 48 * duration
 
-      page = %Page{
-        writer.page
-        | packets: [packet | writer.page.packets],
-          granule_pos: writer.page.granule_pos + sample_count
+      page = %{
+        writer_page
+        | packets: [packet | writer_page.packets],
+          granule_pos: writer_page.granule_pos + sample_count
       }
 
       {:ok, %__MODULE__{writer | page: page, seg_count: writer.seg_count + seg_count}}
@@ -93,28 +94,28 @@ defmodule ExWebRTC.Media.Ogg.Writer do
     end
   end
 
-  defp write_page(%__MODULE__{file: file, page: page}, last? \\ false) do
-    page = %Page{page | last?: last?, packets: Enum.reverse(page.packets)}
+  defp write_page(%__MODULE__{file: file, page: %Page{} = page}, last? \\ false) do
+    page = %{page | last?: last?, packets: Enum.reverse(page.packets)}
 
     with :ok <- Page.write(file, page) do
-      page = %Page{page | sequence_no: page.sequence_no + 1, packets: []}
+      page = %{page | sequence_no: page.sequence_no + 1, packets: []}
       {:ok, %__MODULE__{file: file, page: page, seg_count: 0}}
     end
   end
 
-  defp write_headers(%__MODULE__{file: file, page: page} = writer, opts) do
+  defp write_headers(%__MODULE__{file: file, page: %Page{} = page} = writer, opts) do
     sample_rate = Keyword.get(opts, :sample_rate, 48_000)
     channel_count = Keyword.get(opts, :channel_count, 1)
 
     id_header = Header.create_id(sample_rate, channel_count)
     comment_header = Header.create_comment()
 
-    id_page = %Page{page | first?: true, sequence_no: 0, packets: [id_header]}
-    comment_page = %Page{page | sequence_no: 1, packets: [comment_header]}
+    id_page = %{page | first?: true, sequence_no: 0, packets: [id_header]}
+    comment_page = %{page | sequence_no: 1, packets: [comment_header]}
 
     with :ok <- Page.write(file, id_page),
          :ok <- Page.write(file, comment_page) do
-      {:ok, %__MODULE__{writer | page: %Page{page | sequence_no: 2}}}
+      {:ok, %__MODULE__{writer | page: %{page | sequence_no: 2}}}
     end
   end
 

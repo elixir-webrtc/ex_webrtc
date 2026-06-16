@@ -215,7 +215,7 @@ if Code.ensure_loaded?(ExSCTP) do
       end)
     end
 
-    defp handle_pending_channel(sctp_transport, channel) do
+    defp handle_pending_channel(sctp_transport, %DataChannel{} = channel) do
       id = new_id(sctp_transport)
       :ok = ExSCTP.open_stream(sctp_transport.ref, id)
 
@@ -237,7 +237,7 @@ if Code.ensure_loaded?(ExSCTP) do
 
       :ok = ExSCTP.send(sctp_transport.ref, id, @dcep_ppi, DCEP.encode(dco))
 
-      channel = %DataChannel{channel | id: id}
+      channel = %{channel | id: id}
       %{sctp_transport | channels: Map.replace!(sctp_transport.channels, channel.ref, channel)}
     end
 
@@ -267,7 +267,7 @@ if Code.ensure_loaded?(ExSCTP) do
     defp handle_event(sctp_transport, {:stream_closed, id}) do
       Logger.debug("SCTP stream #{id} has been closed")
 
-      case Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
+      case get_channel_by_id(sctp_transport, id) do
         {ref, %DataChannel{ref: ref}} ->
           channels = Map.delete(sctp_transport.channels, ref)
           stats = Map.delete(sctp_transport.stats, ref)
@@ -318,7 +318,7 @@ if Code.ensure_loaded?(ExSCTP) do
 
           ExSCTP.close_stream(sctp_transport.ref, id)
 
-          case Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
+          case get_channel_by_id(sctp_transport, id) do
             {ref, %DataChannel{}} ->
               channels = Map.delete(sctp_transport.channels, ref)
               stats = Map.delete(sctp_transport.stats, ref)
@@ -333,8 +333,7 @@ if Code.ensure_loaded?(ExSCTP) do
 
     defp handle_event(sctp_transport, {:data, id, ppi, data}) do
       with {:ok, data} <- from_raw_data(data, ppi),
-           {ref, %DataChannel{ready_state: :open}} <-
-             Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
+           {ref, %DataChannel{ready_state: :open}} <- get_channel_by_id(sctp_transport, id) do
         stats = update_stats(sctp_transport.stats, ref, data, :received)
         {{:data, ref, data}, %{sctp_transport | stats: stats}}
       else
@@ -408,7 +407,7 @@ if Code.ensure_loaded?(ExSCTP) do
     end
 
     defp handle_dcep(sctp_transport, id, %DCEP.DataChannelAck{}) do
-      case Enum.find(sctp_transport.channels, fn {_k, v} -> v.id == id end) do
+      case get_channel_by_id(sctp_transport, id) do
         {ref, %DataChannel{ready_state: :connecting} = channel} ->
           Logger.debug("Locally opened DataChannel #{id} has been negotiated succesfully")
 
@@ -445,6 +444,10 @@ if Code.ensure_loaded?(ExSCTP) do
 
           :error
       end
+    end
+
+    defp get_channel_by_id(%{channels: channels} = _sctp_transport, id) do
+      Enum.find(channels, fn {_k, v} -> v.id == id end)
     end
 
     defp from_raw_data(data, ppi) when ppi in [51, 53], do: {:ok, data}

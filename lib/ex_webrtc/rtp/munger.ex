@@ -104,17 +104,17 @@ defmodule ExWebRTC.RTP.Munger do
   from a different RTP stream.
   """
   @spec update(t()) :: t()
-  def update(munger), do: %__MODULE__{munger | update?: true}
+  def update(%__MODULE__{} = munger), do: %{munger | update?: true}
 
   @doc """
   Updates the RTP packet to match the common timestamp/sequence number domain.
   """
   @spec munge(t(), Packet.t()) :: {Packet.t(), t()}
-  def munge(%{rtp_sn: nil} = munger, packet) do
+  def munge(%__MODULE__{rtp_sn: nil} = munger, %Packet{} = packet) do
     # first packet ever munged
     vp8_munger = munger.vp8_munger && VP8.Munger.init(munger.vp8_munger, packet.payload)
 
-    munger = %__MODULE__{
+    munger = %{
       munger
       | rtp_sn: packet.sequence_number,
         rtp_ts: packet.timestamp,
@@ -125,7 +125,7 @@ defmodule ExWebRTC.RTP.Munger do
     {packet, munger}
   end
 
-  def munge(munger, packet) when munger.update? do
+  def munge(%__MODULE__{update?: true} = munger, %Packet{} = packet) do
     {vp8_munger, rtp_payload} =
       if munger.vp8_munger do
         vp8_munger = VP8.Munger.update(munger.vp8_munger, packet.payload)
@@ -134,7 +134,7 @@ defmodule ExWebRTC.RTP.Munger do
         {munger.vp8_munger, packet.payload}
       end
 
-    packet = %ExRTP.Packet{packet | payload: rtp_payload}
+    packet = %{packet | payload: rtp_payload}
 
     wc_ts = get_wc_ts(packet)
 
@@ -150,11 +150,11 @@ defmodule ExWebRTC.RTP.Munger do
     ts_offset = packet.timestamp - munger.rtp_ts - rtp_ts_diff
     sn_offset = packet.sequence_number - munger.rtp_sn - 1
 
-    munger = %__MODULE__{munger | ts_offset: ts_offset, sn_offset: sn_offset}
+    munger = %{munger | ts_offset: ts_offset, sn_offset: sn_offset}
 
     new_packet = adjust_packet(munger, packet)
 
-    munger = %__MODULE__{
+    munger = %{
       munger
       | rtp_sn: new_packet.sequence_number,
         rtp_ts: new_packet.timestamp,
@@ -166,7 +166,7 @@ defmodule ExWebRTC.RTP.Munger do
     {new_packet, munger}
   end
 
-  def munge(munger, packet) do
+  def munge(%__MODULE__{} = munger, %Packet{} = packet) do
     # we should ignore packets with sequence number smaller than
     # the first packet after the encoding update
     # as these might conflict with packets from the previous layer
@@ -178,7 +178,7 @@ defmodule ExWebRTC.RTP.Munger do
         {munger.vp8_munger, packet.payload}
       end
 
-    packet = %ExRTP.Packet{packet | payload: rtp_payload}
+    packet = %{packet | payload: rtp_payload}
 
     wc_ts = get_wc_ts(packet)
 
@@ -189,7 +189,7 @@ defmodule ExWebRTC.RTP.Munger do
 
     munger =
       if in_order? do
-        %__MODULE__{
+        %{
           munger
           | rtp_sn: new_packet.sequence_number,
             rtp_ts: new_packet.timestamp,
@@ -197,7 +197,7 @@ defmodule ExWebRTC.RTP.Munger do
             vp8_munger: vp8_munger
         }
       else
-        %__MODULE__{munger | vp8_munger: vp8_munger}
+        %{munger | vp8_munger: vp8_munger}
       end
 
     {new_packet, munger}
@@ -211,11 +211,11 @@ defmodule ExWebRTC.RTP.Munger do
     System.monotonic_time()
   end
 
-  defp adjust_packet(munger, packet) do
+  defp adjust_packet(%__MODULE__{} = munger, %Packet{} = packet) do
     rtp_ts = apply_offset(packet.timestamp, munger.ts_offset, @max_rtp_ts)
     rtp_sn = apply_offset(packet.sequence_number, munger.sn_offset, @max_rtp_sn)
 
-    %Packet{packet | sequence_number: rtp_sn, timestamp: rtp_ts}
+    %{packet | sequence_number: rtp_sn, timestamp: rtp_ts}
   end
 
   defp apply_offset(value, offset, max) do

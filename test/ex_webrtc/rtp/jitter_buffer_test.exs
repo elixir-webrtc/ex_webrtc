@@ -56,15 +56,17 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
       assert new_buffer == buffer
     end
 
-    test "adds it and when it fills the gap, returns all packets in order", %{buffer: buffer} do
+    test "adds it and when it fills the gap, returns all packets in order", %{
+      buffer: %JitterBuffer{store: %PacketStore{} = store} = buffer
+    } do
       first_packet = PacketFactory.sample_packet(@base_seq_number)
       second_packet = PacketFactory.sample_packet(@base_seq_number + 1)
       third_packet = PacketFactory.sample_packet(@base_seq_number + 2)
 
       flush_index = @base_seq_number - 1
 
-      store = %PacketStore{
-        buffer.store
+      store = %{
+        store
         | flush_index: flush_index,
           highest_incoming_index: flush_index
       }
@@ -83,11 +85,14 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
   end
 
   describe "When latency passes without filling the gap, JitterBuffer" do
-    test "outputs the late packet", %{buffer: buffer, packet: packet} do
+    test "outputs the late packet", %{
+      buffer: %JitterBuffer{store: %PacketStore{} = store} = buffer,
+      packet: packet
+    } do
       flush_index = @base_seq_number - 2
 
-      store = %PacketStore{
-        buffer.store
+      store = %{
+        store
         | flush_index: flush_index,
           highest_incoming_index: flush_index
       }
@@ -104,11 +109,14 @@ defmodule ExWebRTC.RTP.JitterBufferTest do
   end
 
   describe "When asked to flush, JitterBuffer" do
-    test "dumps store and resets itself", %{buffer: buffer, packet: packet} do
+    test "dumps store and resets itself", %{
+      buffer: %JitterBuffer{store: %PacketStore{} = store} = buffer,
+      packet: packet
+    } do
       flush_index = @base_seq_number - 2
 
-      store = %PacketStore{
-        buffer.store
+      store = %{
+        store
         | flush_index: flush_index,
           highest_incoming_index: flush_index
       }

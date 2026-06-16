@@ -43,7 +43,9 @@ defmodule ExWebRTC.RTP.Payloader.VP8 do
       end
 
     rtp_packets = [first_rtp_packet | next_rtp_packets]
-    rtp_packets = List.update_at(rtp_packets, -1, &%ExRTP.Packet{&1 | marker: true})
+
+    rtp_packets =
+      List.update_at(rtp_packets, -1, fn %ExRTP.Packet{} = packet -> %{packet | marker: true} end)
 
     {rtp_packets, payloader}
   end

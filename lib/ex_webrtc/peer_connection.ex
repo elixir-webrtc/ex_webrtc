@@ -1635,7 +1635,10 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:dtls_transport, _pid, {:rtp, data}}, state) do
+  def handle_info(
+        {:dtls_transport, _pid, {:rtp, data}},
+        %{twcc_recv_log: %TWCCRecvLog{} = twcc_recv_log} = state
+      ) do
     with {:ok, packet} <- ExRTP.Packet.decode(data),
          {:ok, mid, demuxer} <- Demuxer.demux_packet(state.demuxer, packet),
          {idx, t} <- find_transceiver(state.transceivers, mid) do
@@ -1647,14 +1650,14 @@ defmodule ExWebRTC.PeerConnection do
              {:ok, %{sequence_number: seq_no}} <- ExRTP.Packet.Extension.TWCC.from_raw(raw_ext) do
           # we always update the ssrc's for the one's from the latest packet
           # although this is not a necessity, the feedbacks are transport-wide
-          %TWCCRecvLog{
-            state.twcc_recv_log
+          %{
+            twcc_recv_log
             | media_ssrc: packet.ssrc,
               sender_ssrc: t.sender.ssrc
           }
           |> TWCCRecvLog.record_packet(seq_no)
         else
-          _other -> state.twcc_recv_log
+          _other -> twcc_recv_log
         end
 
       transceivers =
@@ -2059,13 +2062,10 @@ defmodule ExWebRTC.PeerConnection do
       # Chrome in particular refuses to change roles and will fail setting
       # the remote description.
       dtls_role =
-        if state.dtls_role == :new do
-          if(dtls_role in [:actpass, :passive],
-            do: :active,
-            else: :passive
-          )
-        else
-          state.dtls_role
+        cond do
+          state.dtls_role != :new -> state.dtls_role
+          dtls_role in [:actpass, :passive] -> :active
+          true -> :passive
         end
 
       DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
@@ -2081,9 +2081,9 @@ defmodule ExWebRTC.PeerConnection do
         {ice_ufrag, ice_pwd} ->
           :ok = state.ice_transport.set_remote_credentials(state.ice_pid, ice_ufrag, ice_pwd)
 
-          for candidate <- SDPUtils.get_ice_candidates(sdp) do
-            state.ice_transport.add_remote_candidate(state.ice_pid, candidate)
-          end
+          sdp
+          |> SDPUtils.get_ice_candidates()
+          |> Enum.each(&state.ice_transport.add_remote_candidate(state.ice_pid, &1))
       end
 
       state =
@@ -2585,7 +2585,7 @@ defmodule ExWebRTC.PeerConnection do
 
         {tr, idx} ->
           {packets, tr} = RTPTransceiver.receive_nack(tr, nack)
-          for packet <- packets, do: send_rtp(self(), tr.sender.track.id, packet, rtx?: true)
+          Enum.each(packets, &send_rtp(self(), tr.sender.track.id, &1, rtx?: true))
           transceivers = List.replace_at(state.transceivers, idx, tr)
           {tr.sender.track.id, %{state | transceivers: transceivers}}
       end

@@ -86,7 +86,8 @@ defmodule ExWebRTC.RTP.AV1.OBU do
 
   def parse_payload(1, rest) do
     with {:ok, leb128_size, payload_size} <- LEB128.read(rest),
-         <<_::binary-size(leb128_size), payload::binary-size(payload_size), rest::binary>> <- rest do
+         <<_::binary-size(^leb128_size), payload::binary-size(^payload_size), rest::binary>> <-
+           rest do
       {:ok, payload, rest}
     else
       _ -> {:error, :invalid_av1_bitstream}

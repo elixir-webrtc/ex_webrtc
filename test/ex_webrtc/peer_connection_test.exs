@@ -1088,9 +1088,9 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert length(Map.get(groups, :inbound_rtp, [])) == 1
     assert length(Map.get(groups, :outbound_rtp, [])) == 1
-    assert length(Map.get(groups, :local_candidate, [])) > 0
-    assert length(Map.get(groups, :remote_candidate, [])) > 0
-    assert length(Map.get(groups, :candidate_pair, [])) > 0
+    assert Map.get(groups, :local_candidate, []) != []
+    assert Map.get(groups, :remote_candidate, []) != []
+    assert Map.get(groups, :candidate_pair, []) != []
 
     assert %{
              peer_connection: %{
@@ -1120,9 +1120,9 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert length(Map.get(groups, :inbound_rtp, [])) == 1
     assert length(Map.get(groups, :outbound_rtp, [])) == 1
-    assert length(Map.get(groups, :local_candidate, [])) > 0
-    assert length(Map.get(groups, :remote_candidate, [])) > 0
-    assert length(Map.get(groups, :candidate_pair, [])) > 0
+    assert Map.get(groups, :local_candidate, []) != []
+    assert Map.get(groups, :remote_candidate, []) != []
+    assert Map.get(groups, :candidate_pair, []) != []
   end
 
   describe "close/1" do
@@ -1354,7 +1354,7 @@ defmodule ExWebRTC.PeerConnectionTest do
       # ExWebRTC does not support outbound Simulcast
       # so this needs to be a little hacky
       rids = ["h", "l", "m"]
-      sdp = ExSDP.parse!(offer.sdp)
+      %ExSDP{} = sdp = ExSDP.parse!(offer.sdp)
       [video] = sdp.media
 
       video =
@@ -1364,7 +1364,7 @@ defmodule ExWebRTC.PeerConnectionTest do
         end)
 
       video = ExSDP.add_attribute(video, %ExSDP.Attribute.Simulcast{send: rids})
-      sdp = %ExSDP{sdp | media: [video]}
+      sdp = %{sdp | media: [video]}
       offer = %ExWebRTC.SessionDescription{sdp: to_string(sdp), type: :offer}
 
       {:ok, pc2} = PeerConnection.start_link()
