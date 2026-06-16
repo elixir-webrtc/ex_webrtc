@@ -1724,7 +1724,11 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info(:send_twcc_feedback, %{twcc_recv_log: twcc_recv_log} = state) do
+  def handle_info(
+        :send_twcc_feedback,
+        %{twcc_recv_log: twcc_recv_log, conn_state: conn_state} = state
+      )
+      when conn_state not in [:failed, :closed] do
     Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
 
     if twcc_recv_log.media_ssrc != nil do
@@ -1742,7 +1746,15 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:send_reports, transceiver_id}, state) do
+  def handle_info(:send_twcc_feedback, state) do
+    # Note that we're not scheduling any more TWCC feedback sends --
+    # this is OK as long as conn_states `:closed` and `:failed` are permanent
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:send_reports, transceiver_id}, %{conn_state: conn_state} = state)
+      when conn_state not in [:failed, :closed] do
     transceiver =
       state.transceivers
       |> Enum.with_index()
@@ -1768,7 +1780,13 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   @impl true
-  def handle_info({:send_nacks, transceiver_id}, state) do
+  def handle_info({:send_reports, _transceiver_id}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:send_nacks, transceiver_id}, %{conn_state: conn_state} = state)
+      when conn_state not in [:failed, :closed] do
     transceiver =
       state.transceivers
       |> Enum.with_index()
@@ -1791,6 +1809,11 @@ defmodule ExWebRTC.PeerConnection do
       end
 
     {:noreply, %{state | transceivers: transceivers}}
+  end
+
+  @impl true
+  def handle_info({:send_nacks, _transceiver_id}, state) do
+    {:noreply, state}
   end
 
   if Code.ensure_loaded?(ExSCTP) do
