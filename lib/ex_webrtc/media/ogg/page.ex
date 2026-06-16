@@ -114,7 +114,7 @@ defmodule ExWebRTC.Media.Ogg.Page do
   defp split_packets([], <<>>, packets, packet), do: {Enum.reverse(packets), packet}
 
   defp split_packets([segment_len | segment_table], payload, packets, packet) do
-    <<segment::binary-size(segment_len), rest::binary>> = payload
+    <<segment::binary-size(^segment_len), rest::binary>> = payload
     packet = packet <> segment
 
     case segment_len do

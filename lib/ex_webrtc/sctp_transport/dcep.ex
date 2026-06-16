@@ -25,8 +25,8 @@ defmodule ExWebRTC.SCTPTransport.DCEP do
           <<ch_type::8, priority::16, param::32, label_len::16, proto_len::16, rest::binary>>
         ) do
       with {:ok, reliability, order} <- to_channel_type(ch_type),
-           <<label::binary-size(label_len), rest::binary>> <- rest,
-           <<protocol::binary-size(proto_len)>> <- rest do
+           <<label::binary-size(^label_len), rest::binary>> <- rest,
+           <<protocol::binary-size(^proto_len)>> <- rest do
         dca =
           %__MODULE__{
             reliability: reliability,

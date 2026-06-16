@@ -55,7 +55,7 @@ defmodule ExWebRTC.RTP.H264 do
     offset = get_offset(nalu_type)
 
     case aus do
-      <<size::16, _x::binary-size(offset), nalu::binary-size(size), rem_aus::binary>> ->
+      <<size::16, _x::binary-size(^offset), nalu::binary-size(size), rem_aus::binary>> ->
         if sps?(nalu), do: true, else: check_aggr_units(nalu_type, rem_aus)
 
       _other ->

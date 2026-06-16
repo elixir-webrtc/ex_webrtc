@@ -5,6 +5,9 @@ defmodule ExWebRTC.PeerConnection.TWCCSendLog do
   # that carry a TWCC sequence number, allowing the end user to correlate
   # incoming TWCC feedback (TransportFeedback.CC) with send times.
 
+  # dialyzer falsely complains about opaque subtype violation
+  @dialyzer {:no_opaque, new: 0}
+
   @packet_window_us 2_000_000
 
   @type t() :: %__MODULE__{

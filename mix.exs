@@ -22,8 +22,7 @@ defmodule ExWebRTC.MixProject do
       # dialyzer
       dialyzer: [
         plt_local_path: "_dialyzer",
-        plt_core_path: "_dialyzer",
-        ignore_warnings: ".dialyzer_ignore.exs"
+        plt_core_path: "_dialyzer"
       ],
 
       # code coverage
@@ -64,11 +63,11 @@ defmodule ExWebRTC.MixProject do
     [
       {:ex_sdp, "~> 1.1"},
       {:ex_ice, github: "elixir-webrtc/ex_ice"},
-      {:ex_dtls, "~> 0.18.0"},
+      {:ex_dtls, "~> 0.18.1"},
       {:ex_libsrtp, "~> 0.7.1"},
-      {:ex_rtp, "~> 0.4.0"},
-      {:ex_rtcp, "~> 0.4.0"},
-      {:ex_sctp, "0.1.2", optional: true},
+      {:ex_rtp, "~> 0.4.1"},
+      {:ex_rtcp, "~> 0.4.2"},
+      {:ex_sctp, "0.1.3", optional: true},
       {:crc, "~> 0.10"},
       {:qex, "~> 0.5.2"},
 

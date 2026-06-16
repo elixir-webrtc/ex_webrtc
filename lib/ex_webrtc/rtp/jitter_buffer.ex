@@ -10,6 +10,9 @@ defmodule ExWebRTC.RTP.JitterBuffer do
   alias ExWebRTC.RTP.JitterBuffer.PacketStore
   alias ExRTP.Packet
 
+  # dialyzer falsely complains about opaque subtype violation
+  @dialyzer {:no_opaque, new: 1, flush: 1}
+
   @default_latency_ms 200
 
   @typedoc """

@@ -31,7 +31,7 @@ defmodule ExWebRTC.Utils do
 
   def chunk(data, size, acc) when size > 0 do
     case data do
-      <<data::binary-size(size), rest::binary>> ->
+      <<data::binary-size(^size), rest::binary>> ->
         chunk(rest, size, [data | acc])
 
       _other ->
