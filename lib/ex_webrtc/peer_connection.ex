@@ -1272,31 +1272,38 @@ defmodule ExWebRTC.PeerConnection do
   def handle_call(:get_stats, _from, state) do
     timestamp = System.os_time(:millisecond)
 
-    ice_stats = state.ice_transport.get_stats(state.ice_pid)
+    # A busy/wedged transport must degrade stats, not crash the peer connection,
+    # hence the catch :exit on the blocking calls below.
+    ice_stats =
+      try do
+        state.ice_transport.get_stats(state.ice_pid)
+      catch
+        :exit, _reason ->
+          %{
+            local_candidates: [],
+            remote_candidates: [],
+            candidate_pairs: [],
+            state: state.ice_state,
+            role: nil,
+            local_ufrag: nil,
+            bytes_sent: nil,
+            bytes_received: nil,
+            packets_sent: nil,
+            packets_received: nil,
+            selected_candidate_pair_changes: nil,
+            unmatched_requests: nil
+          }
+      end
 
     %{local_cert_info: local_cert_info, remote_cert_info: remote_cert_info} =
-      DTLSTransport.get_certs_info(state.dtls_transport)
-
-    remote_certificate =
-      if remote_cert_info != nil do
-        %{
-          id: :remote_certificate,
-          type: :certificate,
-          timestamp: timestamp,
-          fingerprint: remote_cert_info.fingerprint,
-          fingerprint_algorithm: remote_cert_info.fingerprint_algorithm,
-          base64_certificate: remote_cert_info.base64_certificate
-        }
-      else
-        %{
-          id: :remote_certificate,
-          type: :certificate,
-          timestamp: timestamp,
-          fingerprint: nil,
-          fingerprint_algorithm: nil,
-          base64_certificate: nil
-        }
+      try do
+        DTLSTransport.get_certs_info(state.dtls_transport)
+      catch
+        :exit, _reason -> %{local_cert_info: nil, remote_cert_info: nil}
       end
+
+    local_certificate = to_cert_stats(:local_certificate, local_cert_info, timestamp)
+    remote_certificate = to_cert_stats(:remote_certificate, remote_cert_info, timestamp)
 
     to_stats_candidate = fn cand, type, timestamp ->
       %{
@@ -1377,14 +1384,7 @@ defmodule ExWebRTC.PeerConnection do
         negotiation_needed: state.negotiation_needed,
         connection_state: state.conn_state
       },
-      local_certificate: %{
-        id: :local_certificate,
-        type: :certificate,
-        timestamp: timestamp,
-        fingerprint: local_cert_info.fingerprint,
-        fingerprint_algorithm: local_cert_info.fingerprint_algorithm,
-        base64_certificate: local_cert_info.base64_certificate
-      },
+      local_certificate: local_certificate,
       remote_certificate: remote_certificate,
       transport: %{
         id: :transport,
@@ -2686,6 +2686,17 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp on_track_ended(owner, track_id), do: fn -> notify(owner, {:track_ended, track_id}) end
+
+  defp to_cert_stats(id, cert_info, timestamp) do
+    %{
+      id: id,
+      type: :certificate,
+      timestamp: timestamp,
+      fingerprint: cert_info && cert_info.fingerprint,
+      fingerprint_algorithm: cert_info && cert_info.fingerprint_algorithm,
+      base64_certificate: cert_info && cert_info.base64_certificate
+    }
+  end
 
   defp notify(pid, msg), do: send(pid, {:ex_webrtc, self(), msg})
 end
