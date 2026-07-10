@@ -1125,7 +1125,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert Map.get(groups, :candidate_pair, []) != []
   end
 
-  test "get_stats/2 does not crash when the DTLS transport is unresponsive" do
+  test "get_stats/1 does not crash when the DTLS transport is unresponsive" do
     {:ok, pc} = PeerConnection.start_link()
 
     :ok = :sys.suspend(:sys.get_state(pc).dtls_transport)
@@ -1138,7 +1138,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert Process.alive?(pc)
   end
 
-  test "get_stats/2 does not crash when the ICE transport is unresponsive" do
+  test "get_stats/1 does not crash when the ICE transport is unresponsive" do
     {:ok, pc} = PeerConnection.start_link()
 
     :ok = :sys.suspend(:sys.get_state(pc).ice_pid)

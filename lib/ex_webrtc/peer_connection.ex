@@ -1278,7 +1278,9 @@ defmodule ExWebRTC.PeerConnection do
       try do
         state.ice_transport.get_stats(state.ice_pid)
       catch
-        :exit, _reason ->
+        :exit, reason ->
+          Logger.warning("Failed to get ICE transport stats, reason: #{inspect(reason)}")
+
           %{
             local_candidates: [],
             remote_candidates: [],
@@ -1299,7 +1301,9 @@ defmodule ExWebRTC.PeerConnection do
       try do
         DTLSTransport.get_certs_info(state.dtls_transport)
       catch
-        :exit, _reason -> %{local_cert_info: nil, remote_cert_info: nil}
+        :exit, reason ->
+          Logger.warning("Failed to get DTLS certs info, reason: #{inspect(reason)}")
+          %{local_cert_info: nil, remote_cert_info: nil}
       end
 
     local_certificate = to_cert_stats(:local_certificate, local_cert_info, timestamp)
