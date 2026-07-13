@@ -57,7 +57,7 @@ defmodule ExWebRTC.DefaultICETransport do
   @impl true
   defdelegate set_remote_credentials(pid, ufrag, pwd), to: ICEAgent
   @impl true
-  def get_stats(pid, timeout), do: GenServer.call(pid, :get_stats, timeout)
+  defdelegate get_stats(pid, timeout), to: ICEAgent
   @impl true
   defdelegate close(pid), to: ICEAgent
   @impl true
