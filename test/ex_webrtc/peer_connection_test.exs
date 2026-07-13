@@ -1130,7 +1130,7 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     :ok = :sys.suspend(:sys.get_state(pc).dtls_transport)
 
-    stats = GenServer.call(pc, :get_stats, 10_000)
+    stats = PeerConnection.get_stats(pc)
 
     assert %{fingerprint: nil, fingerprint_algorithm: nil, base64_certificate: nil} =
              stats.local_certificate
@@ -1143,7 +1143,7 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     :ok = :sys.suspend(:sys.get_state(pc).ice_pid)
 
-    stats = GenServer.call(pc, :get_stats, 10_000)
+    stats = PeerConnection.get_stats(pc)
 
     assert %{ice_state: :new, ice_role: :unknown, ice_local_ufrag: nil} = stats.transport
     assert Process.alive?(pc)

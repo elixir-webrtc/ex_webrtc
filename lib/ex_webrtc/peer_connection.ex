@@ -31,6 +31,8 @@ defmodule ExWebRTC.PeerConnection do
     @sctp_tip "Install Rust and add `ex_sctp` dependency to your project in order to enable DataChannels."
   end
 
+  @stats_transport_timeout 1000
+
   @twcc_interval 100
   @twcc_uri "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
 
@@ -425,6 +427,10 @@ defmodule ExWebRTC.PeerConnection do
 
   For more information, refer to the [RTCPeerConnection: getStats() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/getStats).
   See [RTCStatsReport](https://www.w3.org/TR/webrtc/#rtcstatsreport-object) for the output structure.
+
+  If the underlying ICE or DTLS transport does not respond in time (e.g. it is
+  overloaded), the corresponding stats are degraded to nil/empty values instead
+  of raising, so this function always returns.
   """
   @spec get_stats(peer_connection()) :: %{(atom() | integer()) => map()}
   def get_stats(peer_connection) do
@@ -1272,11 +1278,11 @@ defmodule ExWebRTC.PeerConnection do
   def handle_call(:get_stats, _from, state) do
     timestamp = System.os_time(:millisecond)
 
-    # A busy/wedged transport must degrade stats, not crash the peer connection,
-    # hence the catch :exit on the blocking calls below.
+    # An unresponsive transport must degrade stats, not crash the peer connection.
+    # The transport call timeouts must sum to less than get_stats/1's own 5s timeout.
     ice_stats =
       try do
-        state.ice_transport.get_stats(state.ice_pid)
+        state.ice_transport.get_stats(state.ice_pid, @stats_transport_timeout)
       catch
         :exit, reason ->
           Logger.warning("Failed to get ICE transport stats, reason: #{inspect(reason)}")
@@ -1299,7 +1305,7 @@ defmodule ExWebRTC.PeerConnection do
 
     %{local_cert_info: local_cert_info, remote_cert_info: remote_cert_info} =
       try do
-        DTLSTransport.get_certs_info(state.dtls_transport)
+        DTLSTransport.get_certs_info(state.dtls_transport, @stats_transport_timeout)
       catch
         :exit, reason ->
           Logger.warning("Failed to get DTLS certs info, reason: #{inspect(reason)}")

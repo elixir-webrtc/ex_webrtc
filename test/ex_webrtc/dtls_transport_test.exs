@@ -68,7 +68,7 @@ defmodule ExWebRTC.DTLSTransportTest do
     end
 
     @impl true
-    def get_stats(_ice_pid), do: %{}
+    def get_stats(_ice_pid, _timeout), do: %{}
 
     @impl true
     def close(ice_pid), do: GenServer.call(ice_pid, :close)
