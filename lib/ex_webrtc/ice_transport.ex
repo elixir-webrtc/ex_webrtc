@@ -18,7 +18,7 @@ defmodule ExWebRTC.ICETransport do
   @callback send_data(pid(), binary()) :: :ok
   @callback set_role(pid(), ExICE.ICEAgent.role()) :: :ok
   @callback set_remote_credentials(pid(), ufrag :: binary(), pwd :: binary()) :: :ok
-  @callback get_stats(pid()) :: map()
+  @callback get_stats(pid(), timeout()) :: map()
   @callback close(pid()) :: :ok
   @callback stop(pid()) :: :ok
 end
@@ -57,7 +57,7 @@ defmodule ExWebRTC.DefaultICETransport do
   @impl true
   defdelegate set_remote_credentials(pid, ufrag, pwd), to: ICEAgent
   @impl true
-  defdelegate get_stats(pid), to: ICEAgent
+  defdelegate get_stats(pid, timeout), to: ICEAgent
   @impl true
   defdelegate close(pid), to: ICEAgent
   @impl true

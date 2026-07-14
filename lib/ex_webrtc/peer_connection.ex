@@ -31,6 +31,8 @@ defmodule ExWebRTC.PeerConnection do
     @sctp_tip "Install Rust and add `ex_sctp` dependency to your project in order to enable DataChannels."
   end
 
+  @stats_transport_timeout 1000
+
   @twcc_interval 100
   @twcc_uri "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
 
@@ -425,6 +427,10 @@ defmodule ExWebRTC.PeerConnection do
 
   For more information, refer to the [RTCPeerConnection: getStats() method](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/getStats).
   See [RTCStatsReport](https://www.w3.org/TR/webrtc/#rtcstatsreport-object) for the output structure.
+
+  If the underlying ICE or DTLS transport does not respond in time (e.g. it is
+  overloaded), the corresponding stats are degraded to nil/empty values instead
+  of raising, so this function always returns.
   """
   @spec get_stats(peer_connection()) :: %{(atom() | integer()) => map()}
   def get_stats(peer_connection) do
@@ -1272,31 +1278,42 @@ defmodule ExWebRTC.PeerConnection do
   def handle_call(:get_stats, _from, state) do
     timestamp = System.os_time(:millisecond)
 
-    ice_stats = state.ice_transport.get_stats(state.ice_pid)
+    # An unresponsive transport must degrade stats, not crash the peer connection.
+    # The transport call timeouts must sum to less than get_stats/1's own 5s timeout.
+    ice_stats =
+      try do
+        state.ice_transport.get_stats(state.ice_pid, @stats_transport_timeout)
+      catch
+        :exit, reason ->
+          Logger.warning("Failed to get ICE transport stats, reason: #{inspect(reason)}")
+
+          %{
+            local_candidates: [],
+            remote_candidates: [],
+            candidate_pairs: [],
+            state: state.ice_state,
+            role: nil,
+            local_ufrag: nil,
+            bytes_sent: nil,
+            bytes_received: nil,
+            packets_sent: nil,
+            packets_received: nil,
+            selected_candidate_pair_changes: nil,
+            unmatched_requests: nil
+          }
+      end
 
     %{local_cert_info: local_cert_info, remote_cert_info: remote_cert_info} =
-      DTLSTransport.get_certs_info(state.dtls_transport)
-
-    remote_certificate =
-      if remote_cert_info != nil do
-        %{
-          id: :remote_certificate,
-          type: :certificate,
-          timestamp: timestamp,
-          fingerprint: remote_cert_info.fingerprint,
-          fingerprint_algorithm: remote_cert_info.fingerprint_algorithm,
-          base64_certificate: remote_cert_info.base64_certificate
-        }
-      else
-        %{
-          id: :remote_certificate,
-          type: :certificate,
-          timestamp: timestamp,
-          fingerprint: nil,
-          fingerprint_algorithm: nil,
-          base64_certificate: nil
-        }
+      try do
+        DTLSTransport.get_certs_info(state.dtls_transport, @stats_transport_timeout)
+      catch
+        :exit, reason ->
+          Logger.warning("Failed to get DTLS certs info, reason: #{inspect(reason)}")
+          %{local_cert_info: nil, remote_cert_info: nil}
       end
+
+    local_certificate = to_cert_stats(:local_certificate, local_cert_info, timestamp)
+    remote_certificate = to_cert_stats(:remote_certificate, remote_cert_info, timestamp)
 
     to_stats_candidate = fn cand, type, timestamp ->
       %{
@@ -1377,14 +1394,7 @@ defmodule ExWebRTC.PeerConnection do
         negotiation_needed: state.negotiation_needed,
         connection_state: state.conn_state
       },
-      local_certificate: %{
-        id: :local_certificate,
-        type: :certificate,
-        timestamp: timestamp,
-        fingerprint: local_cert_info.fingerprint,
-        fingerprint_algorithm: local_cert_info.fingerprint_algorithm,
-        base64_certificate: local_cert_info.base64_certificate
-      },
+      local_certificate: local_certificate,
       remote_certificate: remote_certificate,
       transport: %{
         id: :transport,
@@ -2686,6 +2696,17 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp on_track_ended(owner, track_id), do: fn -> notify(owner, {:track_ended, track_id}) end
+
+  defp to_cert_stats(id, cert_info, timestamp) do
+    %{
+      id: id,
+      type: :certificate,
+      timestamp: timestamp,
+      fingerprint: cert_info && cert_info.fingerprint,
+      fingerprint_algorithm: cert_info && cert_info.fingerprint_algorithm,
+      base64_certificate: cert_info && cert_info.base64_certificate
+    }
+  end
 
   defp notify(pid, msg), do: send(pid, {:ex_webrtc, self(), msg})
 end

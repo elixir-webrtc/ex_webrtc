@@ -85,12 +85,12 @@ defmodule ExWebRTC.DTLSTransport do
     GenServer.call(dtls_transport, :set_ice_disconnected)
   end
 
-  @spec get_certs_info(dtls_transport()) :: %{
+  @spec get_certs_info(dtls_transport(), timeout()) :: %{
           local_cert_info: cert_info(),
           remote_cert_info: cert_info() | nil
         }
-  def get_certs_info(dtls_transport) do
-    GenServer.call(dtls_transport, :get_certs_info)
+  def get_certs_info(dtls_transport, timeout \\ 5000) do
+    GenServer.call(dtls_transport, :get_certs_info, timeout)
   end
 
   @spec get_fingerprint(dtls_transport()) :: binary()

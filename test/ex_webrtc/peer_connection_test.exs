@@ -1125,6 +1125,30 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert Map.get(groups, :candidate_pair, []) != []
   end
 
+  test "get_stats/1 does not crash when the DTLS transport is unresponsive" do
+    {:ok, pc} = PeerConnection.start_link()
+
+    :ok = :sys.suspend(:sys.get_state(pc).dtls_transport)
+
+    stats = PeerConnection.get_stats(pc)
+
+    assert %{fingerprint: nil, fingerprint_algorithm: nil, base64_certificate: nil} =
+             stats.local_certificate
+
+    assert Process.alive?(pc)
+  end
+
+  test "get_stats/1 does not crash when the ICE transport is unresponsive" do
+    {:ok, pc} = PeerConnection.start_link()
+
+    :ok = :sys.suspend(:sys.get_state(pc).ice_pid)
+
+    stats = PeerConnection.get_stats(pc)
+
+    assert %{ice_state: :new, ice_role: :unknown, ice_local_ufrag: nil} = stats.transport
+    assert Process.alive?(pc)
+  end
+
   describe "close/1" do
     test "caller" do
       # test how does the side that calls close/1 behave
