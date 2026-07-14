@@ -62,8 +62,7 @@ defmodule ExWebRTC.MixProject do
   defp deps do
     [
       {:ex_sdp, "~> 1.1"},
-      # TODO: switch back to {:ex_ice, "~> 0.16.1"} once it's released on hex
-      {:ex_ice, github: "elixir-webrtc/ex_ice", branch: "ice-agent-get-stats-timeout"},
+      {:ex_ice, "~> 0.16.1"},
       {:ex_dtls, "~> 0.18.1"},
       {:ex_libsrtp, "~> 0.7.1"},
       {:ex_rtp, "~> 0.4.1"},
