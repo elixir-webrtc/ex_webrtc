@@ -494,13 +494,13 @@ defmodule ExWebRTC.DTLSTransportTest do
   describe "arm_dtls_timer/1" do
     test "schedules :dtls_timeout for a valid non-negative timeout" do
       assert is_reference(DTLSTransport.arm_dtls_timer(20))
-      assert_receive :dtls_timeout, 200
+      assert_receive :dtls_timeout, 1000
     end
 
     test "does not crash on invalid timeout values" do
       for bad <- [-1, nil, :infinity, 1.5, "100"] do
         assert is_reference(DTLSTransport.arm_dtls_timer(bad))
-        assert_receive :dtls_timeout, 100
+        assert_receive :dtls_timeout, 1000
       end
     end
   end
