@@ -78,7 +78,7 @@ defmodule ExWebRTC.RTP.Munger do
 
   `clock_rate` is the clock rate of the codec carried in munged RTP packets.
   """
-  @spec new(:opus | :h264 | :vp8 | RTPCodecParameters.t(), non_neg_integer()) :: t()
+  @spec new(:opus | :h264 | :vp8 | :av1 | RTPCodecParameters.t(), non_neg_integer()) :: t()
   def new(:opus, clock_rate) do
     %__MODULE__{clock_rate: clock_rate}
   end
@@ -91,11 +91,16 @@ defmodule ExWebRTC.RTP.Munger do
     %__MODULE__{clock_rate: clock_rate, vp8_munger: VP8.Munger.new()}
   end
 
+  def new(:av1, clock_rate) do
+    %__MODULE__{clock_rate: clock_rate}
+  end
+
   def new(%RTPCodecParameters{} = codec_params) do
     case codec_params.mime_type do
       "audio/opus" -> new(:opus, codec_params.clock_rate)
       "video/H264" -> new(:h264, codec_params.clock_rate)
       "video/VP8" -> new(:vp8, codec_params.clock_rate)
+      "video/AV1" -> new(:av1, codec_params.clock_rate)
     end
   end
 
