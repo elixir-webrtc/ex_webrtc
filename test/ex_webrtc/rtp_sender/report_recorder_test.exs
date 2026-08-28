@@ -110,4 +110,112 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
       assert report.rtp_timestamp == @rtp_ts + 0.25 * @clock_rate
     end
   end
+
+  describe "get_rtt/3" do
+    setup do
+      recorder =
+        @recorder
+        |> ReportRecorder.record_packet(@packet, @rand_ts)
+
+      {:ok, recorder: recorder}
+    end
+
+    test "computes RTT from a report block referencing our last SR", %{recorder: recorder} do
+      send_mono = System.monotonic_time()
+      {:ok, sr, recorder} = ReportRecorder.get_report(recorder, @rand_ts, send_mono)
+
+      lsr = sr.ntp_timestamp >>> 16 &&& @max_u32
+
+      # remote held the report for 20 ms, network took 80 ms total
+      dlsr = round(0.020 * 65_536)
+      arrival = send_mono + System.convert_time_unit(100, :millisecond, :native)
+
+      block = report_block(lsr: lsr, delay: dlsr)
+
+      assert {:ok, rtt} = ReportRecorder.get_rtt(recorder, block, arrival)
+      assert_in_delta rtt, 0.080, 0.001
+    end
+
+    test "matches an older SR, not only the newest one", %{recorder: recorder} do
+      mono0 = System.monotonic_time()
+      {:ok, sr0, recorder} = ReportRecorder.get_report(recorder, @rand_ts, mono0)
+
+      t1 = @rand_ts + System.convert_time_unit(1000, :millisecond, :native)
+      mono1 = mono0 + System.convert_time_unit(1000, :millisecond, :native)
+      {:ok, _sr1, recorder} = ReportRecorder.get_report(recorder, t1, mono1)
+
+      lsr0 = sr0.ntp_timestamp >>> 16 &&& @max_u32
+      arrival = mono0 + System.convert_time_unit(150, :millisecond, :native)
+      block = report_block(lsr: lsr0, delay: round(0.050 * 65_536))
+
+      assert {:ok, rtt} = ReportRecorder.get_rtt(recorder, block, arrival)
+      assert_in_delta rtt, 0.100, 0.001
+    end
+
+    test "keeps at most 5 sent reports", %{recorder: recorder} do
+      mono0 = System.monotonic_time()
+
+      {:ok, sr0, recorder} =
+        Enum.reduce(0..5, {nil, recorder}, fn i, {first, rec} ->
+          time = @rand_ts + System.convert_time_unit(i * 1000, :millisecond, :native)
+          mono = mono0 + System.convert_time_unit(i * 1000, :millisecond, :native)
+          {:ok, sr, rec} = ReportRecorder.get_report(rec, time, mono)
+          {first || sr, rec}
+        end)
+        |> then(fn {sr, rec} -> {:ok, sr, rec} end)
+
+      assert length(recorder.sent_reports) == 5
+
+      lsr0 = sr0.ntp_timestamp >>> 16 &&& @max_u32
+      block = report_block(lsr: lsr0, delay: 100)
+
+      assert {:error, :no_matching_report} =
+               ReportRecorder.get_rtt(recorder, block, mono0)
+    end
+
+    test "refuses a block from a peer that received no SR yet", %{recorder: recorder} do
+      {:ok, _sr, recorder} = ReportRecorder.get_report(recorder, @rand_ts)
+      mono = System.monotonic_time()
+
+      assert {:error, :no_last_sr} =
+               ReportRecorder.get_rtt(recorder, report_block(lsr: 0, delay: 0), mono)
+
+      assert {:error, :no_last_sr} =
+               ReportRecorder.get_rtt(recorder, report_block(lsr: 123, delay: 0), mono)
+    end
+
+    test "clamps an anachronous report to zero", %{recorder: recorder} do
+      send_mono = System.monotonic_time()
+      {:ok, sr, recorder} = ReportRecorder.get_report(recorder, @rand_ts, send_mono)
+      lsr = sr.ntp_timestamp >>> 16 &&& @max_u32
+
+      # remote claims to have held the report far longer than the elapsed time
+      dlsr = round(5.0 * 65_536)
+      arrival = send_mono + System.convert_time_unit(10, :millisecond, :native)
+
+      assert {:ok, +0.0} =
+               ReportRecorder.get_rtt(recorder, report_block(lsr: lsr, delay: dlsr), arrival)
+    end
+
+    test "errors when we have sent no report at all", %{recorder: recorder} do
+      assert {:error, :no_matching_report} =
+               ReportRecorder.get_rtt(
+                 recorder,
+                 report_block(lsr: 1, delay: 1),
+                 System.monotonic_time()
+               )
+    end
+  end
+
+  defp report_block(opts) do
+    %ExRTCP.Packet.ReceptionReport{
+      ssrc: 123_467,
+      fraction_lost: 0,
+      total_lost: 0,
+      last_sequence_number: 0,
+      jitter: 0,
+      last_sr: Keyword.fetch!(opts, :lsr),
+      delay: Keyword.fetch!(opts, :delay)
+    }
+  end
 end

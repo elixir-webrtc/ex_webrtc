@@ -4,7 +4,7 @@ defmodule ExWebRTC.RTPSender do
   """
   require Logger
 
-  alias ExRTCP.Packet.{TransportFeedback.NACK, PayloadFeedback.PLI}
+  alias ExRTCP.Packet.{ReceptionReport, TransportFeedback.NACK, PayloadFeedback.PLI}
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils, PeerConnection.Configuration}
   alias ExSDP.Attribute.Extmap
   alias __MODULE__.{NACKResponder, ReportRecorder}
@@ -35,10 +35,25 @@ defmodule ExWebRTC.RTPSender do
           markers_sent: non_neg_integer(),
           nack_count: non_neg_integer(),
           pli_count: non_neg_integer(),
+          # data reported back to us by the remote peer about the stream we send,
+          # i.e. the source of `remote-inbound-rtp` stats. `nil` until the first
+          # reception report block for our ssrc arrives.
+          remote_report: remote_report() | nil,
           reports?: boolean(),
           outbound_rtx?: boolean(),
           report_recorder: ReportRecorder.t(),
           nack_responder: NACKResponder.t()
+        }
+
+  @typedoc false
+  @type remote_report() :: %{
+          timestamp: non_neg_integer(),
+          packets_lost: integer(),
+          fraction_lost: float(),
+          jitter: float() | nil,
+          round_trip_time: float() | nil,
+          total_round_trip_time: float(),
+          round_trip_time_measurements: non_neg_integer()
         }
 
   @typedoc """
@@ -88,6 +103,7 @@ defmodule ExWebRTC.RTPSender do
       markers_sent: 0,
       nack_count: 0,
       pli_count: 0,
+      remote_report: nil,
       reports?: :rtcp_reports in features,
       outbound_rtx?: :outbound_rtx in features,
       report_recorder: %ReportRecorder{},
@@ -283,9 +299,9 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec get_reports(sender()) :: {[ExRTCP.Packet.SenderReport.t()], sender()}
-  def get_reports(sender) do
-    case ReportRecorder.get_report(sender.report_recorder) do
+  @spec get_reports(sender(), integer()) :: {[ExRTCP.Packet.SenderReport.t()], sender()}
+  def get_reports(sender, time \\ System.os_time(:native)) do
+    case ReportRecorder.get_report(sender.report_recorder, time) do
       {:ok, report, recorder} ->
         sender = %{sender | report_recorder: recorder}
         {[report], sender}
@@ -296,9 +312,43 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec get_stats(sender(), non_neg_integer()) :: map()
+  @spec receive_report(sender(), ReceptionReport.t(), integer()) :: sender()
+  def receive_report(sender, report, mono_time \\ System.monotonic_time())
+
+  def receive_report(%{ssrc: ssrc} = sender, %ReceptionReport{ssrc: ssrc} = report, mono_time) do
+    prev = sender.remote_report || new_remote_report()
+
+    {rtt, total_rtt, measurements} =
+      case ReportRecorder.get_rtt(sender.report_recorder, report, mono_time) do
+        {:ok, rtt} ->
+          {rtt, prev.total_round_trip_time + rtt, prev.round_trip_time_measurements + 1}
+
+        {:error, _reason} ->
+          {prev.round_trip_time, prev.total_round_trip_time, prev.round_trip_time_measurements}
+      end
+
+    remote_report = %{
+      # W3C: the timestamp of `remote-inbound-rtp` is the arrival time of the report
+      timestamp: System.os_time(:millisecond),
+      packets_lost: to_signed_u24(report.total_lost),
+      fraction_lost: report.fraction_lost / 256,
+      jitter: to_seconds(report.jitter, sender.codec),
+      round_trip_time: rtt,
+      total_round_trip_time: total_rtt,
+      round_trip_time_measurements: measurements
+    }
+
+    %{sender | remote_report: remote_report}
+  end
+
+  # Defensive: PeerConnection routes blocks by our media ssrc, so a block for a
+  # different ssrc (including our rtx ssrc) is normally dropped before reaching here.
+  def receive_report(sender, %ReceptionReport{}, _mono_time), do: sender
+
+  @doc false
+  @spec get_stats(sender(), non_neg_integer()) :: [map()]
   def get_stats(sender, timestamp) do
-    %{
+    outbound_rtp = %{
       timestamp: timestamp,
       type: :outbound_rtp,
       id: sender.id,
@@ -312,7 +362,43 @@ defmodule ExWebRTC.RTPSender do
       nack_count: sender.nack_count,
       pli_count: sender.pli_count
     }
+
+    case sender.remote_report do
+      nil ->
+        [outbound_rtp]
+
+      remote_report ->
+        remote_inbound_rtp =
+          Map.merge(remote_report, %{
+            type: :remote_inbound_rtp,
+            id: "remote-#{sender.id}",
+            ssrc: sender.ssrc,
+            local_id: sender.id
+          })
+
+        [outbound_rtp, remote_inbound_rtp]
+    end
   end
+
+  defp new_remote_report do
+    %{
+      timestamp: 0,
+      packets_lost: 0,
+      fraction_lost: +0.0,
+      jitter: nil,
+      round_trip_time: nil,
+      total_round_trip_time: +0.0,
+      round_trip_time_measurements: 0
+    }
+  end
+
+  # cumulative number of packets lost is a signed 24-bit value (RFC 3550, sec. 6.4.1)
+  defp to_signed_u24(total_lost) when total_lost >= 0x800000, do: total_lost - 0x1000000
+  defp to_signed_u24(total_lost), do: total_lost
+
+  # interarrival jitter is expressed in RTP timestamp units, W3C wants seconds
+  defp to_seconds(_jitter, nil), do: nil
+  defp to_seconds(jitter, codec), do: jitter / codec.clock_rate
 
   defp get_default_codec(codecs) do
     {rtx_codecs, media_codecs} = Utils.split_rtx_codecs(codecs)

@@ -348,6 +348,14 @@ defmodule ExWebRTC.RTPTransceiver do
   end
 
   @doc false
+  @spec receive_report_block(transceiver(), ExRTCP.Packet.ReceptionReport.t(), integer()) ::
+          transceiver()
+  def receive_report_block(transceiver, block, time) do
+    sender = RTPSender.receive_report(transceiver.sender, block, time)
+    %{transceiver | sender: sender}
+  end
+
+  @doc false
   @spec receive_nack(transceiver(), ExRTCP.Packet.TransportFeedback.NACK.t()) ::
           {[ExRTP.Packet.t()], transceiver()}
   def receive_nack(transceiver, nack) do
@@ -500,7 +508,7 @@ defmodule ExWebRTC.RTPTransceiver do
     case transceiver.current_direction do
       :sendonly ->
         stats = RTPSender.get_stats(transceiver.sender, timestamp)
-        [Map.merge(stats, tr_stats)]
+        Enum.map(stats, &Map.merge(&1, tr_stats))
 
       :recvonly ->
         stats = RTPReceiver.get_stats(transceiver.receiver, timestamp)
@@ -510,8 +518,7 @@ defmodule ExWebRTC.RTPTransceiver do
         sender_stats = RTPSender.get_stats(transceiver.sender, timestamp)
         receiver_stats = RTPReceiver.get_stats(transceiver.receiver, timestamp)
 
-        [Map.merge(sender_stats, tr_stats)] ++
-          Enum.map(receiver_stats, &Map.merge(&1, tr_stats))
+        Enum.map(sender_stats ++ receiver_stats, &Map.merge(&1, tr_stats))
 
       _other ->
         []

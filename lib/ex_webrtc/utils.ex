@@ -19,6 +19,15 @@ defmodule ExWebRTC.Utils do
   def to_int(false), do: 0
   def to_int(true), do: 1
 
+  @doc false
+  @spec compact_ntp(non_neg_integer()) :: non_neg_integer()
+  def compact_ntp(ntp_timestamp) do
+    # the middle 32 bits of a 64-bit NTP timestamp: the low 16 bits of the
+    # integer part and the high 16 bits of the fractional part (RFC 3550, sec. 4)
+    import Bitwise
+    ntp_timestamp >>> 16 &&& 0xFFFFFFFF
+  end
+
   @spec split_rtx_codecs([RTPCodecParameters.t()]) ::
           {[RTPCodecParameters.t()], [RTPCodecParameters.t()]}
   def split_rtx_codecs(codecs) do

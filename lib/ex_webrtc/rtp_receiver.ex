@@ -296,6 +296,7 @@ defmodule ExWebRTC.RTPReceiver do
     Enum.map(receiver.layers, fn {rid, layer} ->
       id = if(rid == nil, do: receiver.track.id, else: "#{receiver.track.id}:#{rid}")
       codec = receiver.codec && String.split(receiver.codec.mime_type, "/") |> List.last()
+      metrics = ReportRecorder.get_metrics(layer.report_recorder)
 
       %{
         id: id,
@@ -309,7 +310,9 @@ defmodule ExWebRTC.RTPReceiver do
         packets_received: layer.packets_received,
         markers_received: layer.markers_received,
         nack_count: layer.nack_count,
-        pli_count: layer.pli_count
+        pli_count: layer.pli_count,
+        packets_lost: metrics.packets_lost,
+        jitter: metrics.jitter
       }
     end)
   end
