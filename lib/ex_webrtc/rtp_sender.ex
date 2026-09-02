@@ -353,7 +353,6 @@ defmodule ExWebRTC.RTPSender do
       type: :outbound_rtp,
       id: sender.id,
       track_identifier: if(sender.track, do: sender.track.id, else: nil),
-      kind: if(sender.track, do: sender.track.kind, else: nil),
       ssrc: sender.ssrc,
       packets_sent: sender.packets_sent,
       bytes_sent: sender.bytes_sent,
@@ -373,7 +372,6 @@ defmodule ExWebRTC.RTPSender do
           Map.merge(remote_report, %{
             type: :remote_inbound_rtp,
             id: "remote-#{sender.id}",
-            kind: if(sender.track, do: sender.track.kind, else: nil),
             ssrc: sender.ssrc,
             local_id: sender.id
           })

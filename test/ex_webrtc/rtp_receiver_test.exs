@@ -2,9 +2,13 @@ defmodule ExWebRTC.RTPReceiverTest do
   use ExUnit.Case, async: true
 
   alias ExRTP.Packet
+  alias ExRTP.Packet.Extension
+  alias ExSDP.Attribute.Extmap
   alias ExWebRTC.{MediaStreamTrack, RTPReceiver, RTPCodecParameters}
 
   @codec %RTPCodecParameters{payload_type: 111, mime_type: "audio/opus", clock_rate: 48_000}
+  @video_codec %RTPCodecParameters{payload_type: 96, mime_type: "video/VP8", clock_rate: 90_000}
+  @rid_extmap %Extmap{id: 10, uri: "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"}
 
   test "get_stats/2" do
     timestamp = System.os_time(:millisecond)
@@ -23,7 +27,6 @@ defmodule ExWebRTC.RTPReceiverTest do
              %{
                id: receiver.track.id,
                track_identifier: receiver.track.id,
-               kind: receiver.track.kind,
                rid: nil,
                type: :inbound_rtp,
                timestamp: timestamp,
@@ -47,7 +50,6 @@ defmodule ExWebRTC.RTPReceiverTest do
              %{
                id: receiver.track.id,
                track_identifier: receiver.track.id,
-               kind: receiver.track.kind,
                rid: nil,
                type: :inbound_rtp,
                timestamp: timestamp,
@@ -73,7 +75,6 @@ defmodule ExWebRTC.RTPReceiverTest do
              %{
                id: receiver.track.id,
                track_identifier: receiver.track.id,
-               kind: receiver.track.kind,
                rid: nil,
                type: :inbound_rtp,
                timestamp: timestamp,
@@ -113,5 +114,37 @@ defmodule ExWebRTC.RTPReceiverTest do
 
     assert [%{packets_lost: 2, packets_received: 3}] =
              RTPReceiver.get_stats(receiver, System.os_time(:millisecond))
+  end
+
+  test "get_stats/2 reports one entry per simulcast layer, all sharing the track id" do
+    timestamp = System.os_time(:millisecond)
+    track = MediaStreamTrack.new(:video)
+    receiver = RTPReceiver.new(track, [@video_codec], [@rid_extmap], [])
+
+    receiver =
+      Enum.reduce([{"h", 1111}, {"l", 2222}], receiver, fn {rid, ssrc}, receiver ->
+        packet =
+          <<1, 2, 3>>
+          |> Packet.new(ssrc: ssrc, payload_type: @video_codec.payload_type)
+          |> Packet.add_extension(%Extension{id: @rid_extmap.id, data: rid})
+
+        {:ok, ^rid, receiver} =
+          RTPReceiver.receive_packet(receiver, packet, byte_size(Packet.encode(packet)))
+
+        receiver
+      end)
+
+    assert [%{rid: "h"} = high, %{rid: "l"} = low] =
+             receiver |> RTPReceiver.get_stats(timestamp) |> Enum.sort_by(& &1.rid)
+
+    # `id` must stay unique per layer, it is the key of the stats map
+    assert high.id == "#{track.id}:h"
+    assert low.id == "#{track.id}:l"
+
+    # `track_identifier` identifies the track, not the layer, so it is the bare track id
+    assert high.track_identifier == track.id
+    assert low.track_identifier == track.id
+    assert high.ssrc == 1111
+    assert low.ssrc == 2222
   end
 end
