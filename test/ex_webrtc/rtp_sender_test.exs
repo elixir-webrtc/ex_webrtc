@@ -1,6 +1,8 @@
 defmodule ExWebRTC.RTPSenderTest do
   use ExUnit.Case, async: true
 
+  import Bitwise
+
   alias ExRTP.Packet.Extension.SourceDescription
   alias ExSDP.Attribute.Extmap
 
@@ -238,10 +240,10 @@ defmodule ExWebRTC.RTPSenderTest do
     end
 
     test "records loss, jitter and rtt from a report block", %{sender: sender} do
-      {[_sr], sender} = RTPSender.get_reports(sender)
+      {[sr], sender} = RTPSender.get_reports(sender)
 
-      {lsr, sent_mono} = hd(sender.report_recorder.sent_reports)
-      arrival = sent_mono + System.convert_time_unit(60, :millisecond, :native)
+      lsr = sr.ntp_timestamp >>> 16 &&& 0xFFFFFFFF
+      arrival = System.os_time(:native) + System.convert_time_unit(60, :millisecond, :native)
 
       # 90kHz clock -> 900 ticks == 10 ms
       block =

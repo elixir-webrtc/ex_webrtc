@@ -88,7 +88,8 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
   """
   @spec record_report(t(), ExRTCP.Packet.SenderReport.t(), integer()) :: t()
   def record_report(%__MODULE__{} = recorder, sender_report, time \\ System.monotonic_time()) do
-    ntp_ts = ExWebRTC.Utils.compact_ntp(sender_report.ntp_timestamp)
+    # we take the middle 32 bits of the NTP timestamp
+    ntp_ts = sender_report.ntp_timestamp >>> 16 &&& @max_u32
 
     %{recorder | last_sr_ntp_timestamp: ntp_ts, last_sr_timestamp: time}
   end

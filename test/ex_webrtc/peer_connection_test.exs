@@ -1142,6 +1142,8 @@ defmodule ExWebRTC.PeerConnectionTest do
 
     assert remote.ssrc != nil
     assert remote.local_id != nil
+    assert remote.kind == :audio
+    assert remote.mid != nil
     assert remote.packets_lost >= 0
     assert remote.fraction_lost >= 0.0
     assert is_float(remote.jitter)

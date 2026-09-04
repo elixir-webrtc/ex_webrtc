@@ -432,27 +432,6 @@ defmodule ExWebRTC.PeerConnection do
   overloaded), the corresponding stats are degraded to nil/empty values instead
   of raising, so this function always returns.
 
-  ## Remote inbound RTP stats
-
-  A `:remote_inbound_rtp` entry, keyed by the string `"remote-\#{sender_id}"`,
-  is present for every stream we send, once the remote peer has told us how it
-  sees that stream in an RTCP Receiver Report. It carries `round_trip_time`,
-  `total_round_trip_time`, `round_trip_time_measurements`, `packets_lost`,
-  `fraction_lost` and `jitter`.
-
-  Mind the vantage point: `:inbound_rtp` is measured locally and describes the
-  stream we receive, while `:remote_inbound_rtp` is measured by the remote peer
-  and describes the stream we send.
-
-  `round_trip_time` is `nil` until the remote peer acknowledges one of our
-  Sender Reports and `jitter` is `nil` until the first packet is sent. Unlike
-  the other entries, its `timestamp` is the arrival time of the last report
-  rather than the time of the `get_stats/1` call, so it stops advancing when
-  reports stop arriving - compare it against the current time before acting on
-  the values.
-
-  Requires the `:rtcp_reports` feature, which is enabled by default. When it is
-  disabled, `packets_lost` and `jitter` on `:inbound_rtp` are `nil` as well.
   """
   @spec get_stats(peer_connection()) :: %{(atom() | integer() | String.t()) => map()}
   def get_stats(peer_connection) do
@@ -2593,14 +2572,10 @@ defmodule ExWebRTC.PeerConnection do
 
   defp maybe_connect_sctp(state), do: state
 
-  # Reception report blocks tell us how the remote peer sees the streams *we* send,
-  # so they are routed by the ssrc of the sender that owns them - not through the
-  # demuxer, which only knows about incoming ssrcs. Blocks about ssrcs we do not
-  # send from (including our rtx ssrcs) are dropped here.
   defp receive_report_blocks(state, []), do: state
 
   defp receive_report_blocks(state, blocks) do
-    time = System.monotonic_time()
+    time = System.os_time(:native)
     blocks = Map.new(blocks, &{&1.ssrc, &1})
 
     transceivers =
@@ -2618,7 +2593,7 @@ defmodule ExWebRTC.PeerConnection do
     if :rtcp_reports in state.config.features do
       state = receive_report_blocks(state, report.reports)
 
-      # the track id we report to the user is the *incoming* track of the peer
+      # the track id we report to the user is the incoming track of the peer
       # that sent us this report, which may not be resolvable at all
       track_id =
         with {:ok, mid} <- Demuxer.demux_ssrc(state.demuxer, report.ssrc),

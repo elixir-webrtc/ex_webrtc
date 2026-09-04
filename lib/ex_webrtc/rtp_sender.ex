@@ -35,9 +35,6 @@ defmodule ExWebRTC.RTPSender do
           markers_sent: non_neg_integer(),
           nack_count: non_neg_integer(),
           pli_count: non_neg_integer(),
-          # data reported back to us by the remote peer about the stream we send,
-          # i.e. the source of `remote-inbound-rtp` stats. `nil` until the first
-          # reception report block for our ssrc arrives.
           remote_report: remote_report() | nil,
           reports?: boolean(),
           outbound_rtx?: boolean(),
@@ -313,15 +310,15 @@ defmodule ExWebRTC.RTPSender do
 
   @doc false
   @spec receive_report(sender(), ReceptionReport.t(), integer()) :: sender()
-  def receive_report(sender, report, mono_time \\ System.monotonic_time())
+  def receive_report(sender, report, time \\ System.os_time(:native))
 
-  def receive_report(%{ssrc: ssrc} = sender, %ReceptionReport{ssrc: ssrc} = report, mono_time) do
+  def receive_report(%{ssrc: ssrc} = sender, %ReceptionReport{ssrc: ssrc} = report, time) do
     prev =
       sender.remote_report ||
         %{round_trip_time: nil, total_round_trip_time: 0.0, round_trip_time_measurements: 0}
 
     {rtt, total_rtt, measurements} =
-      case ReportRecorder.get_rtt(sender.report_recorder, report, mono_time) do
+      case ReportRecorder.get_rtt(report, time) do
         {:ok, rtt} ->
           {rtt, prev.total_round_trip_time + rtt, prev.round_trip_time_measurements + 1}
 
@@ -330,8 +327,7 @@ defmodule ExWebRTC.RTPSender do
       end
 
     remote_report = %{
-      # W3C: the timestamp of `remote-inbound-rtp` is the arrival time of the report
-      timestamp: System.os_time(:millisecond),
+      timestamp: System.convert_time_unit(time, :native, :millisecond),
       packets_lost: u24_to_signed(report.total_lost),
       fraction_lost: report.fraction_lost / 256,
       jitter: to_seconds(report.jitter, sender.report_recorder.clock_rate),
@@ -343,9 +339,7 @@ defmodule ExWebRTC.RTPSender do
     %{sender | remote_report: remote_report}
   end
 
-  # Defensive: PeerConnection routes blocks by our media ssrc, so a block for a
-  # different ssrc (including our rtx ssrc) is normally dropped before reaching here.
-  def receive_report(sender, %ReceptionReport{}, _mono_time), do: sender
+  def receive_report(sender, %ReceptionReport{}, _time), do: sender
 
   @doc false
   @spec get_stats(sender(), non_neg_integer()) :: [map()]
@@ -387,8 +381,6 @@ defmodule ExWebRTC.RTPSender do
   defp u24_to_signed(total_lost), do: total_lost
 
   # Interarrival jitter is expressed in RTP timestamp units, W3C wants seconds.
-  # The recorder's clock rate is the one the stream is actually sent with and,
-  # unlike `sender.codec`, survives a renegotiation that drops the codec.
   defp to_seconds(_jitter, nil), do: nil
   defp to_seconds(jitter, clock_rate), do: jitter / clock_rate
 

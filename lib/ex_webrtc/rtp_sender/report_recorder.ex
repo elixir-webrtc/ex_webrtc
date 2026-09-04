@@ -4,13 +4,14 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   import Bitwise
 
   alias ExRTCP.Packet.{ReceptionReport, SenderReport}
-  alias ExWebRTC.Utils
 
   @breakpoint 0x7FFF
-  # how many of our own Sender Reports we remember, so that a Receiver Report
-  # referencing a slightly stale SR can still produce an RTT measurement.
-  # Matches pion/interceptor's `maxLastSenderReports`.
-  @max_sent_reports 5
+  @max_u32 0xFFFFFFFF
+  # `System.os_time/1` may jump backwards, and the masked subtraction in get_rtt/2
+  # cannot express a negative result: a step back of even 15 us aliases to nearly
+  # the full 2^32 range (~18 h). Reject anything beyond this bound rather than
+  # feed an absurd measurement into the stats. Compact NTP units of 1/65536 s.
+  @max_elapsed 30 * 65_536
   # NTP epoch is 1/1/1900 vs UNIX epoch is 1/1/1970
   # so there's offset of 70 years (inc. 17 leap years) in seconds
   @ntp_offset (70 * 365 + 17) * 86_400
@@ -23,9 +24,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
           last_seq_no: ExRTP.Packet.uint16() | nil,
           last_timestamp: integer() | nil,
           packet_count: non_neg_integer(),
-          octet_count: non_neg_integer(),
-          # {compact NTP timestamp of a sent SR, monotonic time of sending it}
-          sent_reports: [{ExRTP.Packet.uint32(), integer()}]
+          octet_count: non_neg_integer()
         }
 
   defstruct clock_rate: nil,
@@ -34,8 +33,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
             last_seq_no: nil,
             last_timestamp: nil,
             packet_count: 0,
-            octet_count: 0,
-            sent_reports: []
+            octet_count: 0
 
   @spec init(t(), non_neg_integer(), non_neg_integer()) :: t()
   def init(%{clock_rate: nil, sender_ssrc: nil}, clock_rate, sender_ssrc) do
@@ -104,12 +102,12 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   `time` parameter accepts output of `System.os_time(:native)` as a value (UNIX timestamp in :native units).
   Returns `{:error, :no_packets}` if no packet has been recorded yet.
   """
-  @spec get_report(t(), integer(), integer()) :: {:ok, SenderReport.t(), t()} | {:error, term()}
-  def get_report(recorder, time \\ System.os_time(:native), mono_time \\ System.monotonic_time())
+  @spec get_report(t(), integer()) :: {:ok, SenderReport.t(), t()} | {:error, term()}
+  def get_report(recorder, time \\ System.os_time(:native))
 
-  def get_report(%{sender_ssrc: nil}, _time, _mono_time), do: {:error, :no_packets}
+  def get_report(%{sender_ssrc: nil}, _time), do: {:error, :no_packets}
 
-  def get_report(recorder, time, mono_time) do
+  def get_report(recorder, time) do
     ntp_time = to_ntp(time)
     rtp_delta = delay_since(time, recorder.last_timestamp) * recorder.clock_rate
 
@@ -121,51 +119,25 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
       rtp_timestamp: round(recorder.last_rtp_timestamp + rtp_delta)
     }
 
-    # Remember the compact (middle 32 bits) NTP time, which is what the remote
-    # peer echoes back in the LSR field of its report blocks, together with the
-    # monotonic moment we sent it (immune to wall-clock steps between the SR
-    # and the corresponding RR). See RFC 3550, sec. 6.4.1.
-    sent_reports =
-      [{Utils.compact_ntp(ntp_time), mono_time} | recorder.sent_reports]
-      |> Enum.take(@max_sent_reports)
-
-    {:ok, report, %{recorder | sent_reports: sent_reports}}
+    {:ok, report, recorder}
   end
 
-  @doc """
-  Calculates the round-trip time, in seconds, based on a reception report block
-  received from the remote peer.
+  @spec get_rtt(ReceptionReport.t(), integer()) ::
+          {:ok, float()} | {:error, :no_last_sr | :invalid_last_sr}
+  def get_rtt(report, time \\ System.os_time(:native))
+  def get_rtt(%ReceptionReport{last_sr: 0}, _time), do: {:error, :no_last_sr}
+  def get_rtt(%ReceptionReport{delay: 0}, _time), do: {:error, :no_last_sr}
 
-  Implements `A - LSR - DLSR` from RFC 3550, sec. 6.4.1. Instead of doing the
-  subtraction in compact NTP (which wraps every ~18 hours), we use the LSR field
-  only to look up the report we sent, and measure the elapsed time directly.
+  def get_rtt(%ReceptionReport{last_sr: lsr, delay: dlsr}, time) do
+    now = to_ntp(time) >>> 16 &&& @max_u32
+    elapsed = now - lsr &&& @max_u32
 
-  `mono_time` parameter accepts output of `System.monotonic_time()` as a value.
-  """
-  @spec get_rtt(t(), ReceptionReport.t(), integer()) ::
-          {:ok, float()} | {:error, :no_last_sr | :no_matching_report}
-  def get_rtt(recorder, report, mono_time \\ System.monotonic_time())
-
-  # "If no SR packet has been received yet from SSRC_n, the DLSR field is set to zero."
-  # (RFC 3550, sec. 6.4.1) - the same sentence defines LSR = 0 the same way.
-  # A peer could in theory echo a valid LSR with a delay that rounded down to 0
-  # (a sub-1/65536 s gap), but both pion and mediasoup treat delay == 0 as
-  # "no SR received yet" and we follow them.
-  def get_rtt(_recorder, %ReceptionReport{last_sr: 0}, _mono_time), do: {:error, :no_last_sr}
-  def get_rtt(_recorder, %ReceptionReport{delay: 0}, _mono_time), do: {:error, :no_last_sr}
-
-  def get_rtt(recorder, %ReceptionReport{last_sr: lsr, delay: dlsr}, mono_time) do
-    case List.keyfind(recorder.sent_reports, lsr, 0) do
-      {^lsr, sent_mono_time} ->
-        # DLSR is expressed in units of 1/65536 seconds
-        rtt = delay_since(mono_time, sent_mono_time) - dlsr / 65_536
-
-        # A remote peer with a skewed clock, or a report that raced our own SR,
-        # can claim a delay longer than the time that actually elapsed.
-        {:ok, max(rtt, 0.0)}
-
-      nil ->
-        {:error, :no_matching_report}
+    if elapsed > @max_elapsed do
+      {:error, :invalid_last_sr}
+    else
+      # A remote peer with a skewed clock, or a report that raced our own SR,
+      # can claim a delay longer than the time that actually elapsed.
+      {:ok, max(elapsed - dlsr, 0) / 65_536}
     end
   end
 
