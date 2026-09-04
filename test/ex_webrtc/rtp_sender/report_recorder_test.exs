@@ -12,8 +12,6 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
   @ntp_offset 2_208_988_800
   @packet ExRTP.Packet.new(<<>>, sequence_number: @seq_no, timestamp: @rtp_ts)
   @recorder ReportRecorder.init(%ReportRecorder{}, @clock_rate, 123_467)
-
-  @ntp_offset 2_208_988_800
   @max_u32 0xFFFFFFFF
 
   test "init/3" do

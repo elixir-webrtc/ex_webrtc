@@ -100,7 +100,8 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
   Generates a RTCP Sender Report.
 
   `time` parameter accepts output of `System.os_time(:native)` as a value (UNIX timestamp in :native units).
-  Returns `{:error, :no_packets}` if no packet has been recorded yet.
+  This function can be called only if at least one packet has been recorded,
+  otherwise it will raise.
   """
   @spec get_report(t(), integer()) :: {:ok, SenderReport.t(), t()} | {:error, term()}
   def get_report(recorder, time \\ System.os_time(:native))
