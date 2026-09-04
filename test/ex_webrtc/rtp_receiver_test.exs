@@ -37,8 +37,8 @@ defmodule ExWebRTC.RTPReceiverTest do
                codec: "opus",
                nack_count: 0,
                pli_count: 0,
-               packets_lost: 0,
-               jitter: +0.0
+               packets_lost: nil,
+               jitter: nil
              }
            ] == RTPReceiver.get_stats(receiver, timestamp)
 
@@ -60,8 +60,8 @@ defmodule ExWebRTC.RTPReceiverTest do
                codec: "opus",
                nack_count: 0,
                pli_count: 0,
-               packets_lost: 0,
-               jitter: +0.0
+               packets_lost: nil,
+               jitter: nil
              }
            ] == RTPReceiver.get_stats(receiver, timestamp)
 
@@ -86,8 +86,8 @@ defmodule ExWebRTC.RTPReceiverTest do
                codec: "opus",
                nack_count: 0,
                pli_count: 0,
-               packets_lost: 0,
-               jitter: +0.0
+               packets_lost: nil,
+               jitter: nil
              }
            ] == RTPReceiver.get_stats(receiver, timestamp)
   end

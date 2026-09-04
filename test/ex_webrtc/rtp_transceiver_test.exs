@@ -229,7 +229,7 @@ defmodule ExWebRTC.RTPTransceiverTest do
   defp ssrc_msid_value(stream, app_data), do: "#{stream} #{app_data}"
 
   describe "get_stats/2" do
-    test "tags RTP stats with mid but not kind" do
+    test "tags RTP stats with kind and mid" do
       tr =
         RTPTransceiver.new(:video, @track, @config,
           ssrc: @ssrc,
@@ -239,10 +239,8 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
       tr = %{tr | mid: "0", current_direction: :sendonly}
 
-      assert [%{type: :outbound_rtp, mid: "0"} = stat] =
+      assert [%{type: :outbound_rtp, kind: :video, mid: "0"}] =
                RTPTransceiver.get_stats(tr, System.os_time(:millisecond))
-
-      refute Map.has_key?(stat, :kind)
     end
   end
 end

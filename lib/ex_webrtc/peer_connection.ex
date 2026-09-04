@@ -434,23 +434,25 @@ defmodule ExWebRTC.PeerConnection do
 
   ## Remote inbound RTP stats
 
-  A `:remote_inbound_rtp` entry is present for every stream we send, once the
-  remote peer has told us how it sees that stream in an RTCP Receiver Report.
-  It carries `round_trip_time`, `total_round_trip_time`,
-  `round_trip_time_measurements`, `packets_lost`, `fraction_lost` and `jitter`.
+  A `:remote_inbound_rtp` entry, keyed by the string `"remote-\#{sender_id}"`,
+  is present for every stream we send, once the remote peer has told us how it
+  sees that stream in an RTCP Receiver Report. It carries `round_trip_time`,
+  `total_round_trip_time`, `round_trip_time_measurements`, `packets_lost`,
+  `fraction_lost` and `jitter`.
 
   Mind the vantage point: `:inbound_rtp` is measured locally and describes the
   stream we receive, while `:remote_inbound_rtp` is measured by the remote peer
-  and describes the stream we send. `round_trip_time` is `nil` until the remote
-  peer acknowledges one of our Sender Reports, and the whole entry stops being
-  refreshed if reports stop arriving - compare its `timestamp` against the
-  current time before acting on the values.
+  and describes the stream we send.
 
-  The entry is keyed by the string `"remote-" <> sender_id`. `round_trip_time`
-  and `jitter` can be `nil` (no acknowledged Sender Report yet, or no codec
-  negotiated); the same applies to `jitter` on `:inbound_rtp`.
+  `round_trip_time` is `nil` until the remote peer acknowledges one of our
+  Sender Reports and `jitter` is `nil` until the first packet is sent. Unlike
+  the other entries, its `timestamp` is the arrival time of the last report
+  rather than the time of the `get_stats/1` call, so it stops advancing when
+  reports stop arriving - compare it against the current time before acting on
+  the values.
 
-  Requires the `:rtcp_reports` feature, which is enabled by default.
+  Requires the `:rtcp_reports` feature, which is enabled by default. When it is
+  disabled, `packets_lost` and `jitter` on `:inbound_rtp` are `nil` as well.
   """
   @spec get_stats(peer_connection()) :: %{(atom() | integer() | String.t()) => map()}
   def get_stats(peer_connection) do

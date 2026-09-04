@@ -299,9 +299,9 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec get_reports(sender(), integer()) :: {[ExRTCP.Packet.SenderReport.t()], sender()}
-  def get_reports(sender, time \\ System.os_time(:native)) do
-    case ReportRecorder.get_report(sender.report_recorder, time) do
+  @spec get_reports(sender()) :: {[ExRTCP.Packet.SenderReport.t()], sender()}
+  def get_reports(sender) do
+    case ReportRecorder.get_report(sender.report_recorder) do
       {:ok, report, recorder} ->
         sender = %{sender | report_recorder: recorder}
         {[report], sender}
@@ -316,7 +316,9 @@ defmodule ExWebRTC.RTPSender do
   def receive_report(sender, report, mono_time \\ System.monotonic_time())
 
   def receive_report(%{ssrc: ssrc} = sender, %ReceptionReport{ssrc: ssrc} = report, mono_time) do
-    prev = sender.remote_report || new_remote_report()
+    prev =
+      sender.remote_report ||
+        %{round_trip_time: nil, total_round_trip_time: 0.0, round_trip_time_measurements: 0}
 
     {rtt, total_rtt, measurements} =
       case ReportRecorder.get_rtt(sender.report_recorder, report, mono_time) do
@@ -330,9 +332,9 @@ defmodule ExWebRTC.RTPSender do
     remote_report = %{
       # W3C: the timestamp of `remote-inbound-rtp` is the arrival time of the report
       timestamp: System.os_time(:millisecond),
-      packets_lost: to_signed_u24(report.total_lost),
+      packets_lost: u24_to_signed(report.total_lost),
       fraction_lost: report.fraction_lost / 256,
-      jitter: to_seconds(report.jitter, sender.codec),
+      jitter: to_seconds(report.jitter, sender.report_recorder.clock_rate),
       round_trip_time: rtt,
       total_round_trip_time: total_rtt,
       round_trip_time_measurements: measurements
@@ -380,25 +382,15 @@ defmodule ExWebRTC.RTPSender do
     end
   end
 
-  defp new_remote_report do
-    %{
-      timestamp: 0,
-      packets_lost: 0,
-      fraction_lost: +0.0,
-      jitter: nil,
-      round_trip_time: nil,
-      total_round_trip_time: +0.0,
-      round_trip_time_measurements: 0
-    }
-  end
-
   # cumulative number of packets lost is a signed 24-bit value (RFC 3550, sec. 6.4.1)
-  defp to_signed_u24(total_lost) when total_lost >= 0x800000, do: total_lost - 0x1000000
-  defp to_signed_u24(total_lost), do: total_lost
+  defp u24_to_signed(total_lost) when total_lost >= 0x800000, do: total_lost - 0x1000000
+  defp u24_to_signed(total_lost), do: total_lost
 
-  # interarrival jitter is expressed in RTP timestamp units, W3C wants seconds
+  # Interarrival jitter is expressed in RTP timestamp units, W3C wants seconds.
+  # The recorder's clock rate is the one the stream is actually sent with and,
+  # unlike `sender.codec`, survives a renegotiation that drops the codec.
   defp to_seconds(_jitter, nil), do: nil
-  defp to_seconds(jitter, codec), do: jitter / codec.clock_rate
+  defp to_seconds(jitter, clock_rate), do: jitter / clock_rate
 
   defp get_default_codec(codecs) do
     {rtx_codecs, media_codecs} = Utils.split_rtx_codecs(codecs)

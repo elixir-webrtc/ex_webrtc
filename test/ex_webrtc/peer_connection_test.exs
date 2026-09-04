@@ -1125,7 +1125,6 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert Map.get(groups, :candidate_pair, []) != []
   end
 
-  @tag :long_running
   test "get_stats/1 reports remote_inbound_rtp once receiver reports arrive" do
     {:ok, pc1} = PeerConnection.start_link()
     {:ok, pc2} = PeerConnection.start_link()
@@ -1139,8 +1138,7 @@ defmodule ExWebRTC.PeerConnectionTest do
     :ok = negotiate(pc1, pc2)
     test_send_data(pc1, pc2, track1, track2)
 
-    # keep media flowing so that both sides keep emitting SRs and RRs
-    remote = await_remote_inbound_rtp(pc1, track1, 60)
+    remote = await_remote_inbound_rtp(pc1, 60)
 
     assert remote.ssrc != nil
     assert remote.local_id != nil
@@ -1156,11 +1154,9 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert remote.total_round_trip_time >= remote.round_trip_time
   end
 
-  defp await_remote_inbound_rtp(_pc, _track, 0), do: flunk("no remote_inbound_rtp stats arrived")
+  defp await_remote_inbound_rtp(_pc, 0), do: flunk("no remote_inbound_rtp stats arrived")
 
-  defp await_remote_inbound_rtp(pc, track, retries) do
-    :ok = PeerConnection.send_rtp(pc, track.id, ExRTP.Packet.new(<<1, 2, 3>>))
-
+  defp await_remote_inbound_rtp(pc, retries) do
     stats =
       pc
       |> PeerConnection.get_stats()
@@ -1173,7 +1169,7 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       _other ->
         Process.sleep(100)
-        await_remote_inbound_rtp(pc, track, retries - 1)
+        await_remote_inbound_rtp(pc, retries - 1)
     end
   end
 

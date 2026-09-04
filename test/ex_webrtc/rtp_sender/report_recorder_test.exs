@@ -4,6 +4,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
   import Bitwise
 
   alias ExWebRTC.RTPSender.ReportRecorder
+  alias ExWebRTC.Utils
 
   @rand_ts System.os_time(:native)
   @seq_no 11_534
@@ -124,7 +125,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
       send_mono = System.monotonic_time()
       {:ok, sr, recorder} = ReportRecorder.get_report(recorder, @rand_ts, send_mono)
 
-      lsr = sr.ntp_timestamp >>> 16 &&& @max_u32
+      lsr = Utils.compact_ntp(sr.ntp_timestamp)
 
       # remote held the report for 20 ms, network took 80 ms total
       dlsr = round(0.020 * 65_536)
@@ -144,7 +145,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
       mono1 = mono0 + System.convert_time_unit(1000, :millisecond, :native)
       {:ok, _sr1, recorder} = ReportRecorder.get_report(recorder, t1, mono1)
 
-      lsr0 = sr0.ntp_timestamp >>> 16 &&& @max_u32
+      lsr0 = Utils.compact_ntp(sr0.ntp_timestamp)
       arrival = mono0 + System.convert_time_unit(150, :millisecond, :native)
       block = report_block(lsr: lsr0, delay: round(0.050 * 65_536))
 
@@ -155,18 +156,17 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
     test "keeps at most 5 sent reports", %{recorder: recorder} do
       mono0 = System.monotonic_time()
 
-      {:ok, sr0, recorder} =
+      {sr0, recorder} =
         Enum.reduce(0..5, {nil, recorder}, fn i, {first, rec} ->
           time = @rand_ts + System.convert_time_unit(i * 1000, :millisecond, :native)
           mono = mono0 + System.convert_time_unit(i * 1000, :millisecond, :native)
           {:ok, sr, rec} = ReportRecorder.get_report(rec, time, mono)
           {first || sr, rec}
         end)
-        |> then(fn {sr, rec} -> {:ok, sr, rec} end)
 
       assert length(recorder.sent_reports) == 5
 
-      lsr0 = sr0.ntp_timestamp >>> 16 &&& @max_u32
+      lsr0 = Utils.compact_ntp(sr0.ntp_timestamp)
       block = report_block(lsr: lsr0, delay: 100)
 
       assert {:error, :no_matching_report} =
@@ -187,7 +187,7 @@ defmodule ExWebRTC.RTPSender.ReportRecorderTest do
     test "clamps an anachronous report to zero", %{recorder: recorder} do
       send_mono = System.monotonic_time()
       {:ok, sr, recorder} = ReportRecorder.get_report(recorder, @rand_ts, send_mono)
-      lsr = sr.ntp_timestamp >>> 16 &&& @max_u32
+      lsr = Utils.compact_ntp(sr.ntp_timestamp)
 
       # remote claims to have held the report far longer than the elapsed time
       dlsr = round(5.0 * 65_536)

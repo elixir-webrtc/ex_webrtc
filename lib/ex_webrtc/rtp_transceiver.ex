@@ -503,7 +503,7 @@ defmodule ExWebRTC.RTPTransceiver do
   @doc false
   @spec get_stats(transceiver(), non_neg_integer()) :: [map()]
   def get_stats(transceiver, timestamp) do
-    tr_stats = %{mid: transceiver.mid}
+    tr_stats = %{kind: transceiver.kind, mid: transceiver.mid}
 
     case transceiver.current_direction do
       :sendonly ->
