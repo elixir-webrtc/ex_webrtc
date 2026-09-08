@@ -309,10 +309,10 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec receive_report(sender(), ReceptionReport.t(), integer()) :: sender()
-  def receive_report(sender, report, time \\ System.os_time(:native))
+  @spec receive_report_block(sender(), ReceptionReport.t(), integer()) :: sender()
+  def receive_report_block(sender, report, time \\ System.os_time(:native))
 
-  def receive_report(%{ssrc: ssrc} = sender, %ReceptionReport{ssrc: ssrc} = report, time) do
+  def receive_report_block(%{ssrc: ssrc} = sender, %ReceptionReport{ssrc: ssrc} = report, time) do
     prev =
       sender.remote_report ||
         %{round_trip_time: nil, total_round_trip_time: 0.0, round_trip_time_measurements: 0}
@@ -339,7 +339,7 @@ defmodule ExWebRTC.RTPSender do
     %{sender | remote_report: remote_report}
   end
 
-  def receive_report(sender, %ReceptionReport{}, _time), do: sender
+  def receive_report_block(sender, %ReceptionReport{}, _time), do: sender
 
   @doc false
   @spec get_stats(sender(), non_neg_integer()) :: [map()]

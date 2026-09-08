@@ -351,7 +351,7 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec receive_report_block(transceiver(), ExRTCP.Packet.ReceptionReport.t(), integer()) ::
           transceiver()
   def receive_report_block(transceiver, block, time) do
-    sender = RTPSender.receive_report(transceiver.sender, block, time)
+    sender = RTPSender.receive_report_block(transceiver.sender, block, time)
     %{transceiver | sender: sender}
   end
 

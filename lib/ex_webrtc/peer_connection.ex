@@ -2572,29 +2572,10 @@ defmodule ExWebRTC.PeerConnection do
 
   defp maybe_connect_sctp(state), do: state
 
-  defp receive_report_blocks(state, []), do: state
-
-  defp receive_report_blocks(state, blocks) do
-    time = System.os_time(:native)
-    blocks = Map.new(blocks, &{&1.ssrc, &1})
-
-    transceivers =
-      Enum.map(state.transceivers, fn tr ->
-        case Map.fetch(blocks, tr.sender.ssrc) do
-          {:ok, block} -> RTPTransceiver.receive_report_block(tr, block, time)
-          :error -> tr
-        end
-      end)
-
-    %{state | transceivers: transceivers}
-  end
-
   defp handle_rtcp_packet(state, %ExRTCP.Packet.ReceiverReport{} = report) do
     if :rtcp_reports in state.config.features do
       state = receive_report_blocks(state, report.reports)
 
-      # the track id we report to the user is the incoming track of the peer
-      # that sent us this report, which may not be resolvable at all
       track_id =
         with {:ok, mid} <- Demuxer.demux_ssrc(state.demuxer, report.ssrc),
              {_idx, transceiver} <- find_transceiver(state.transceivers, mid) do
@@ -2611,9 +2592,8 @@ defmodule ExWebRTC.PeerConnection do
 
   defp handle_rtcp_packet(state, %ExRTCP.Packet.SenderReport{} = report) do
     if :rtcp_reports in state.config.features do
-      # a sendrecv peer piggybacks its feedback about our streams on the
-      # reception report blocks of its own Sender Report; process them even
-      # when the SR itself cannot be matched to any of our receivers
+      # reception report blocks describe our outgoing streams and arrive
+      # in both RRs and SRs; route each block to the sender it names
       state = receive_report_blocks(state, report.reports)
 
       with {:ok, mid} <- Demuxer.demux_ssrc(state.demuxer, report.ssrc),
@@ -2678,6 +2658,23 @@ defmodule ExWebRTC.PeerConnection do
   end
 
   defp handle_rtcp_packet(state, _packet), do: {nil, state}
+
+  defp receive_report_blocks(state, []), do: state
+
+  defp receive_report_blocks(state, blocks) do
+    time = System.os_time(:native)
+    blocks = Map.new(blocks, &{&1.ssrc, &1})
+
+    transceivers =
+      Enum.map(state.transceivers, fn tr ->
+        case Map.fetch(blocks, tr.sender.ssrc) do
+          {:ok, block} -> RTPTransceiver.receive_report_block(tr, block, time)
+          :error -> tr
+        end
+      end)
+
+    %{state | transceivers: transceivers}
+  end
 
   defp handle_sctp_events(events, state) do
     for event <- events do

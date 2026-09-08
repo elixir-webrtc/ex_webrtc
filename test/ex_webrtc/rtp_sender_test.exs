@@ -7,6 +7,7 @@ defmodule ExWebRTC.RTPSenderTest do
   alias ExSDP.Attribute.Extmap
 
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, RTPSender}
+  alias ExWebRTC.RTPSender.ReportRecorder
 
   @ssrc 354_947
   @rtx_ssrc 123_455
@@ -221,7 +222,7 @@ defmodule ExWebRTC.RTPSenderTest do
            ] == RTPSender.get_stats(sender, timestamp)
   end
 
-  describe "receive_report/3" do
+  describe "receive_report_block/3" do
     setup do
       track = MediaStreamTrack.new(:video)
 
@@ -240,10 +241,11 @@ defmodule ExWebRTC.RTPSenderTest do
     end
 
     test "records loss, jitter and rtt from a report block", %{sender: sender} do
-      {[sr], sender} = RTPSender.get_reports(sender)
+      sent_at = System.os_time(:native)
+      {:ok, sr, _recorder} = ReportRecorder.get_report(sender.report_recorder, sent_at)
 
       lsr = sr.ntp_timestamp >>> 16 &&& 0xFFFFFFFF
-      arrival = System.os_time(:native) + System.convert_time_unit(60, :millisecond, :native)
+      arrival = sent_at + System.convert_time_unit(60, :millisecond, :native)
 
       # 90kHz clock -> 900 ticks == 10 ms
       block =
@@ -255,7 +257,7 @@ defmodule ExWebRTC.RTPSenderTest do
           delay: round(0.010 * 65_536)
         )
 
-      sender = RTPSender.receive_report(sender, block, arrival)
+      sender = RTPSender.receive_report_block(sender, block, arrival)
 
       timestamp = System.os_time(:millisecond)
       stats = RTPSender.get_stats(sender, timestamp)
@@ -267,13 +269,13 @@ defmodule ExWebRTC.RTPSenderTest do
       assert remote.packets_lost == 17
       assert_in_delta remote.fraction_lost, 0.25, 0.001
       assert_in_delta remote.jitter, 0.010, 0.0001
-      assert_in_delta remote.round_trip_time, 0.050, 0.005
-      assert_in_delta remote.total_round_trip_time, 0.050, 0.005
+      assert_in_delta remote.round_trip_time, 0.050, 0.0001
+      assert_in_delta remote.total_round_trip_time, 0.050, 0.0001
       assert remote.round_trip_time_measurements == 1
     end
 
     test "keeps loss stats but no rtt when the peer has seen no SR", %{sender: sender} do
-      sender = RTPSender.receive_report(sender, report_block(total_lost: 3))
+      sender = RTPSender.receive_report_block(sender, report_block(total_lost: 3))
       [remote] = Enum.filter(RTPSender.get_stats(sender, 0), &(&1.type == :remote_inbound_rtp))
 
       assert remote.packets_lost == 3
@@ -286,14 +288,16 @@ defmodule ExWebRTC.RTPSenderTest do
       sender = RTPSender.update(sender, "1", [@av1], @rtp_hdr_exts)
       assert sender.codec == nil
 
-      sender = RTPSender.receive_report(sender, report_block(jitter: 900))
+      sender = RTPSender.receive_report_block(sender, report_block(jitter: 900))
       [remote] = Enum.filter(RTPSender.get_stats(sender, 0), &(&1.type == :remote_inbound_rtp))
 
       assert_in_delta remote.jitter, 0.010, 0.0001
     end
 
     test "ignores a block that reports on a different ssrc", %{sender: sender} do
-      sender = RTPSender.receive_report(sender, report_block(ssrc: @ssrc + 1000, total_lost: 3))
+      sender =
+        RTPSender.receive_report_block(sender, report_block(ssrc: @ssrc + 1000, total_lost: 3))
+
       assert [%{type: :outbound_rtp}] = RTPSender.get_stats(sender, 0)
     end
   end

@@ -7,10 +7,8 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
 
   @breakpoint 0x7FFF
   @max_u32 0xFFFFFFFF
-  # `System.os_time/1` may jump backwards, and the masked subtraction in get_rtt/2
-  # cannot express a negative result: a step back of even 15 us aliases to nearly
-  # the full 2^32 range (~18 h). Reject anything beyond this bound rather than
-  # feed an absurd measurement into the stats. Compact NTP units of 1/65536 s.
+  # wall clock may step backwards, which the masked subtraction in get_rtt/2
+  # turns into a huge positive elapsed time; reject such measurements (1/65536 s units)
   @max_elapsed 30 * 65_536
   # NTP epoch is 1/1/1900 vs UNIX epoch is 1/1/1970
   # so there's offset of 70 years (inc. 17 leap years) in seconds

@@ -40,13 +40,13 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
             total_lost: 0
 
   @doc """
-  Returns the number of packets lost so far, including the ones lost since the
-  last generated Receiver Report, and the interarrival jitter in seconds.
+  Returns reception statistics for `inbound_rtp` stats.
 
-  Jitter is `nil` until the clock rate is known.
+  * `packets_lost` - cumulative, not limited to the last report interval
+  * `jitter` - in seconds, `nil` until the clock rate is known
   """
-  @spec get_metrics(t()) :: %{packets_lost: non_neg_integer(), jitter: float() | nil}
-  def get_metrics(recorder) do
+  @spec get_stats(t()) :: %{packets_lost: non_neg_integer(), jitter: float() | nil}
+  def get_stats(recorder) do
     %{
       packets_lost: min(recorder.total_lost + MapSet.size(recorder.lost_packets), @max_u24),
       jitter: recorder.clock_rate && recorder.jitter / recorder.clock_rate
@@ -188,6 +188,13 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
     set_lost_packets(next_seq_no(start_seq_no), end_seq_no, lost_packets)
   end
 
+  defp rtp_ts_diff(rtp_ts, last_rtp_ts) do
+    case rtp_ts - last_rtp_ts &&& @max_u32 do
+      diff when diff > @max_u32 >>> 1 -> diff - (@max_u32 + 1)
+      diff -> diff
+    end
+  end
+
   defp next_seq_no({cycle, @max_seq_no}), do: {cycle + 1, 0}
   defp next_seq_no({cycle, seq_no}), do: {cycle, seq_no + 1}
 
@@ -202,7 +209,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorder do
          cur_ts
        ) do
     wlc_diff = native_to_sec(cur_ts - last_ts)
-    rtp_diff = rtp_ts - last_rtp_ts
+    rtp_diff = rtp_ts_diff(rtp_ts, last_rtp_ts)
     diff = wlc_diff * clock_rate - rtp_diff
     jitter = jitter + (abs(diff) - jitter) / 16
 

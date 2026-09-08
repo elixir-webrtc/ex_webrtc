@@ -229,7 +229,7 @@ defmodule ExWebRTC.RTPReceiver do
                                    } = layer} ->
         report_recorder = %{report_recorder | sender_ssrc: ssrc}
         nack_generator = %{nack_generator | sender_ssrc: ssrc}
-        %{layer | report_recorder: report_recorder, nack_generator: nack_generator}
+        layer = %{layer | report_recorder: report_recorder, nack_generator: nack_generator}
         {rid, layer}
       end)
 
@@ -299,7 +299,7 @@ defmodule ExWebRTC.RTPReceiver do
 
       metrics =
         if receiver.reports?,
-          do: ReportRecorder.get_metrics(layer.report_recorder),
+          do: ReportRecorder.get_stats(layer.report_recorder),
           else: %{packets_lost: nil, jitter: nil}
 
       %{
