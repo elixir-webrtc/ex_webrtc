@@ -1125,6 +1125,56 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert Map.get(groups, :candidate_pair, []) != []
   end
 
+  test "get_stats/1 reports remote_inbound_rtp once receiver reports arrive" do
+    {:ok, pc1} = PeerConnection.start_link()
+    {:ok, pc2} = PeerConnection.start_link()
+
+    track1 = MediaStreamTrack.new(:audio)
+    track2 = MediaStreamTrack.new(:audio)
+
+    {:ok, _sender} = PeerConnection.add_track(pc1, track1)
+    {:ok, _sender} = PeerConnection.add_track(pc2, track2)
+
+    :ok = negotiate(pc1, pc2)
+    test_send_data(pc1, pc2, track1, track2)
+
+    remote = await_remote_inbound_rtp(pc1, 60)
+
+    assert remote.ssrc != nil
+    assert remote.local_id != nil
+    assert remote.kind == :audio
+    assert remote.mid != nil
+    assert remote.packets_lost >= 0
+    assert remote.fraction_lost >= 0.0
+    assert is_float(remote.jitter)
+
+    assert remote.round_trip_time_measurements >= 1
+    assert is_float(remote.round_trip_time)
+    # loopback, so the rtt must be small but a real measurement
+    assert remote.round_trip_time >= 0.0
+    assert remote.round_trip_time < 1.0
+    assert remote.total_round_trip_time >= remote.round_trip_time
+  end
+
+  defp await_remote_inbound_rtp(_pc, 0), do: flunk("no remote_inbound_rtp stats arrived")
+
+  defp await_remote_inbound_rtp(pc, retries) do
+    stats =
+      pc
+      |> PeerConnection.get_stats()
+      |> Map.values()
+      |> Enum.filter(&(&1.type == :remote_inbound_rtp))
+
+    case stats do
+      [remote] when remote.round_trip_time_measurements > 0 ->
+        remote
+
+      _other ->
+        Process.sleep(100)
+        await_remote_inbound_rtp(pc, retries - 1)
+    end
+  end
+
   test "get_stats/1 does not crash when the DTLS transport is unresponsive" do
     {:ok, pc} = PeerConnection.start_link()
 

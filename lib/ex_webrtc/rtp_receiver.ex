@@ -229,7 +229,7 @@ defmodule ExWebRTC.RTPReceiver do
                                    } = layer} ->
         report_recorder = %{report_recorder | sender_ssrc: ssrc}
         nack_generator = %{nack_generator | sender_ssrc: ssrc}
-        %{layer | report_recorder: report_recorder, nack_generator: nack_generator}
+        layer = %{layer | report_recorder: report_recorder, nack_generator: nack_generator}
         {rid, layer}
       end)
 
@@ -297,9 +297,14 @@ defmodule ExWebRTC.RTPReceiver do
       id = if(rid == nil, do: receiver.track.id, else: "#{receiver.track.id}:#{rid}")
       codec = receiver.codec && String.split(receiver.codec.mime_type, "/") |> List.last()
 
+      metrics =
+        if receiver.reports?,
+          do: ReportRecorder.get_stats(layer.report_recorder),
+          else: %{packets_lost: nil, jitter: nil}
+
       %{
         id: id,
-        track_identifier: id,
+        track_identifier: receiver.track.id,
         rid: rid,
         codec: codec,
         type: :inbound_rtp,
@@ -309,7 +314,9 @@ defmodule ExWebRTC.RTPReceiver do
         packets_received: layer.packets_received,
         markers_received: layer.markers_received,
         nack_count: layer.nack_count,
-        pli_count: layer.pli_count
+        pli_count: layer.pli_count,
+        packets_lost: metrics.packets_lost,
+        jitter: metrics.jitter
       }
     end)
   end

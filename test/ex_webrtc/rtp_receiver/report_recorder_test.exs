@@ -133,7 +133,7 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
     test "properly calculates jitter" do
       # 20 ms = clock_rate * (20/1000) in RTP timestamp units
       ts_diff = 20
-      rtp_ts_diff = @clock_rate * (ts_diff / 1000)
+      rtp_ts_diff = div(@clock_rate * ts_diff, 1000)
       arrival_ts_diff = System.convert_time_unit(ts_diff, :millisecond, :native)
 
       packet = %Packet{@packet | timestamp: @rtp_ts + rtp_ts_diff}
@@ -157,6 +157,27 @@ defmodule ExWebRTC.RTPReceiver.ReportRecorderTest do
           ReportRecorder.record_packet(recorder, packet, arrival_ts)
         end)
 
+      assert_in_delta recorder.jitter, 0, 0.5
+    end
+
+    test "does not register jitter when the RTP timestamp wraps" do
+      max_u32 = 0xFFFFFFFF
+      # 20 ms at 90 kHz
+      rtp_ts_diff = 1_800
+      arrival_ts_diff = System.convert_time_unit(20, :millisecond, :native)
+
+      before_wrap = max_u32 - 1_000
+      after_wrap = before_wrap + rtp_ts_diff &&& max_u32
+
+      packet1 = %Packet{@packet | timestamp: before_wrap}
+      packet2 = %Packet{@packet | sequence_number: @seq_no + 1, timestamp: after_wrap}
+
+      recorder =
+        @recorder
+        |> ReportRecorder.record_packet(packet1, @rand_ts)
+        |> ReportRecorder.record_packet(packet2, @rand_ts + arrival_ts_diff)
+
+      # both packets arrived exactly on time, the wrap must not look like jitter
       assert_in_delta recorder.jitter, 0, 0.5
     end
   end

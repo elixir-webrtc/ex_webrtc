@@ -4,7 +4,7 @@ defmodule ExWebRTC.RTPSender do
   """
   require Logger
 
-  alias ExRTCP.Packet.{TransportFeedback.NACK, PayloadFeedback.PLI}
+  alias ExRTCP.Packet.{ReceptionReport, TransportFeedback.NACK, PayloadFeedback.PLI}
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils, PeerConnection.Configuration}
   alias ExSDP.Attribute.Extmap
   alias __MODULE__.{NACKResponder, ReportRecorder}
@@ -35,10 +35,22 @@ defmodule ExWebRTC.RTPSender do
           markers_sent: non_neg_integer(),
           nack_count: non_neg_integer(),
           pli_count: non_neg_integer(),
+          remote_report: remote_report() | nil,
           reports?: boolean(),
           outbound_rtx?: boolean(),
           report_recorder: ReportRecorder.t(),
           nack_responder: NACKResponder.t()
+        }
+
+  @typedoc false
+  @type remote_report() :: %{
+          timestamp: non_neg_integer(),
+          packets_lost: integer(),
+          fraction_lost: float(),
+          jitter: float() | nil,
+          round_trip_time: float() | nil,
+          total_round_trip_time: float(),
+          round_trip_time_measurements: non_neg_integer()
         }
 
   @typedoc """
@@ -88,6 +100,7 @@ defmodule ExWebRTC.RTPSender do
       markers_sent: 0,
       nack_count: 0,
       pli_count: 0,
+      remote_report: nil,
       reports?: :rtcp_reports in features,
       outbound_rtx?: :outbound_rtx in features,
       report_recorder: %ReportRecorder{},
@@ -296,9 +309,42 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec get_stats(sender(), non_neg_integer()) :: map()
+  @spec receive_report_block(sender(), ReceptionReport.t(), integer()) :: sender()
+  def receive_report_block(sender, report, time \\ System.os_time(:native))
+
+  def receive_report_block(%{ssrc: ssrc} = sender, %ReceptionReport{ssrc: ssrc} = report, time) do
+    prev =
+      sender.remote_report ||
+        %{round_trip_time: nil, total_round_trip_time: 0.0, round_trip_time_measurements: 0}
+
+    {rtt, total_rtt, measurements} =
+      case ReportRecorder.get_rtt(report, time) do
+        {:ok, rtt} ->
+          {rtt, prev.total_round_trip_time + rtt, prev.round_trip_time_measurements + 1}
+
+        {:error, _reason} ->
+          {prev.round_trip_time, prev.total_round_trip_time, prev.round_trip_time_measurements}
+      end
+
+    remote_report = %{
+      timestamp: System.convert_time_unit(time, :native, :millisecond),
+      packets_lost: u24_to_signed(report.total_lost),
+      fraction_lost: report.fraction_lost / 256,
+      jitter: to_seconds(report.jitter, sender.report_recorder.clock_rate),
+      round_trip_time: rtt,
+      total_round_trip_time: total_rtt,
+      round_trip_time_measurements: measurements
+    }
+
+    %{sender | remote_report: remote_report}
+  end
+
+  def receive_report_block(sender, %ReceptionReport{}, _time), do: sender
+
+  @doc false
+  @spec get_stats(sender(), non_neg_integer()) :: [map()]
   def get_stats(sender, timestamp) do
-    %{
+    outbound_rtp = %{
       timestamp: timestamp,
       type: :outbound_rtp,
       id: sender.id,
@@ -312,7 +358,31 @@ defmodule ExWebRTC.RTPSender do
       nack_count: sender.nack_count,
       pli_count: sender.pli_count
     }
+
+    case sender.remote_report do
+      nil ->
+        [outbound_rtp]
+
+      remote_report ->
+        remote_inbound_rtp =
+          Map.merge(remote_report, %{
+            type: :remote_inbound_rtp,
+            id: "remote-#{sender.id}",
+            ssrc: sender.ssrc,
+            local_id: sender.id
+          })
+
+        [outbound_rtp, remote_inbound_rtp]
+    end
   end
+
+  # cumulative number of packets lost is a signed 24-bit value (RFC 3550, sec. 6.4.1)
+  defp u24_to_signed(total_lost) when total_lost >= 0x800000, do: total_lost - 0x1000000
+  defp u24_to_signed(total_lost), do: total_lost
+
+  # Interarrival jitter is expressed in RTP timestamp units, W3C wants seconds.
+  defp to_seconds(_jitter, nil), do: nil
+  defp to_seconds(jitter, clock_rate), do: jitter / clock_rate
 
   defp get_default_codec(codecs) do
     {rtx_codecs, media_codecs} = Utils.split_rtx_codecs(codecs)

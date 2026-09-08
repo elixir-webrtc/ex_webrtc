@@ -3,9 +3,13 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
 
   import Bitwise
 
-  alias ExRTCP.Packet.SenderReport
+  alias ExRTCP.Packet.{ReceptionReport, SenderReport}
 
   @breakpoint 0x7FFF
+  @max_u32 0xFFFFFFFF
+  # wall clock may step backwards, which the masked subtraction in get_rtt/2
+  # turns into a huge positive elapsed time; reject such measurements (1/65536 s units)
+  @max_elapsed 30 * 65_536
   # NTP epoch is 1/1/1900 vs UNIX epoch is 1/1/1970
   # so there's offset of 70 years (inc. 17 leap years) in seconds
   @ntp_offset (70 * 365 + 17) * 86_400
@@ -115,6 +119,25 @@ defmodule ExWebRTC.RTPSender.ReportRecorder do
     }
 
     {:ok, report, recorder}
+  end
+
+  @spec get_rtt(ReceptionReport.t(), integer()) ::
+          {:ok, float()} | {:error, :no_last_sr | :invalid_last_sr}
+  def get_rtt(report, time \\ System.os_time(:native))
+  def get_rtt(%ReceptionReport{last_sr: 0}, _time), do: {:error, :no_last_sr}
+  def get_rtt(%ReceptionReport{delay: 0}, _time), do: {:error, :no_last_sr}
+
+  def get_rtt(%ReceptionReport{last_sr: lsr, delay: dlsr}, time) do
+    now = to_ntp(time) >>> 16 &&& @max_u32
+    elapsed = now - lsr &&& @max_u32
+
+    if elapsed > @max_elapsed do
+      {:error, :invalid_last_sr}
+    else
+      # A remote peer with a skewed clock, or a report that raced our own SR,
+      # can claim a delay longer than the time that actually elapsed.
+      {:ok, max(elapsed - dlsr, 0) / 65_536}
+    end
   end
 
   defp to_ntp(time) do

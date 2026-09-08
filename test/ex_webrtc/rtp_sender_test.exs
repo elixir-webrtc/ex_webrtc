@@ -1,10 +1,13 @@
 defmodule ExWebRTC.RTPSenderTest do
   use ExUnit.Case, async: true
 
+  import Bitwise
+
   alias ExRTP.Packet.Extension.SourceDescription
   alias ExSDP.Attribute.Extmap
 
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, RTPSender}
+  alias ExWebRTC.RTPSender.ReportRecorder
 
   @ssrc 354_947
   @rtx_ssrc 123_455
@@ -159,57 +162,158 @@ defmodule ExWebRTC.RTPSenderTest do
     timestamp = System.os_time(:millisecond)
     payload = <<1, 2, 3>>
 
-    assert %{
-             timestamp: timestamp,
-             type: :outbound_rtp,
-             id: sender.id,
-             track_identifier: sender.track.id,
-             ssrc: sender.ssrc,
-             packets_sent: 0,
-             bytes_sent: 0,
-             markers_sent: 0,
-             nack_count: 0,
-             pli_count: 0,
-             retransmitted_packets_sent: 0,
-             retransmitted_bytes_sent: 0
-           } == RTPSender.get_stats(sender, timestamp)
+    assert [
+             %{
+               timestamp: timestamp,
+               type: :outbound_rtp,
+               id: sender.id,
+               track_identifier: sender.track.id,
+               ssrc: sender.ssrc,
+               packets_sent: 0,
+               bytes_sent: 0,
+               markers_sent: 0,
+               nack_count: 0,
+               pli_count: 0,
+               retransmitted_packets_sent: 0,
+               retransmitted_bytes_sent: 0
+             }
+           ] == RTPSender.get_stats(sender, timestamp)
 
     sender = RTPSender.update(sender, "1", [@vp8, @rtx], @rtp_hdr_exts)
 
     packet = ExRTP.Packet.new(payload)
     {data1, sender} = RTPSender.send_packet(sender, packet, false)
 
-    assert %{
-             timestamp: timestamp,
-             type: :outbound_rtp,
-             id: sender.id,
-             track_identifier: sender.track.id,
-             ssrc: sender.ssrc,
-             packets_sent: 1,
-             bytes_sent: byte_size(data1),
-             markers_sent: 0,
-             nack_count: 0,
-             pli_count: 0,
-             retransmitted_packets_sent: 0,
-             retransmitted_bytes_sent: 0
-           } == RTPSender.get_stats(sender, timestamp)
+    assert [
+             %{
+               timestamp: timestamp,
+               type: :outbound_rtp,
+               id: sender.id,
+               track_identifier: sender.track.id,
+               ssrc: sender.ssrc,
+               packets_sent: 1,
+               bytes_sent: byte_size(data1),
+               markers_sent: 0,
+               nack_count: 0,
+               pli_count: 0,
+               retransmitted_packets_sent: 0,
+               retransmitted_bytes_sent: 0
+             }
+           ] == RTPSender.get_stats(sender, timestamp)
 
     packet = ExRTP.Packet.new(payload, marker: true)
     {data2, sender} = RTPSender.send_packet(sender, packet, false)
 
-    assert %{
-             timestamp: timestamp,
-             type: :outbound_rtp,
-             id: sender.id,
-             track_identifier: sender.track.id,
-             ssrc: sender.ssrc,
-             packets_sent: 2,
-             bytes_sent: byte_size(data1) + byte_size(data2),
-             markers_sent: 1,
-             nack_count: 0,
-             pli_count: 0,
-             retransmitted_packets_sent: 0,
-             retransmitted_bytes_sent: 0
-           } == RTPSender.get_stats(sender, timestamp)
+    assert [
+             %{
+               timestamp: timestamp,
+               type: :outbound_rtp,
+               id: sender.id,
+               track_identifier: sender.track.id,
+               ssrc: sender.ssrc,
+               packets_sent: 2,
+               bytes_sent: byte_size(data1) + byte_size(data2),
+               markers_sent: 1,
+               nack_count: 0,
+               pli_count: 0,
+               retransmitted_packets_sent: 0,
+               retransmitted_bytes_sent: 0
+             }
+           ] == RTPSender.get_stats(sender, timestamp)
+  end
+
+  describe "receive_report_block/3" do
+    setup do
+      track = MediaStreamTrack.new(:video)
+
+      sender =
+        RTPSender.new(track, @ssrc, @rtx_ssrc, [:rtcp_reports])
+        |> RTPSender.update("1", [@vp8, @rtx], @rtp_hdr_exts)
+
+      {_data, sender} = RTPSender.send_packet(sender, ExRTP.Packet.new(<<1, 2, 3>>), false)
+
+      {:ok, sender: sender}
+    end
+
+    test "does not emit remote_inbound_rtp before any report arrives", %{sender: sender} do
+      stats = RTPSender.get_stats(sender, System.os_time(:millisecond))
+      assert [%{type: :outbound_rtp}] = stats
+    end
+
+    test "records loss, jitter and rtt from a report block", %{sender: sender} do
+      sent_at = System.os_time(:native)
+      {:ok, sr, _recorder} = ReportRecorder.get_report(sender.report_recorder, sent_at)
+
+      lsr = sr.ntp_timestamp >>> 16 &&& 0xFFFFFFFF
+      arrival = sent_at + System.convert_time_unit(60, :millisecond, :native)
+
+      # 90kHz clock -> 900 ticks == 10 ms
+      block =
+        report_block(
+          fraction_lost: 64,
+          total_lost: 17,
+          jitter: 900,
+          last_sr: lsr,
+          delay: round(0.010 * 65_536)
+        )
+
+      sender = RTPSender.receive_report_block(sender, block, arrival)
+
+      timestamp = System.os_time(:millisecond)
+      stats = RTPSender.get_stats(sender, timestamp)
+
+      assert [_outbound, remote] = Enum.sort_by(stats, & &1.type)
+      assert remote.type == :remote_inbound_rtp
+      assert remote.ssrc == @ssrc
+      assert remote.local_id == sender.id
+      assert remote.packets_lost == 17
+      assert_in_delta remote.fraction_lost, 0.25, 0.001
+      assert_in_delta remote.jitter, 0.010, 0.0001
+      assert_in_delta remote.round_trip_time, 0.050, 0.0001
+      assert_in_delta remote.total_round_trip_time, 0.050, 0.0001
+      assert remote.round_trip_time_measurements == 1
+    end
+
+    test "keeps loss stats but no rtt when the peer has seen no SR", %{sender: sender} do
+      sender = RTPSender.receive_report_block(sender, report_block(total_lost: 3))
+      [remote] = Enum.filter(RTPSender.get_stats(sender, 0), &(&1.type == :remote_inbound_rtp))
+
+      assert remote.packets_lost == 3
+      assert remote.round_trip_time == nil
+      assert remote.round_trip_time_measurements == 0
+      assert remote.total_round_trip_time == +0.0
+    end
+
+    test "keeps converting jitter after a renegotiation drops the codec", %{sender: sender} do
+      sender = RTPSender.update(sender, "1", [@av1], @rtp_hdr_exts)
+      assert sender.codec == nil
+
+      sender = RTPSender.receive_report_block(sender, report_block(jitter: 900))
+      [remote] = Enum.filter(RTPSender.get_stats(sender, 0), &(&1.type == :remote_inbound_rtp))
+
+      assert_in_delta remote.jitter, 0.010, 0.0001
+    end
+
+    test "ignores a block that reports on a different ssrc", %{sender: sender} do
+      sender =
+        RTPSender.receive_report_block(sender, report_block(ssrc: @ssrc + 1000, total_lost: 3))
+
+      assert [%{type: :outbound_rtp}] = RTPSender.get_stats(sender, 0)
+    end
+  end
+
+  defp report_block(overrides) do
+    struct!(
+      %ExRTCP.Packet.ReceptionReport{
+        ssrc: @ssrc,
+        fraction_lost: 0,
+        total_lost: 0,
+        last_sequence_number: 0,
+        jitter: 0,
+        last_sr: 0,
+        delay: 0
+      },
+      overrides
+    )
   end
 end

@@ -227,4 +227,20 @@ defmodule ExWebRTC.RTPTransceiverTest do
   end
 
   defp ssrc_msid_value(stream, app_data), do: "#{stream} #{app_data}"
+
+  describe "get_stats/2" do
+    test "tags RTP stats with kind and mid" do
+      tr =
+        RTPTransceiver.new(:video, @track, @config,
+          ssrc: @ssrc,
+          rtx_ssrc: @rtx_ssrc,
+          direction: :sendonly
+        )
+
+      tr = %{tr | mid: "0", current_direction: :sendonly}
+
+      assert [%{type: :outbound_rtp, kind: :video, mid: "0"}] =
+               RTPTransceiver.get_stats(tr, System.os_time(:millisecond))
+    end
+  end
 end
