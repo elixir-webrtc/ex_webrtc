@@ -134,6 +134,22 @@ defmodule ExWebRTC.DTLSTransportTest do
     refute_receive {:mock_ice, _data}
   end
 
+  test "uses provided key_cert instead of generating a new pair" do
+    key_cert = ExDTLS.generate_key_cert()
+    {_pkey, cert} = key_cert
+
+    {:ok, ice_pid} = MockICETransport.start_link(tester: self())
+
+    assert {:ok, dtls} =
+             DTLSTransport.start_link(
+               ice_transport: MockICETransport,
+               ice_pid: ice_pid,
+               key_cert: key_cert
+             )
+
+    assert DTLSTransport.get_fingerprint(dtls) == ExDTLS.get_cert_fingerprint(cert)
+  end
+
   test "buffers incoming data if DTLSTransport has not been started", %{
     dtls: dtls,
     ice_transport: ice_transport,
