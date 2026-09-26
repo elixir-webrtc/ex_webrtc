@@ -161,6 +161,11 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   * `ice_port_range` - range of ports that ICE will use for gathering host candidates. Defaults to ephemeral ports.
   * `ice_aggressive_nomination` - whether ICE agent should use aggressive nomination. By default, ICE agent
   * `logger_metadata` - a keyword list of metadata to be attached to the Logger for all logs emitted by the PeerConnection and its child processes.
+  * `key_cert` - a `{key, cert}` tuple, as returned by `ExDTLS.generate_key_cert/2`, to use for the DTLS handshake
+  instead of generating a new one. When spawning many peer connections at once (e.g. a server accepting a burst
+  of incoming calls), key generation can take ~100ms per connection while blocking the scheduler it runs on,
+  so generating certificates upfront and passing them in can significantly shorten connection establishment.
+  Defaults to `nil`, which means a new pair is generated for each peer connection.
   relies on the regular nomination defined in RFC 8445. However, some WebRTC implementations require
   the controlling side to nominate a pair before they can start sending data (e.g. Pion, Firefox).
   This can result in longer, connection establishment time as regular nomination nominates only one pair,
@@ -210,7 +215,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           features: [feature()],
           rtp_header_extensions: [rtp_header_extension()],
           rtcp_feedbacks: [rtcp_feedback()],
-          logger_metadata: Enumerable.t({atom(), term()})
+          logger_metadata: Enumerable.t({atom(), term()}),
+          key_cert: {binary(), binary()}
         ]
 
   @typedoc """
@@ -233,7 +239,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           audio_extensions: [Extmap.t()],
           video_extensions: [Extmap.t()],
           features: [feature()],
-          logger_metadata: Enumerable.t({atom(), term()})
+          logger_metadata: Enumerable.t({atom(), term()}),
+          key_cert: {binary(), binary()} | nil
         }
 
   @enforce_keys [
@@ -253,7 +260,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
                 audio_codecs: @default_audio_codecs,
                 video_codecs: @default_video_codecs,
                 features: @default_features,
-                logger_metadata: []
+                logger_metadata: [],
+                key_cert: nil
               ]
 
   @doc """

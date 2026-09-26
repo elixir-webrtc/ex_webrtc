@@ -52,11 +52,13 @@ defmodule ExWebRTC.DTLSTransport do
   * `ice_transport` - the module implementing the `ExICE.ICETransport` behavior.
   * `ice_pid` - the PID of the ICE transport process which the DTLSTransport interacts with.
   * `logger_metadata` - a keyword list of metadata to be attached to the Logger for all logs emitted by the DTLSTransport process.
+  * `key_cert` - a `{key, cert}` tuple, as returned by `ExDTLS.generate_key_cert/2`, to use instead of generating a new pair.
   """
   @type opts() :: [
           ice_transport: ICETransport.t(),
           ice_pid: pid(),
-          logger_metadata: Enumerable.t({atom(), term()})
+          logger_metadata: Enumerable.t({atom(), term()}),
+          key_cert: {binary(), binary()}
         ]
 
   @spec start_link(opts()) :: GenServer.on_start()
@@ -72,7 +74,13 @@ defmodule ExWebRTC.DTLSTransport do
       raise "DTLSTransport requires ice_transport to implement ExWebRTC.ICETransport behaviour."
     end
 
-    GenServer.start_link(__MODULE__, [ice_transport, ice_pid, self(), logger_metadata])
+    GenServer.start_link(__MODULE__, [
+      ice_transport,
+      ice_pid,
+      self(),
+      logger_metadata,
+      opts[:key_cert]
+    ])
   end
 
   @spec set_ice_connected(dtls_transport()) :: :ok
@@ -135,10 +143,10 @@ defmodule ExWebRTC.DTLSTransport do
   end
 
   @impl true
-  def init([ice_transport, ice_pid, owner, logger_metadata]) do
+  def init([ice_transport, ice_pid, owner, logger_metadata, key_cert]) do
     Logger.metadata(logger_metadata)
 
-    {pkey, cert} = ExDTLS.generate_key_cert()
+    {pkey, cert} = key_cert || ExDTLS.generate_key_cert()
     fingerprint = ExDTLS.get_cert_fingerprint(cert)
 
     state = %{

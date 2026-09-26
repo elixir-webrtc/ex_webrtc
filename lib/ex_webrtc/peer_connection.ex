@@ -653,7 +653,8 @@ defmodule ExWebRTC.PeerConnection do
     dtls_config = [
       ice_transport: DefaultICETransport,
       ice_pid: ice_pid,
-      logger_metadata: config.logger_metadata
+      logger_metadata: config.logger_metadata,
+      key_cert: config.key_cert
     ]
 
     {:ok, dtls_transport} = DTLSTransport.start_link(dtls_config)
