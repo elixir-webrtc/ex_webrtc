@@ -58,7 +58,7 @@ defmodule ExWebRTC.DTLSTransport do
           ice_transport: ICETransport.t(),
           ice_pid: pid(),
           logger_metadata: Enumerable.t({atom(), term()}),
-          key_cert: {binary(), binary()}
+          key_cert: {binary(), binary()} | nil
         ]
 
   @spec start_link(opts()) :: GenServer.on_start()

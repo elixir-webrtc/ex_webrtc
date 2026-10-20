@@ -307,6 +307,18 @@ defmodule ExWebRTC.PeerConnectionTest do
     assert PeerConnection.get_dtls_transport_state(pc) == :new
   end
 
+  test "uses provided key_cert for the DTLS fingerprint in SDP" do
+    {_pkey, cert} = key_cert = ExDTLS.generate_key_cert()
+    expected = cert |> ExDTLS.get_cert_fingerprint() |> Utils.hex_dump()
+
+    {:ok, pc} = PeerConnection.start_link(key_cert: key_cert)
+    {:ok, _tr} = PeerConnection.add_transceiver(pc, :audio)
+    {:ok, offer} = PeerConnection.create_offer(pc)
+
+    [audio] = ExSDP.parse!(offer.sdp).media
+    assert {:fingerprint, {:sha256, ^expected}} = ExSDP.get_attribute(audio, :fingerprint)
+  end
+
   describe "get_local_description/1" do
     test "includes ICE candidates" do
       {:ok, pc} = PeerConnection.start()
