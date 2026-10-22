@@ -625,6 +625,9 @@ defmodule ExWebRTC.PeerConnection do
   def init(config) do
     # FIXME: Spawning a lot of peer connections simultaneously, often takes a lot of time.
     # This does not happen when spawning a single peer connection.
+    # A likely contributor is `ExDTLS.generate_key_cert/0`, called by DTLSTransport on init,
+    # which takes ~100ms per call. Pass pre-generated credentials via the `key_cert` option
+    # to avoid it.
     # Moving actual initialization to handle_continue at least does not block
     # supervisor/dynamic supervisor under which those peer connections are spawned.
     {:ok, nil, {:continue, config}}
@@ -653,7 +656,8 @@ defmodule ExWebRTC.PeerConnection do
     dtls_config = [
       ice_transport: DefaultICETransport,
       ice_pid: ice_pid,
-      logger_metadata: config.logger_metadata
+      logger_metadata: config.logger_metadata,
+      key_cert: config.key_cert
     ]
 
     {:ok, dtls_transport} = DTLSTransport.start_link(dtls_config)
