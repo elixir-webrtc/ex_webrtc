@@ -572,6 +572,88 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       assert :ok = PeerConnection.set_remote_description(pc, answer)
     end
+
+    test "answer with unknown fmtp params" do
+      {pc1, pc2} = start_h264_peer_connections()
+
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      :ok = PeerConnection.set_local_description(pc1, offer)
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+
+      answer = %{answer | sdp: add_unknown_h264_fmtp_param(answer.sdp)}
+      :ok = PeerConnection.set_remote_description(pc1, answer)
+
+      assert [%RTPTransceiver{codecs: codecs, sender: sender}] =
+               PeerConnection.get_transceivers(pc1)
+
+      assert [%RTPCodecParameters{mime_type: "video/H264"} | _] = codecs
+      assert %RTPCodecParameters{mime_type: "video/H264"} = sender.codec
+    end
+
+    test "offer with unknown fmtp params" do
+      # use a different payload type on the answerer, so that matching
+      # the remote codec has to go through the payload-type-agnostic path
+      {pc1, pc2} = start_h264_peer_connections(120)
+
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      :ok = PeerConnection.set_local_description(pc1, offer)
+
+      offer = %{offer | sdp: add_unknown_h264_fmtp_param(offer.sdp)}
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+
+      assert [%RTPTransceiver{codecs: codecs}] = PeerConnection.get_transceivers(pc2)
+      assert [%RTPCodecParameters{mime_type: "video/H264"} | _] = codecs
+
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+      :ok = PeerConnection.set_remote_description(pc1, answer)
+
+      assert [%RTPTransceiver{codecs: [%RTPCodecParameters{mime_type: "video/H264"} | _]}] =
+               PeerConnection.get_transceivers(pc1)
+    end
+  end
+
+  # Only one H264 variant, so that the transceiver ends up with no codecs
+  # (instead of falling back to another variant) when matching fails.
+  defp start_h264_peer_connections(pc2_payload_type \\ nil) do
+    h264 =
+      Enum.find(
+        PeerConnection.Configuration.default_video_codecs(),
+        &(&1.mime_type == "video/H264")
+      )
+
+    pc2_h264 =
+      case pc2_payload_type do
+        nil ->
+          h264
+
+        pt ->
+          %{h264 | payload_type: pt, sdp_fmtp_line: %{h264.sdp_fmtp_line | pt: pt}}
+      end
+
+    {:ok, pc1} = PeerConnection.start_link(video_codecs: [h264])
+    {:ok, pc2} = PeerConnection.start_link(video_codecs: [pc2_h264])
+
+    {:ok, _tr} =
+      PeerConnection.add_transceiver(pc1, MediaStreamTrack.new(:video), direction: :sendonly)
+
+    {pc1, pc2}
+  end
+
+  # Edits the SDP as text, because ExSDP doesn't serialize unknown fmtp params.
+  defp add_unknown_h264_fmtp_param(sdp) do
+    new_sdp =
+      String.replace(
+        sdp,
+        ~r/(a=fmtp:\d+ [^\r\n]*profile-level-id=[^\r\n]+)/,
+        "\\1;x-google-start-bitrate=1500"
+      )
+
+    # make sure the SDP was actually modified
+    assert new_sdp != sdp
+    new_sdp
   end
 
   describe "add_transceiver/3" do

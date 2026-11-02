@@ -712,17 +712,24 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   defp fmtp_equal?(%{sdp_fmtp_line: nil}, _c2), do: true
   defp fmtp_equal?(_c1, %{sdp_fmtp_line: nil}), do: true
-  defp fmtp_equal?(c1, c2), do: c1.sdp_fmtp_line == c2.sdp_fmtp_line
+
+  defp fmtp_equal?(c1, c2),
+    do: drop_unknown_params(c1.sdp_fmtp_line) == drop_unknown_params(c2.sdp_fmtp_line)
 
   defp fmtp_equal_soft?(%{sdp_fmtp_line: nil}, _c2), do: true
   defp fmtp_equal_soft?(_c1, %{sdp_fmtp_line: nil}), do: true
 
   defp fmtp_equal_soft?(c1, c2) do
-    fmtp1 = %{c1.sdp_fmtp_line | pt: nil}
-    fmtp2 = %{c2.sdp_fmtp_line | pt: nil}
+    fmtp1 = %{drop_unknown_params(c1.sdp_fmtp_line) | pt: nil}
+    fmtp2 = %{drop_unknown_params(c2.sdp_fmtp_line) | pt: nil}
 
     fmtp1 == fmtp2
   end
+
+  # Parameters that ExSDP doesn't recognize (e.g. `x-google-start-bitrate`)
+  # end up in `unknown`. We don't understand them, so they can't affect
+  # codec compatibility and are ignored when matching codecs.
+  defp drop_unknown_params(%FMTP{} = fmtp), do: %{fmtp | unknown: []}
 
   @doc false
   @spec intersect_extensions(t(), ExSDP.Media.t()) :: [Extmap.t()]
