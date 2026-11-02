@@ -163,4 +163,8 @@ defmodule ExWebRTC.RTP.AV1.OBU do
   def should_be_transmitted?(%__MODULE__{type: @obu_temporal_delimiter}), do: false
   def should_be_transmitted?(%__MODULE__{type: @obu_tile_list}), do: false
   def should_be_transmitted?(_obu), do: true
+
+  @spec temporal_delimiter :: binary()
+  def temporal_delimiter,
+    do: %__MODULE__{type: @obu_temporal_delimiter, x: 0, s: 1, payload: <<>>} |> serialize()
 end
