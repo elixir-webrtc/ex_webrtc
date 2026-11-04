@@ -1504,6 +1504,36 @@ defmodule ExWebRTC.PeerConnectionTest do
       assert_media_flows(pc1, pc2, track1, track2, id1, id2)
     end
 
+    test "failed and back to connected after an ICE restart" do
+      {pc1, pc2, track1, track2, id1, id2} = connected_pcs()
+      pc1_ice = :sys.get_state(pc1).ice_pid
+      pc2_ice = :sys.get_state(pc2).ice_pid
+      {:ok, ufrag, _pwd} = ExICE.ICEAgent.get_local_credentials(pc1_ice)
+
+      :ok = :sys.suspend(pc2_ice)
+      assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :failed}}, 5_000
+      :ok = :sys.resume(pc2_ice)
+      # pc1 has closed its sockets, so pc2 fails too
+      assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :failed}}, 5_000
+
+      flush_mailbox(pc1)
+      flush_mailbox(pc2)
+
+      :ok = negotiate(pc2, pc1, ice_restart: true)
+      :ok = connect(pc2, pc1)
+
+      assert_receive {:ex_webrtc, ^pc1, {:ice_gathering_state_change, :new}}
+      assert_receive {:ex_webrtc, ^pc1, {:ice_gathering_state_change, :gathering}}
+      assert {:ok, new_ufrag, _pwd} = ExICE.ICEAgent.get_local_credentials(pc1_ice)
+      assert new_ufrag != ufrag
+      assert PeerConnection.get_connection_state(pc1) == :connected
+
+      assert_media_flows(pc1, pc2, track1, track2, id1, id2)
+
+      # pc1's report and TWCC timers kept running while it was failed
+      assert_rtcp(pc2, [ExRTCP.Packet.SenderReport, ExRTCP.Packet.TransportFeedback.CC])
+    end
+
     defp connected_pcs() do
       {:ok, pc1} = PeerConnection.start_link(@ice_liveness_opts)
       {:ok, pc2} = PeerConnection.start_link(@ice_liveness_opts)
@@ -1553,6 +1583,25 @@ defmodule ExWebRTC.PeerConnectionTest do
                    100 -> false
                  end
                end)
+      end
+    end
+
+    defp assert_rtcp(pc, packet_modules) do
+      deadline = System.monotonic_time(:millisecond) + 3_000
+      do_assert_rtcp(pc, packet_modules, deadline)
+    end
+
+    defp do_assert_rtcp(_pc, [], _deadline), do: :ok
+
+    defp do_assert_rtcp(pc, packet_modules, deadline) do
+      timeout = max(deadline - System.monotonic_time(:millisecond), 0)
+
+      receive do
+        {:ex_webrtc, ^pc, {:rtcp, packets}} ->
+          received = Enum.map(packets, fn {_track_id, packet} -> packet.__struct__ end)
+          do_assert_rtcp(pc, packet_modules -- received, deadline)
+      after
+        timeout -> flunk("RTCP packets not received: #{inspect(packet_modules)}")
       end
     end
   end
