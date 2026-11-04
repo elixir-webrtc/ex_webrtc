@@ -283,8 +283,13 @@ if Code.ensure_loaded?(ExSCTP) do
     defp handle_event(sctp_transport, :connected) do
       Logger.debug("SCTP connection has been established")
 
-      %{sctp_transport | state: :connected}
-      |> handle_pending_channels()
+      {open_events, sctp_transport} =
+        %{sctp_transport | state: :connected}
+        |> handle_pending_channels()
+
+      # handle_events/2 reverses the accumulated list at the end,
+      # so the events have to be returned in reverse order here
+      {Enum.reverse(open_events), sctp_transport}
     end
 
     defp handle_event(sctp_transport, {:timeout, val}) do

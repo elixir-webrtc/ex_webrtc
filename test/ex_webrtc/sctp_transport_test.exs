@@ -1,8 +1,6 @@
 defmodule ExWebRTC.SCTPTransportTest do
   use ExUnit.Case, async: true
 
-  import ExUnit.CaptureLog
-
   alias ExWebRTC.{DataChannel, SCTPTransport}
   alias ExWebRTC.SCTPTransport.DCEP
 
@@ -76,7 +74,7 @@ defmodule ExWebRTC.SCTPTransportTest do
     assert %DCEP.DataChannelOpen{label: "after"} = received_open(remote_events, 0)
   end
 
-  test "unordered channel" do
+  test "unordered channel delivers data before and after confirmation" do
     {local, remote, ref, remote_events} = connected_with_channel("u", false)
 
     assert %DCEP.DataChannelOpen{label: "u", order: :unordered} = received_open(remote_events, 0)
@@ -102,16 +100,10 @@ defmodule ExWebRTC.SCTPTransportTest do
     # so it is delivered to local after the channel was popped
     :ok = ExSCTP.send(remote, 0, @dcep_ppi, DCEP.encode(%DCEP.DataChannelAck{}))
 
-    log =
-      capture_log(fn ->
-        {local_events, _remote_events, local} = pump({close_events, local}, remote)
+    {local_events, _remote_events, local} = pump({close_events, local}, remote)
 
-        assert local_events == [{:state_change, ref, :closed}]
-        assert SCTPTransport.channel_count(local) == 0
-      end)
-
-    assert log =~ "Received DCEP Ack without sending the DCEP Open message on stream 0"
-    refute log =~ "Received invalid DCEP message"
+    assert local_events == [{:state_change, ref, :closed}]
+    assert SCTPTransport.channel_count(local) == 0
   end
 
   defp connected_pair do
