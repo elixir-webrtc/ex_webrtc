@@ -9,6 +9,9 @@ if Code.ensure_loaded?(ExSCTP) do
 
     @dcep_ppi 50
 
+    # the largest message ex_sctp (sctp-proto) is able to send
+    @max_message_size 65_536
+
     @opaque t() :: map()
 
     @type event() ::
@@ -16,6 +19,7 @@ if Code.ensure_loaded?(ExSCTP) do
             | {:data, DataChannel.ref(), binary()}
             | {:channel, DataChannel.t()}
             | {:state_change, DataChannel.ref(), DataChannel.ready_state()}
+            | {:error, DataChannel.ref(), atom()}
 
     @spec new() :: t()
     def new do
@@ -25,8 +29,17 @@ if Code.ensure_loaded?(ExSCTP) do
         id_type: nil,
         timer: nil,
         channels: %{},
-        stats: %{}
+        stats: %{},
+        remote_max_message_size: nil
       }
+    end
+
+    @spec max_message_size() :: pos_integer()
+    def max_message_size(), do: @max_message_size
+
+    @spec set_remote_max_message_size(t(), non_neg_integer() | nil) :: t()
+    def set_remote_max_message_size(sctp_transport, size) do
+      %{sctp_transport | remote_max_message_size: size}
     end
 
     @spec connect(t()) :: {[event()], t()}
@@ -157,9 +170,7 @@ if Code.ensure_loaded?(ExSCTP) do
 
       case Map.fetch(sctp_transport.channels, ref) do
         {:ok, %DataChannel{ready_state: :open, id: id}} when id != nil ->
-          stats = update_stats(sctp_transport.stats, ref, data, :sent)
-          :ok = ExSCTP.send(sctp_transport.ref, id, ppi, data)
-          handle_events(%{sctp_transport | stats: stats})
+          do_send(sctp_transport, ref, id, ppi, data)
 
         {:ok, %DataChannel{id: id}} ->
           Logger.warning("Trying to send data over DataChannel with id #{id} that is not opened")
@@ -173,6 +184,40 @@ if Code.ensure_loaded?(ExSCTP) do
           {[], sctp_transport}
       end
     end
+
+    defp do_send(sctp_transport, ref, id, ppi, data) do
+      max_size = effective_max_message_size(sctp_transport)
+
+      if byte_size(data) > max_size do
+        Logger.warning("""
+        Unable to send #{byte_size(data)} bytes over DataChannel with id #{id}, \
+        message is larger than the maximum message size of #{max_size} bytes\
+        """)
+
+        {[{:error, ref, :message_too_large}], sctp_transport}
+      else
+        case ExSCTP.send(sctp_transport.ref, id, ppi, data) do
+          :ok ->
+            stats = update_stats(sctp_transport.stats, ref, data, :sent)
+            handle_events(%{sctp_transport | stats: stats})
+
+          {:error, reason} ->
+            Logger.warning(
+              "Unable to send data over DataChannel with id #{id}, reason: #{inspect(reason)}"
+            )
+
+            {[{:error, ref, reason}], sctp_transport}
+        end
+      end
+    end
+
+    # RFC 8841: lack of the attribute means 64 kB, 0 means no limit
+    defp effective_max_message_size(%{remote_max_message_size: remote})
+         when remote in [nil, 0],
+         do: @max_message_size
+
+    defp effective_max_message_size(%{remote_max_message_size: remote}),
+      do: min(remote, @max_message_size)
 
     @spec handle_timeout(t()) :: {[event()], t()}
     def handle_timeout(%{state: :closed} = sctp_transport) do
@@ -517,6 +562,8 @@ else
 
     def new, do: nil
     def set_role(_, _), do: nil
+    def max_message_size, do: 65_536
+    def set_remote_max_message_size(sctp_transport, _), do: sctp_transport
     # Compiler complains about this function always returning false. Hence, Code.ensure_loaded?.
     def data_channels?(_), do: Code.ensure_loaded?(ExSCTP)
     def channel_count(_), do: 0

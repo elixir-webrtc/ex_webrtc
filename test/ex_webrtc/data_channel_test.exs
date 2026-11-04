@@ -142,6 +142,56 @@ defmodule ExWebRTC.DataChannelTest do
     end
   end
 
+  describe "negotiating max message size" do
+    test "advertises max-message-size in offer and answer" do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      {:ok, _channel} = PeerConnection.create_data_channel(pc1, "label")
+
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      assert offer.sdp =~ "a=max-message-size:65536"
+
+      :ok = PeerConnection.set_local_description(pc1, offer)
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      assert answer.sdp =~ "a=max-message-size:65536"
+    end
+
+    test "respects max-message-size of the remote peer" do
+      {:ok, pc1} = PeerConnection.start_link()
+      {:ok, pc2} = PeerConnection.start_link()
+      {:ok, %DataChannel{ref: ref1}} = PeerConnection.create_data_channel(pc1, "label")
+
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      :ok = PeerConnection.set_local_description(pc1, offer)
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+
+      assert answer.sdp =~ "a=max-message-size:65536"
+      sdp = String.replace(answer.sdp, "a=max-message-size:65536", "a=max-message-size:1024")
+      :ok = PeerConnection.set_remote_description(pc1, %{answer | sdp: sdp})
+
+      :ok = connect(pc1, pc2)
+
+      assert_receive {:ex_webrtc, ^pc2, {:data_channel, %DataChannel{ref: ref2}}}
+      assert_receive {:ex_webrtc, ^pc1, {:data_channel_state_change, ^ref1, :open}}
+
+      :ok = PeerConnection.send_data(pc1, ref1, :binary.copy(<<1>>, 1025))
+      assert_receive {:ex_webrtc, ^pc1, {:data_channel_error, ^ref1, :message_too_large}}
+
+      data = :binary.copy(<<1>>, 1024)
+      :ok = PeerConnection.send_data(pc1, ref1, data)
+      assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, ^data}}
+
+      # pc2 did not get a lower limit
+      data = :binary.copy(<<2>>, 1025)
+      :ok = PeerConnection.send_data(pc2, ref2, data)
+      assert_receive {:ex_webrtc, ^pc1, {:data, ^ref1, ^data}}
+    end
+  end
+
   describe "sending data" do
     setup do
       {:ok, pc1} = PeerConnection.start_link()
@@ -212,6 +262,36 @@ defmodule ExWebRTC.DataChannelTest do
       assert_receive {:ex_webrtc, ^pc2, {:data, ^ref3, msg}}
       :ok = PeerConnection.send_data(pc2, ref2, msg)
       assert_receive {:ex_webrtc, ^pc1, {:data, ^ref1, ^data}}
+    end
+
+    test "larger than max message size", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
+      :ok = PeerConnection.send_data(pc1, ref1, :binary.copy(<<1>>, 65_537))
+      assert_receive {:ex_webrtc, ^pc1, {:data_channel_error, ^ref1, :message_too_large}}
+      refute_receive {:ex_webrtc, ^pc2, {:data, ^ref2, _data}}
+
+      # peer connection and channel are still usable
+      :ok = PeerConnection.send_data(pc1, ref1, <<1, 2, 3>>)
+      assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, <<1, 2, 3>>}}
+    end
+
+    test "equal to max message size", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
+      data = :binary.copy(<<1>>, 65_536)
+      :ok = PeerConnection.send_data(pc1, ref1, data, :binary)
+      assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, ^data}}
+      refute_receive {:ex_webrtc, ^pc1, {:data_channel_error, _ref, _reason}}
+    end
+
+    test "does not count failed sends in stats", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do
+      :ok = PeerConnection.send_data(pc1, ref1, :binary.copy(<<1>>, 65_537))
+      assert_receive {:ex_webrtc, ^pc1, {:data_channel_error, ^ref1, :message_too_large}}
+
+      :ok = PeerConnection.send_data(pc1, ref1, <<1, 2, 3>>)
+      assert_receive {:ex_webrtc, ^pc2, {:data, ^ref2, <<1, 2, 3>>}}
+
+      stats = PeerConnection.get_stats(pc1)
+      assert {_ref, channel_stats} = Enum.find(stats, fn {_, v} -> v.type == :data_channel end)
+      assert channel_stats.messages_sent == 1
+      assert channel_stats.bytes_sent == 3
     end
 
     test "and collecting stats about it", %{pc1: pc1, pc2: pc2, ref1: ref1, ref2: ref2} do

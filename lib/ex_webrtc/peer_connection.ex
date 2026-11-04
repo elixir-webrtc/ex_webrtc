@@ -86,6 +86,7 @@ defmodule ExWebRTC.PeerConnection do
   notification for convenience and parity with other events informing about ice/signaling/connection state changes.
   * `:track_muted`, `:track_ended` - these match the [MediaStreamTrack events](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack#events).
   * `:data` - data received from DataChannel identified by its `ref`.
+  * `:data_channel_error` - sending data over DataChannel identified by its `ref` failed. See `send_data/4`.
   * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection. The third element of `:rtp` tuple is a simulcast RID and is set to `nil` if simulcast
   is not used.
   * each of the packets in `:rtcp` message is in the form of `{track_id, packet}` tuple, where `track_id` is the id of the corrsponding track.
@@ -104,6 +105,7 @@ defmodule ExWebRTC.PeerConnection do
            | {:signaling_state_change, signaling_state()}
            | {:data_channel_state_change, DataChannel.ref(), DataChannel.ready_state()}
            | {:data_channel, DataChannel.t()}
+           | {:data_channel_error, DataChannel.ref(), atom()}
            | {:track, MediaStreamTrack.t()}
            | {:track_muted, MediaStreamTrack.id()}
            | {:track_ended, MediaStreamTrack.id()}
@@ -265,6 +267,12 @@ defmodule ExWebRTC.PeerConnection do
   Requires the channel to be in `:open` state.
 
   If `ref` does not identify any DataChannel, this function behaves like no-op.
+
+  If the data can't be sent, the message is dropped and the PeerConnection notifies
+  the controlling process with `{:data_channel_error, ref, reason}`, where `reason` is:
+  * `:message_too_large` - the message (in bytes) is larger than the maximum message size.
+  This is the smaller of 65536 and the remote peer's `a=max-message-size` value (RFC 8841),
+  * other atom - reason returned by the underlying SCTP implementation.
   """
   @spec send_data(peer_connection(), DataChannel.ref(), binary(), :string | :binary) :: :ok
   def send_data(peer_connection, channel_ref, data, data_type \\ :string) do
@@ -1963,7 +1971,8 @@ defmodule ExWebRTC.PeerConnection do
         {:ice_options, Keyword.fetch!(opts, :ice_options)},
         {:fingerprint, Keyword.fetch!(opts, :fingerprint)},
         {:setup, Keyword.fetch!(opts, :setup)},
-        {"sctp-port", "5000"}
+        {"sctp-port", "5000"},
+        {"max-message-size", Integer.to_string(SCTPTransport.max_message_size())}
       ]
 
     # NOTICE: Media.new puts fmtp (`webrtc-datachannel`) into a list
@@ -2107,7 +2116,11 @@ defmodule ExWebRTC.PeerConnection do
         end
 
       DTLSTransport.start_dtls(state.dtls_transport, dtls_role, peer_fingerprint)
-      sctp_transport = SCTPTransport.set_role(state.sctp_transport, dtls_role)
+
+      sctp_transport =
+        state.sctp_transport
+        |> SCTPTransport.set_role(dtls_role)
+        |> SCTPTransport.set_remote_max_message_size(SDPUtils.get_max_message_size(sdp))
 
       # ice_creds will be nil if all of the mlines in the description are rejected
       # in such case, if this is the first remote description, connection won't be established
@@ -2694,6 +2707,9 @@ defmodule ExWebRTC.PeerConnection do
 
         {:data, ref, data} ->
           notify(state.owner, {:data, ref, data})
+
+        {:error, ref, reason} ->
+          notify(state.owner, {:data_channel_error, ref, reason})
       end
     end
   end
