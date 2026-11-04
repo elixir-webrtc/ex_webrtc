@@ -3,7 +3,7 @@ defmodule ExWebRTC.ICETransport do
 
   # module implementing this behaviour
   @type t() :: module()
-  @type state() :: :checking | :connected | :completed | :failed | :closed
+  @type state() :: :checking | :connected | :completed | :disconnected | :failed | :closed
 
   @callback start_link(Keyword.t()) :: {:ok, pid()}
   @callback on_data(pid(), pid()) :: :ok

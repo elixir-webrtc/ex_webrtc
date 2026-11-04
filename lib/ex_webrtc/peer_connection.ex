@@ -645,6 +645,9 @@ defmodule ExWebRTC.PeerConnection do
       transport: config.ice_transport_protocol,
       ip_filter: config.ice_ip_filter,
       aggressive_nomination: config.ice_aggressive_nomination,
+      disconnected_timeout: config.ice_disconnected_timeout,
+      failed_timeout: config.ice_failed_timeout,
+      keepalive_interval: config.ice_keepalive_interval,
       host_to_srflx_ip_mapper: config.host_to_srflx_ip_mapper,
       ports: config.ice_port_range,
       on_data: nil,
@@ -1598,18 +1601,21 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:ex_ice, _from, {:connection_state_change, new_ice_state}}, state) do
-    state = %{state | ice_state: new_ice_state}
-    notify(state.owner, {:ice_connection_state_change, new_ice_state})
-    next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
-    state = update_conn_state(state, next_conn_state)
-
-    if new_ice_state == :connected do
+    # When ICE is disconnected, data can still be sent, so we don't notify DTLS about it.
+    # When ICE recovers from :disconnected, DTLS has already been notified about it being connected.
+    if new_ice_state in [:connected, :completed] and
+         state.ice_state not in [:connected, :completed, :disconnected] do
       :ok = DTLSTransport.set_ice_connected(state.dtls_transport)
     end
 
     if new_ice_state == :failed do
       :ok = DTLSTransport.set_ice_disconnected(state.dtls_transport)
     end
+
+    state = %{state | ice_state: new_ice_state}
+    notify(state.owner, {:ice_connection_state_change, new_ice_state})
+    next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
+    state = update_conn_state(state, next_conn_state)
 
     {:noreply, state}
   end
@@ -2444,7 +2450,6 @@ defmodule ExWebRTC.PeerConnection do
   defp get_last_answer(%{current_local_desc: {:answer, desc}}), do: desc
   defp get_last_answer(%{current_remote_desc: {:answer, desc}}), do: desc
 
-  # TODO support :disconnected state - our ICE doesn't provide disconnected state for now
   # the order of these clauses is important
   defp next_conn_state(ice_state, dtls_state)
 
@@ -2453,6 +2458,8 @@ defmodule ExWebRTC.PeerConnection do
   defp next_conn_state(:failed, _dtls_state), do: :failed
 
   defp next_conn_state(_ice_state, :failed), do: :failed
+
+  defp next_conn_state(:disconnected, _dtls_state), do: :disconnected
 
   defp next_conn_state(:new, :new), do: :new
 

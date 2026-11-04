@@ -166,6 +166,15 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   at the very end of the whole connection establishment process. To mitigate this issue, you can eitehr add an empty
   ICE candidate (this will indicate that there won't be further remote candidates and once all connectivity checks pass,
   ICE will nominate the pair), or use aggressive nomination. Defaults to false.
+  * `ice_disconnected_timeout` - time in milliseconds without receiving anything on the ICE candidate pair
+  in use, after which the ICE connection state becomes `:disconnected`. It goes back to `:connected`
+  as soon as something is received again. Defaults to the ICE agent's default (5 seconds).
+  * `ice_failed_timeout` - time in milliseconds without consent from the remote peer (RFC 7675),
+  after which ICE candidate pairs, and then the ICE connection state, become `:failed`.
+  The connection can be recovered with an ICE restart. Defaults to the ICE agent's default (30 seconds).
+  * `ice_keepalive_interval` - average interval in milliseconds between ICE keepalives (consent checks).
+  Defaults to the ICE agent's default (2 seconds).
+  The above ICE timeouts must satisfy `ice_failed_timeout > ice_disconnected_timeout > ice_keepalive_interval`.
   * `logger_metadata` - a keyword list of metadata to be attached to the Logger for all logs emitted by the PeerConnection and its child processes.
   * `key_cert` - a `{key, cert}` tuple, as returned by `ExDTLS.generate_key_cert/2`, to use for the DTLS handshake
   instead of generating a new one. When spawning many peer connections at once (e.g. a server accepting a burst
@@ -209,6 +218,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_ip_filter: ICEAgent.ip_filter(),
           ice_port_range: Enumerable.t(non_neg_integer()),
           ice_aggressive_nomination: boolean(),
+          ice_disconnected_timeout: pos_integer(),
+          ice_failed_timeout: pos_integer(),
+          ice_keepalive_interval: pos_integer(),
           host_to_srflx_ip_mapper: ICEAgent.host_to_srflx_ip_mapper(),
           audio_codecs: [RTPCodecParameters.t()] | [audio_codec_name()],
           video_codecs: [RTPCodecParameters.t()] | [video_codec_name()],
@@ -233,6 +245,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           ice_ip_filter: (:inet.ip_address() -> boolean()) | nil,
           ice_port_range: Enumerable.t(non_neg_integer()),
           ice_aggressive_nomination: boolean(),
+          ice_disconnected_timeout: pos_integer() | nil,
+          ice_failed_timeout: pos_integer() | nil,
+          ice_keepalive_interval: pos_integer() | nil,
           host_to_srflx_ip_mapper: ICEAgent.host_to_srflx_ip_mapper() | nil,
           audio_codecs: [RTPCodecParameters.t()],
           video_codecs: [RTPCodecParameters.t()],
@@ -256,6 +271,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
                 ice_transport_protocol: :udp,
                 ice_port_range: [0],
                 ice_aggressive_nomination: false,
+                ice_disconnected_timeout: nil,
+                ice_failed_timeout: nil,
+                ice_keepalive_interval: nil,
                 host_to_srflx_ip_mapper: nil,
                 audio_codecs: @default_audio_codecs,
                 video_codecs: @default_video_codecs,
