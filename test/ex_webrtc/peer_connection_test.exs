@@ -1456,6 +1456,44 @@ defmodule ExWebRTC.PeerConnectionTest do
       assert_receive {:ex_webrtc, ^pc1, {:rtcp, [{^id1, nack}]}}
       assert %ExRTCP.Packet.TransportFeedback.NACK{nacks: [%{pid: 101}]} = nack
     end
+
+    test "retransmits packets in response to NACK without affecting sender reports" do
+      {:ok, pc1} =
+        PeerConnection.start_link(features: [:outbound_rtx, :rtcp_reports], rtcp_feedbacks: [])
+
+      {:ok, pc2} = PeerConnection.start_link(features: [:inbound_rtx], rtcp_feedbacks: [])
+
+      %MediaStreamTrack{id: id1} = track = MediaStreamTrack.new(:video)
+      {:ok, _sender} = PeerConnection.add_track(pc1, track)
+
+      :ok = negotiate(pc1, pc2)
+      :ok = connect(pc1, pc2)
+
+      assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{kind: :video, id: id2}}}
+
+      for seq_no <- 100..102 do
+        packet = ExRTP.Packet.new(<<seq_no>>, sequence_number: seq_no, timestamp: seq_no * 3000)
+        :ok = PeerConnection.send_rtp(pc1, track.id, packet)
+
+        assert_receive {:ex_webrtc, ^pc2,
+                        {:rtp, ^id2, _rid, %ExRTP.Packet{sequence_number: ^seq_no}}}
+      end
+
+      [%{sender: sender}] = :sys.get_state(pc1).transceivers
+
+      nack = ExRTCP.Packet.TransportFeedback.NACK.from_sequence_numbers(0, sender.ssrc, [101])
+      send(pc1, {:dtls_transport, self(), {:rtcp, ExRTCP.Packet.encode(nack)}})
+
+      assert_receive {:ex_webrtc, ^pc1, {:rtcp, [{^id1, _nack}]}}
+
+      assert_receive {:ex_webrtc, ^pc2,
+                      {:rtp, ^id2, _rid, %ExRTP.Packet{sequence_number: 101, payload: <<101>>}}}
+
+      [%{sender: rtx_sender}] = :sys.get_state(pc1).transceivers
+      assert rtx_sender.report_recorder == sender.report_recorder
+      assert rtx_sender.retransmitted_packets_sent == 1
+      assert rtx_sender.packets_sent == sender.packets_sent + 1
+    end
   end
 
   describe "send data in both directions on a single transceiver" do

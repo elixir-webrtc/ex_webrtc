@@ -149,6 +149,9 @@ defmodule ExWebRTC.PeerConnection.Configuration do
 
   @default_features [:twcc, :inbound_rtx, :outbound_rtx, :rtcp_reports]
 
+  @default_outbound_rtx_history_size 1024
+  @max_outbound_rtx_history_size 32_768
+
   @typedoc """
   Options that can be passed to `ExWebRTC.PeerConnection.start_link/1`.
 
@@ -190,6 +193,10 @@ defmodule ExWebRTC.PeerConnection.Configuration do
   * `features` - feature flags for some of the ExWebRTC functinalities. Refer to `t:feature/0` for more information.
   * `rtp_header_extensions` - list of RTP header extensions to negotiate. Refer to `t:rtp_header_extension/0` for more information.
   * `rtcp_feedbacks` - list of RTCP feedbacks to negotiate. Refer to `t:rtcp_feedback/0` for more information.
+  * `outbound_rtx_history_size` - number of most recently sent RTP packets kept by each sender, so they can be
+  retransmitted in response to incoming NACKs. Has an effect only when the `:outbound_rtx` feature is enabled and RTX
+  was negotiated for a sender. Must be an integer between 1 and #{@max_outbound_rtx_history_size}.
+  Defaults to #{@default_outbound_rtx_history_size}.
 
   Instead of manually enabling an RTP header extension or an RTCP feedback, you may want to use a `t:feature/0`, which will enable
   necessary header extensions under the hood. If you enable RTCP feedback/RTP header extension corresponding to some feature (but not the feature itself),
@@ -216,7 +223,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           rtp_header_extensions: [rtp_header_extension()],
           rtcp_feedbacks: [rtcp_feedback()],
           logger_metadata: Enumerable.t({atom(), term()}),
-          key_cert: {binary(), binary()}
+          key_cert: {binary(), binary()},
+          outbound_rtx_history_size: pos_integer()
         ]
 
   @typedoc """
@@ -240,7 +248,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
           video_extensions: [Extmap.t()],
           features: [feature()],
           logger_metadata: Enumerable.t({atom(), term()}),
-          key_cert: {binary(), binary()} | nil
+          key_cert: {binary(), binary()} | nil,
+          outbound_rtx_history_size: pos_integer()
         }
 
   @enforce_keys [
@@ -261,7 +270,8 @@ defmodule ExWebRTC.PeerConnection.Configuration do
                 video_codecs: @default_video_codecs,
                 features: @default_features,
                 logger_metadata: [],
-                key_cert: nil
+                key_cert: nil,
+                outbound_rtx_history_size: @default_outbound_rtx_history_size
               ]
 
   @doc """
@@ -325,8 +335,20 @@ defmodule ExWebRTC.PeerConnection.Configuration do
     |> expand_default_codecs()
     |> then(&struct(__MODULE__, &1))
     |> ensure_unique_payload_types()
+    |> ensure_valid_outbound_rtx_history_size()
     |> populate_feedbacks(feedbacks)
     |> add_features()
+  end
+
+  defp ensure_valid_outbound_rtx_history_size(%{outbound_rtx_history_size: size} = config)
+       when size in 1..@max_outbound_rtx_history_size,
+       do: config
+
+  defp ensure_valid_outbound_rtx_history_size(config) do
+    raise """
+    Invalid outbound_rtx_history_size: #{inspect(config.outbound_rtx_history_size)}. \
+    Expected an integer between 1 and #{@max_outbound_rtx_history_size}.\
+    """
   end
 
   defp ensure_unique_payload_types(config) do
