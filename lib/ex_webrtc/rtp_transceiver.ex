@@ -15,7 +15,13 @@ defmodule ExWebRTC.RTPTransceiver do
     Utils
   }
 
-  alias ExRTCP.Packet.{ReceiverReport, SenderReport, TransportFeedback.NACK, PayloadFeedback.PLI}
+  alias ExRTCP.Packet.{
+    ReceiverReport,
+    SenderReport,
+    TransportFeedback.NACK,
+    PayloadFeedback.FIR,
+    PayloadFeedback.PLI
+  }
 
   @report_interval 1000
   @nack_interval 100
@@ -137,7 +143,14 @@ defmodule ExWebRTC.RTPTransceiver do
 
     receiver = RTPReceiver.new(track, codecs, header_extensions, config.features)
 
-    sender = RTPSender.new(sender_track, options[:ssrc], options[:rtx_ssrc], config.features)
+    sender =
+      RTPSender.new(
+        sender_track,
+        options[:ssrc],
+        options[:rtx_ssrc],
+        config.features,
+        sender_options(config)
+      )
 
     %{
       id: id,
@@ -193,7 +206,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
     receiver = RTPReceiver.new(track, codecs, header_extensions, config.features)
 
-    sender = RTPSender.new(nil, ssrc, rtx_ssrc, config.features)
+    sender = RTPSender.new(nil, ssrc, rtx_ssrc, config.features, sender_options(config))
     sender = RTPSender.update(sender, mid, codecs, header_extensions)
 
     %{
@@ -212,6 +225,10 @@ defmodule ExWebRTC.RTPTransceiver do
       stopping: false,
       stopped: false
     }
+  end
+
+  defp sender_options(config) do
+    [outbound_rtx_history_size: config.outbound_rtx_history_size]
   end
 
   @doc false
@@ -368,6 +385,13 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec receive_pli(transceiver(), PLI.t()) :: transceiver()
   def receive_pli(transceiver, pli) do
     sender = RTPSender.receive_pli(transceiver.sender, pli)
+    %{transceiver | sender: sender}
+  end
+
+  @doc false
+  @spec receive_fir(transceiver(), FIR.t()) :: transceiver()
+  def receive_fir(transceiver, fir) do
+    sender = RTPSender.receive_fir(transceiver.sender, fir)
     %{transceiver | sender: sender}
   end
 

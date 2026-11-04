@@ -4,7 +4,13 @@ defmodule ExWebRTC.RTPSender do
   """
   require Logger
 
-  alias ExRTCP.Packet.{ReceptionReport, TransportFeedback.NACK, PayloadFeedback.PLI}
+  alias ExRTCP.Packet.{
+    ReceptionReport,
+    TransportFeedback.NACK,
+    PayloadFeedback.FIR,
+    PayloadFeedback.PLI
+  }
+
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils, PeerConnection.Configuration}
   alias ExSDP.Attribute.Extmap
   alias __MODULE__.{NACKResponder, ReportRecorder}
@@ -35,6 +41,7 @@ defmodule ExWebRTC.RTPSender do
           markers_sent: non_neg_integer(),
           nack_count: non_neg_integer(),
           pli_count: non_neg_integer(),
+          fir_count: non_neg_integer(),
           remote_report: remote_report() | nil,
           reports?: boolean(),
           outbound_rtx?: boolean(),
@@ -79,9 +86,20 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
-  @spec new(MediaStreamTrack.t() | nil, non_neg_integer(), non_neg_integer(), [atom()]) ::
-          sender()
-  def new(track, ssrc, rtx_ssrc, features) do
+  @spec new(
+          MediaStreamTrack.t() | nil,
+          non_neg_integer(),
+          non_neg_integer(),
+          [atom()],
+          Keyword.t()
+        ) :: sender()
+  def new(track, ssrc, rtx_ssrc, features, opts \\ []) do
+    nack_responder =
+      case Keyword.fetch(opts, :outbound_rtx_history_size) do
+        {:ok, size} -> NACKResponder.new(size)
+        :error -> NACKResponder.new()
+      end
+
     %{
       id: Utils.generate_id(),
       track: track,
@@ -100,11 +118,12 @@ defmodule ExWebRTC.RTPSender do
       markers_sent: 0,
       nack_count: 0,
       pli_count: 0,
+      fir_count: 0,
       remote_report: nil,
       reports?: :rtcp_reports in features,
       outbound_rtx?: :outbound_rtx in features,
       report_recorder: %ReportRecorder{},
-      nack_responder: %NACKResponder{}
+      nack_responder: nack_responder
     }
   end
 
@@ -241,6 +260,33 @@ defmodule ExWebRTC.RTPSender do
           packet
       end
 
+    data = ExRTP.Packet.encode(packet)
+
+    sender =
+      if rtx? do
+        # Retransmissions are sent on the RTX SSRC, so they must not affect
+        # the primary SSRC's sender reports. They are not stored in the NACK
+        # history either, as only original packets can be retransmitted.
+        %{
+          sender
+          | retransmitted_packets_sent: sender.retransmitted_packets_sent + 1,
+            retransmitted_bytes_sent: sender.retransmitted_bytes_sent + byte_size(data)
+        }
+      else
+        record_packet(sender, packet)
+      end
+
+    sender = %{
+      sender
+      | packets_sent: sender.packets_sent + 1,
+        bytes_sent: sender.bytes_sent + byte_size(data),
+        markers_sent: sender.markers_sent + Utils.to_int(packet.marker)
+    }
+
+    {data, sender}
+  end
+
+  defp record_packet(sender, packet) do
     report_recorder =
       if sender.reports? do
         ReportRecorder.record_packet(sender.report_recorder, packet)
@@ -248,40 +294,25 @@ defmodule ExWebRTC.RTPSender do
         sender.report_recorder
       end
 
+    # There is no point in keeping packets that can't be retransmitted
     nack_responder =
-      if sender.outbound_rtx? do
+      if sender.outbound_rtx? and sender.rtx_codec != nil do
         NACKResponder.record_packet(sender.nack_responder, packet)
       else
         sender.nack_responder
       end
 
-    data = ExRTP.Packet.encode(packet)
-
-    sender =
-      if rtx? do
-        %{
-          sender
-          | retransmitted_packets_sent: sender.retransmitted_packets_sent + 1,
-            retransmitted_bytes_sent: sender.retransmitted_bytes_sent + byte_size(data)
-        }
-      else
-        sender
-      end
-
-    sender = %{
-      sender
-      | packets_sent: sender.packets_sent + 1,
-        bytes_sent: sender.bytes_sent + byte_size(data),
-        markers_sent: sender.markers_sent + Utils.to_int(packet.marker),
-        report_recorder: report_recorder,
-        nack_responder: nack_responder
-    }
-
-    {data, sender}
+    %{sender | report_recorder: report_recorder, nack_responder: nack_responder}
   end
 
   @doc false
   @spec receive_nack(sender(), NACK.t()) :: {[ExRTP.Packet.t()], sender()}
+  def receive_nack(%{rtx_codec: nil} = sender, _nack) do
+    # NACK and RTX are negotiated independently,
+    # without RTX there is no way to retransmit packets
+    {[], %{sender | nack_count: sender.nack_count + 1}}
+  end
+
   def receive_nack(sender, nack) do
     {packets, nack_responder} = NACKResponder.get_rtx(sender.nack_responder, nack)
     sender = %{sender | nack_responder: nack_responder, nack_count: sender.nack_count + 1}
@@ -293,6 +324,12 @@ defmodule ExWebRTC.RTPSender do
   @spec receive_pli(sender(), PLI.t()) :: sender()
   def receive_pli(sender, _pli) do
     %{sender | pli_count: sender.pli_count + 1}
+  end
+
+  @doc false
+  @spec receive_fir(sender(), FIR.t()) :: sender()
+  def receive_fir(sender, _fir) do
+    %{sender | fir_count: sender.fir_count + 1}
   end
 
   @doc false
@@ -356,7 +393,8 @@ defmodule ExWebRTC.RTPSender do
       retransmitted_packets_sent: sender.retransmitted_packets_sent,
       retransmitted_bytes_sent: sender.retransmitted_bytes_sent,
       nack_count: sender.nack_count,
-      pli_count: sender.pli_count
+      pli_count: sender.pli_count,
+      fir_count: sender.fir_count
     }
 
     case sender.remote_report do

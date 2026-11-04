@@ -3,6 +3,8 @@ defmodule ExWebRTC.RTPSenderTest do
 
   import Bitwise
 
+  alias ExRTCP.Packet.PayloadFeedback.FIR
+  alias ExRTCP.Packet.TransportFeedback.NACK
   alias ExRTP.Packet.Extension.SourceDescription
   alias ExSDP.Attribute.Extmap
 
@@ -54,6 +56,14 @@ defmodule ExWebRTC.RTPSenderTest do
     assert sender.rtx_codec == nil
     assert sender.codecs == []
     assert sender.rtp_hdr_exts == %{}
+  end
+
+  test "new/5" do
+    sender = RTPSender.new(nil, @ssrc, @rtx_ssrc, [:outbound_rtx])
+    assert sender.nack_responder.size == 1024
+
+    sender = RTPSender.new(nil, @ssrc, @rtx_ssrc, [:outbound_rtx], outbound_rtx_history_size: 64)
+    assert sender.nack_responder.size == 64
   end
 
   test "set_codecs/2" do
@@ -174,6 +184,7 @@ defmodule ExWebRTC.RTPSenderTest do
                markers_sent: 0,
                nack_count: 0,
                pli_count: 0,
+               fir_count: 0,
                retransmitted_packets_sent: 0,
                retransmitted_bytes_sent: 0
              }
@@ -196,6 +207,7 @@ defmodule ExWebRTC.RTPSenderTest do
                markers_sent: 0,
                nack_count: 0,
                pli_count: 0,
+               fir_count: 0,
                retransmitted_packets_sent: 0,
                retransmitted_bytes_sent: 0
              }
@@ -216,10 +228,109 @@ defmodule ExWebRTC.RTPSenderTest do
                markers_sent: 1,
                nack_count: 0,
                pli_count: 0,
+               fir_count: 0,
                retransmitted_packets_sent: 0,
                retransmitted_bytes_sent: 0
              }
            ] == RTPSender.get_stats(sender, timestamp)
+  end
+
+  test "receive_fir/2" do
+    sender = RTPSender.new(MediaStreamTrack.new(:video), @ssrc, @rtx_ssrc, [])
+    fir = %FIR{sender_ssrc: 1, media_ssrc: 0, entries: [%{ssrc: @ssrc, seq_nr: 1}]}
+
+    sender = RTPSender.receive_fir(sender, fir)
+    assert [%{fir_count: 1, pli_count: 0}] = RTPSender.get_stats(sender, 0)
+  end
+
+  describe "retransmissions" do
+    setup do
+      track = MediaStreamTrack.new(:video)
+
+      sender =
+        RTPSender.new(track, @ssrc, @rtx_ssrc, [:rtcp_reports, :outbound_rtx])
+        |> RTPSender.update("1", [@vp8, @rtx], @rtp_hdr_exts)
+        |> send_primary(100..104)
+
+      {:ok, sender: sender}
+    end
+
+    test "do not affect the sender report", %{sender: sender} do
+      recorder = sender.report_recorder
+      time = System.os_time(:native)
+
+      {[rtx_packet], sender} = RTPSender.receive_nack(sender, nack([101]))
+      {_data, sender} = RTPSender.send_packet(sender, rtx_packet, true)
+
+      assert sender.report_recorder == recorder
+
+      assert ReportRecorder.get_report(sender.report_recorder, time) ==
+               ReportRecorder.get_report(recorder, time)
+
+      assert {:ok, %{packet_count: 5}, _recorder} =
+               ReportRecorder.get_report(sender.report_recorder, time)
+    end
+
+    test "with a sequence number ahead of the primary stream do not freeze the report anchor",
+         %{sender: sender} do
+      sender = put_in(sender.nack_responder.seq_no, 110)
+
+      {[%{sequence_number: 110} = rtx_packet], sender} =
+        RTPSender.receive_nack(sender, nack([101]))
+
+      {_data, sender} = RTPSender.send_packet(sender, rtx_packet, true)
+      assert sender.report_recorder.last_seq_no == 104
+
+      sender = send_primary(sender, [105])
+      assert sender.report_recorder.last_seq_no == 105
+      assert sender.report_recorder.last_rtp_timestamp == 105 * 3000
+    end
+
+    test "are not stored in the NACK history", %{sender: sender} do
+      sender = put_in(sender.nack_responder.seq_no, 102)
+      packets = sender.nack_responder.packets
+
+      {[rtx_packet], sender} = RTPSender.receive_nack(sender, nack([101]))
+      {_data, sender} = RTPSender.send_packet(sender, rtx_packet, true)
+
+      assert sender.nack_responder.packets == packets
+
+      # NACK for the sequence number used by the retransmission
+      # must return the original packet, not the retransmission wrapped again
+      {[rtx_packet], _sender} = RTPSender.receive_nack(sender, nack([102]))
+      assert <<102::16, payload::binary>> = rtx_packet.payload
+      assert payload == payload(102)
+    end
+
+    test "are counted in W3C retransmission stats", %{sender: sender} do
+      {[rtx_packet], sender} = RTPSender.receive_nack(sender, nack([101]))
+      {data, sender} = RTPSender.send_packet(sender, rtx_packet, true)
+
+      assert [stats] = RTPSender.get_stats(sender, 0)
+
+      assert %{
+               packets_sent: 6,
+               retransmitted_packets_sent: 1,
+               nack_count: 1
+             } = stats
+
+      assert stats.retransmitted_bytes_sent == byte_size(data)
+    end
+
+    test "are not sent and no history is kept when RTX was not negotiated" do
+      track = MediaStreamTrack.new(:video)
+
+      sender =
+        RTPSender.new(track, @ssrc, @rtx_ssrc, [:rtcp_reports, :outbound_rtx])
+        |> RTPSender.update("1", [@vp8], @rtp_hdr_exts)
+        |> send_primary(100..104)
+
+      assert sender.rtx_codec == nil
+      assert sender.nack_responder.packets == %{}
+
+      assert {[], sender} = RTPSender.receive_nack(sender, nack([101]))
+      assert sender.nack_count == 1
+    end
   end
 
   describe "receive_report_block/3" do
@@ -301,6 +412,20 @@ defmodule ExWebRTC.RTPSenderTest do
       assert [%{type: :outbound_rtp}] = RTPSender.get_stats(sender, 0)
     end
   end
+
+  defp send_primary(sender, seq_nos) do
+    Enum.reduce(seq_nos, sender, fn seq_no, sender ->
+      packet =
+        ExRTP.Packet.new(payload(seq_no), sequence_number: seq_no, timestamp: seq_no * 3000)
+
+      {_data, sender} = RTPSender.send_packet(sender, packet, false)
+      sender
+    end)
+  end
+
+  defp payload(seq_no), do: <<seq_no::32>>
+
+  defp nack(seq_nos), do: NACK.from_sequence_numbers(0, @ssrc, seq_nos)
 
   defp report_block(overrides) do
     struct!(
