@@ -13,6 +13,8 @@ defmodule ExWebRTC.PeerConnectionTest do
     Utils
   }
 
+  alias ExRTCP.Packet.PayloadFeedback.FIR
+
   {_pkey, cert} = ExDTLS.generate_key_cert()
 
   @fingerprint cert
@@ -1416,6 +1418,43 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       assert_receive {:ex_webrtc, ^pc1, {:rtcp, [{^id1, pli}]}}
       assert %ExRTCP.Packet.PayloadFeedback.PLI{} = pli
+    end
+
+    test "handles FIR" do
+      # turn off features in order to not receive unwanted RTCP packets
+      {:ok, pc1} = PeerConnection.start_link(features: [])
+      {:ok, pc2} = PeerConnection.start_link(features: [])
+
+      %MediaStreamTrack{id: id1} = track = MediaStreamTrack.new(:video)
+      {:ok, _sender} = PeerConnection.add_track(pc1, track)
+
+      :ok = negotiate(pc1, pc2)
+      :ok = connect(pc1, pc2)
+
+      [%{sender: %{ssrc: ssrc}}] = :sys.get_state(pc1).transceivers
+
+      # as per RFC 5104, media source SSRC is 0 and the target SSRC is in the FCI entry
+      fir = %FIR{sender_ssrc: 1, media_ssrc: 0, entries: [%{ssrc: ssrc, seq_nr: 1}]}
+      send(pc1, {:dtls_transport, self(), {:rtcp, ExRTCP.Packet.encode(fir)}})
+
+      assert_receive {:ex_webrtc, ^pc1, {:rtcp, [{^id1, %FIR{}}]}}
+
+      assert [%{fir_count: 1}] =
+               pc1
+               |> PeerConnection.get_stats()
+               |> Map.values()
+               |> Enum.filter(&(&1.type == :outbound_rtp))
+
+      fir = %FIR{sender_ssrc: 1, media_ssrc: 0, entries: [%{ssrc: ssrc + 1, seq_nr: 2}]}
+      send(pc1, {:dtls_transport, self(), {:rtcp, ExRTCP.Packet.encode(fir)}})
+
+      assert_receive {:ex_webrtc, ^pc1, {:rtcp, [{nil, %FIR{}}]}}
+
+      # fall back to media source SSRC
+      fir = %FIR{sender_ssrc: 1, media_ssrc: ssrc, entries: [%{ssrc: ssrc + 1, seq_nr: 3}]}
+      send(pc1, {:dtls_transport, self(), {:rtcp, ExRTCP.Packet.encode(fir)}})
+
+      assert_receive {:ex_webrtc, ^pc1, {:rtcp, [{^id1, %FIR{}}]}}
     end
 
     test "sends NACK" do

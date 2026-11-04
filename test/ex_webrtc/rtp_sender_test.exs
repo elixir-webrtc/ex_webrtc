@@ -3,6 +3,7 @@ defmodule ExWebRTC.RTPSenderTest do
 
   import Bitwise
 
+  alias ExRTCP.Packet.PayloadFeedback.FIR
   alias ExRTCP.Packet.TransportFeedback.NACK
   alias ExRTP.Packet.Extension.SourceDescription
   alias ExSDP.Attribute.Extmap
@@ -183,6 +184,7 @@ defmodule ExWebRTC.RTPSenderTest do
                markers_sent: 0,
                nack_count: 0,
                pli_count: 0,
+               fir_count: 0,
                retransmitted_packets_sent: 0,
                retransmitted_bytes_sent: 0
              }
@@ -205,6 +207,7 @@ defmodule ExWebRTC.RTPSenderTest do
                markers_sent: 0,
                nack_count: 0,
                pli_count: 0,
+               fir_count: 0,
                retransmitted_packets_sent: 0,
                retransmitted_bytes_sent: 0
              }
@@ -225,10 +228,19 @@ defmodule ExWebRTC.RTPSenderTest do
                markers_sent: 1,
                nack_count: 0,
                pli_count: 0,
+               fir_count: 0,
                retransmitted_packets_sent: 0,
                retransmitted_bytes_sent: 0
              }
            ] == RTPSender.get_stats(sender, timestamp)
+  end
+
+  test "receive_fir/2" do
+    sender = RTPSender.new(MediaStreamTrack.new(:video), @ssrc, @rtx_ssrc, [])
+    fir = %FIR{sender_ssrc: 1, media_ssrc: 0, entries: [%{ssrc: @ssrc, seq_nr: 1}]}
+
+    sender = RTPSender.receive_fir(sender, fir)
+    assert [%{fir_count: 1, pli_count: 0}] = RTPSender.get_stats(sender, 0)
   end
 
   describe "retransmissions" do

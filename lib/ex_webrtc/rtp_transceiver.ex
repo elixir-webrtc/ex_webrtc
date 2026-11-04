@@ -15,7 +15,13 @@ defmodule ExWebRTC.RTPTransceiver do
     Utils
   }
 
-  alias ExRTCP.Packet.{ReceiverReport, SenderReport, TransportFeedback.NACK, PayloadFeedback.PLI}
+  alias ExRTCP.Packet.{
+    ReceiverReport,
+    SenderReport,
+    TransportFeedback.NACK,
+    PayloadFeedback.FIR,
+    PayloadFeedback.PLI
+  }
 
   @report_interval 1000
   @nack_interval 100
@@ -379,6 +385,13 @@ defmodule ExWebRTC.RTPTransceiver do
   @spec receive_pli(transceiver(), PLI.t()) :: transceiver()
   def receive_pli(transceiver, pli) do
     sender = RTPSender.receive_pli(transceiver.sender, pli)
+    %{transceiver | sender: sender}
+  end
+
+  @doc false
+  @spec receive_fir(transceiver(), FIR.t()) :: transceiver()
+  def receive_fir(transceiver, fir) do
+    sender = RTPSender.receive_fir(transceiver.sender, fir)
     %{transceiver | sender: sender}
   end
 

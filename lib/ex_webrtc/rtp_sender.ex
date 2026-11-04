@@ -4,7 +4,13 @@ defmodule ExWebRTC.RTPSender do
   """
   require Logger
 
-  alias ExRTCP.Packet.{ReceptionReport, TransportFeedback.NACK, PayloadFeedback.PLI}
+  alias ExRTCP.Packet.{
+    ReceptionReport,
+    TransportFeedback.NACK,
+    PayloadFeedback.FIR,
+    PayloadFeedback.PLI
+  }
+
   alias ExWebRTC.{MediaStreamTrack, RTPCodecParameters, Utils, PeerConnection.Configuration}
   alias ExSDP.Attribute.Extmap
   alias __MODULE__.{NACKResponder, ReportRecorder}
@@ -35,6 +41,7 @@ defmodule ExWebRTC.RTPSender do
           markers_sent: non_neg_integer(),
           nack_count: non_neg_integer(),
           pli_count: non_neg_integer(),
+          fir_count: non_neg_integer(),
           remote_report: remote_report() | nil,
           reports?: boolean(),
           outbound_rtx?: boolean(),
@@ -111,6 +118,7 @@ defmodule ExWebRTC.RTPSender do
       markers_sent: 0,
       nack_count: 0,
       pli_count: 0,
+      fir_count: 0,
       remote_report: nil,
       reports?: :rtcp_reports in features,
       outbound_rtx?: :outbound_rtx in features,
@@ -319,6 +327,12 @@ defmodule ExWebRTC.RTPSender do
   end
 
   @doc false
+  @spec receive_fir(sender(), FIR.t()) :: sender()
+  def receive_fir(sender, _fir) do
+    %{sender | fir_count: sender.fir_count + 1}
+  end
+
+  @doc false
   @spec get_reports(sender()) :: {[ExRTCP.Packet.SenderReport.t()], sender()}
   def get_reports(sender) do
     case ReportRecorder.get_report(sender.report_recorder) do
@@ -379,7 +393,8 @@ defmodule ExWebRTC.RTPSender do
       retransmitted_packets_sent: sender.retransmitted_packets_sent,
       retransmitted_bytes_sent: sender.retransmitted_bytes_sent,
       nack_count: sender.nack_count,
-      pli_count: sender.pli_count
+      pli_count: sender.pli_count,
+      fir_count: sender.fir_count
     }
 
     case sender.remote_report do

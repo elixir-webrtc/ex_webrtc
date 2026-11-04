@@ -89,7 +89,7 @@ defmodule ExWebRTC.PeerConnection do
   * `:rtp` and `:rtcp` - these contain packets received by the PeerConnection. The third element of `:rtp` tuple is a simulcast RID and is set to `nil` if simulcast
   is not used.
   * each of the packets in `:rtcp` message is in the form of `{track_id, packet}` tuple, where `track_id` is the id of the corrsponding track.
-  In case of PLI and NACK, this is the id of an outgoing (sender's) track id, in case of Sender and Receiver Reports - incoming (receiver's) track id.
+  In case of PLI, FIR and NACK, this is the id of an outgoing (sender's) track id, in case of Sender and Receiver Reports - incoming (receiver's) track id.
   If matching to a track was not possible (like in the case of TWCC packets), `track_id` is set to `nil`.
   To correlate TWCC feedback with departure times of outgoing packets, use `get_twcc_departure_log/1`.
   """
@@ -2655,6 +2655,30 @@ defmodule ExWebRTC.PeerConnection do
 
       {tr, idx} ->
         tr = RTPTransceiver.receive_pli(tr, pli)
+        transceivers = List.replace_at(state.transceivers, idx, tr)
+        {tr.sender.track.id, %{state | transceivers: transceivers}}
+    end
+  end
+
+  defp handle_rtcp_packet(state, %ExRTCP.Packet.PayloadFeedback.FIR{} = fir) do
+    # RFC 5104: media source SSRC is set to 0 and media senders
+    # are identified by the SSRCs in the FCI entries.
+    # Fall back to media source SSRC for non-compliant implementations.
+    transceivers = Enum.with_index(state.transceivers)
+
+    (Enum.map(fir.entries, & &1.ssrc) ++ [fir.media_ssrc])
+    |> Enum.find_value(fn ssrc ->
+      Enum.find(transceivers, fn {tr, _idx} -> tr.sender.ssrc == ssrc end)
+    end)
+    |> case do
+      nil ->
+        {nil, state}
+
+      {%{sender: %{track: nil}}, _idx} ->
+        {nil, state}
+
+      {tr, idx} ->
+        tr = RTPTransceiver.receive_fir(tr, fir)
         transceivers = List.replace_at(state.transceivers, idx, tr)
         {tr.sender.track.id, %{state | transceivers: transceivers}}
     end
