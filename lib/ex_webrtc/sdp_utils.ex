@@ -90,6 +90,19 @@ defmodule ExWebRTC.SDPUtils do
     end
   end
 
+  # Returns the value of the `max-message-size` attribute (RFC 8841) of the data channel mline,
+  # or `nil` if there is no data channel mline, or the attribute is missing or invalid.
+  @spec get_max_message_size(ExSDP.t()) :: non_neg_integer() | nil
+  def get_max_message_size(sdp) do
+    with %ExSDP.Media{} = data_mline <- Enum.find(sdp.media, &data_channel?/1),
+         {"max-message-size", value} <- ExSDP.get_attribute(data_mline, "max-message-size"),
+         {size, ""} when size >= 0 <- Integer.parse(value) do
+      size
+    else
+      _other -> nil
+    end
+  end
+
   @spec get_media_direction(ExSDP.Media.t()) ::
           :sendrecv | :sendonly | :recvonly | :inactive | nil
   def get_media_direction(media) do
