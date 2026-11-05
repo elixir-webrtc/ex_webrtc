@@ -175,6 +175,20 @@ defmodule ExWebRTC.PeerConnection.ConfigurationTest do
       end
     end
 
+    test "with outbound RTX history size" do
+      assert %Configuration{outbound_rtx_history_size: 1024} =
+               Configuration.from_options!(controlling_process: self())
+
+      assert %Configuration{outbound_rtx_history_size: 64} =
+               Configuration.from_options!(outbound_rtx_history_size: 64)
+
+      for size <- [0, 40_000, :x] do
+        assert_raise RuntimeError, ~r/outbound_rtx_history_size/, fn ->
+          Configuration.from_options!(outbound_rtx_history_size: size)
+        end
+      end
+    end
+
     test "with duplicated payload types" do
       options = [audio_codecs: [@opus_codec, @opus_codec]]
       assert_raise RuntimeError, fn -> Configuration.from_options!(options) end

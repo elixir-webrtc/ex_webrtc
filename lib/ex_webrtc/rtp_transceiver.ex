@@ -137,7 +137,14 @@ defmodule ExWebRTC.RTPTransceiver do
 
     receiver = RTPReceiver.new(track, codecs, header_extensions, config.features)
 
-    sender = RTPSender.new(sender_track, options[:ssrc], options[:rtx_ssrc], config.features)
+    sender =
+      RTPSender.new(
+        sender_track,
+        options[:ssrc],
+        options[:rtx_ssrc],
+        config.features,
+        sender_options(config)
+      )
 
     %{
       id: id,
@@ -193,7 +200,7 @@ defmodule ExWebRTC.RTPTransceiver do
 
     receiver = RTPReceiver.new(track, codecs, header_extensions, config.features)
 
-    sender = RTPSender.new(nil, ssrc, rtx_ssrc, config.features)
+    sender = RTPSender.new(nil, ssrc, rtx_ssrc, config.features, sender_options(config))
     sender = RTPSender.update(sender, mid, codecs, header_extensions)
 
     %{
@@ -212,6 +219,10 @@ defmodule ExWebRTC.RTPTransceiver do
       stopping: false,
       stopped: false
     }
+  end
+
+  defp sender_options(config) do
+    [outbound_rtx_history_size: config.outbound_rtx_history_size]
   end
 
   @doc false

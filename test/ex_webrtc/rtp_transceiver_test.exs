@@ -228,6 +228,29 @@ defmodule ExWebRTC.RTPTransceiverTest do
 
   defp ssrc_msid_value(stream, app_data), do: "#{stream} #{app_data}"
 
+  describe "outbound RTX history size" do
+    setup do
+      {:ok, pc} = PeerConnection.start_link(outbound_rtx_history_size: 64)
+      config = PeerConnection.get_configuration(pc)
+      :ok = PeerConnection.stop(pc)
+
+      %{config: config}
+    end
+
+    test "is passed to the sender by new/4", %{config: config} do
+      tr = RTPTransceiver.new(:video, @track, config, ssrc: @ssrc, rtx_ssrc: @rtx_ssrc)
+      assert tr.sender.nack_responder.size == 64
+    end
+
+    test "is passed to the sender by from_mline/5", %{config: config} do
+      tr = RTPTransceiver.new(:video, @track, config, ssrc: @ssrc, rtx_ssrc: @rtx_ssrc)
+      mline = RTPTransceiver.to_offer_mline(tr, @opts)
+
+      tr = RTPTransceiver.from_mline(mline, 0, @ssrc + 10, @rtx_ssrc + 10, config)
+      assert tr.sender.nack_responder.size == 64
+    end
+  end
+
   describe "get_stats/2" do
     test "tags RTP stats with kind and mid" do
       tr =

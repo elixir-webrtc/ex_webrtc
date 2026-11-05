@@ -236,7 +236,9 @@ defmodule ExWebRTC.PeerConnection do
   which one should be used, see `set_sender_codec/3`.
 
   Options:
-    * `rtx?` - send the packet as if it was retransmitted (use SSRC and payload type specific to RTX)
+    * `rtx?` - send the packet as if it was retransmitted (use SSRC and payload type specific to RTX).
+    Retransmitted packets are counted in `retransmitted_packets_sent` and `retransmitted_bytes_sent` stats,
+    but they are not included in RTCP Sender Reports and can't be retransmitted again.
   """
   @spec send_rtp(
           peer_connection(),
@@ -2627,11 +2629,8 @@ defmodule ExWebRTC.PeerConnection do
         {%{sender: %{track: nil}}, _idx} ->
           {nil, state}
 
-        # in case NACK was received, but RTX was not negotiated
-        # as NACK and RTX are negotiated independently
-        {%{sender: %{rtx_pt: nil}} = tr, _idx} ->
-          {tr.sender.track.id, state}
-
+        # NACK and RTX are negotiated independently,
+        # RTPSender handles the case when RTX was not negotiated
         {tr, idx} ->
           {packets, tr} = RTPTransceiver.receive_nack(tr, nack)
           Enum.each(packets, &send_rtp(self(), tr.sender.track.id, &1, rtx?: true))
