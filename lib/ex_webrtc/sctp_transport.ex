@@ -25,7 +25,8 @@ if Code.ensure_loaded?(ExSCTP) do
         id_type: nil,
         timer: nil,
         channels: %{},
-        stats: %{}
+        stats: %{},
+        unconfirmed: MapSet.new()
       }
     end
 
@@ -105,8 +106,9 @@ if Code.ensure_loaded?(ExSCTP) do
 
       {events, sctp_transport} =
         if sctp_transport.state == :connected do
-          sctp_transport = handle_pending_channels(sctp_transport)
-          handle_events(sctp_transport)
+          {open_events, sctp_transport} = handle_pending_channels(sctp_transport)
+          {events, sctp_transport} = handle_events(sctp_transport)
+          {open_events ++ events, sctp_transport}
         else
           {[], sctp_transport}
         end
@@ -122,15 +124,12 @@ if Code.ensure_loaded?(ExSCTP) do
     def close_channel(sctp_transport, ref) do
       # TODO: according to spec, this should move to `closing` state
       # and only then be closed, but oh well...
-      case Map.pop(sctp_transport.channels, ref) do
-        {nil, _channels} ->
+      case pop_channel(sctp_transport, ref) do
+        {nil, sctp_transport} ->
           Logger.warning("Trying to close non-existent channel with ref #{inspect(ref)}")
           {[], sctp_transport}
 
-        {%DataChannel{id: id}, channels} ->
-          stats = Map.delete(sctp_transport.stats, ref)
-          sctp_transport = %{sctp_transport | channels: channels, stats: stats}
-
+        {%DataChannel{id: id}, sctp_transport} ->
           {events, sctp_transport} =
             if id != nil do
               :ok = ExSCTP.close_stream(sctp_transport.ref, id)
@@ -210,21 +209,14 @@ if Code.ensure_loaded?(ExSCTP) do
       sctp_transport.channels
       |> Map.values()
       |> Enum.filter(fn channel -> channel.id == nil end)
-      |> Enum.reduce(sctp_transport, fn channel, transport ->
-        handle_pending_channel(transport, channel)
-      end)
+      |> Enum.flat_map_reduce(sctp_transport, &handle_pending_channel(&2, &1))
     end
 
     defp handle_pending_channel(sctp_transport, %DataChannel{} = channel) do
       id = new_id(sctp_transport)
       :ok = ExSCTP.open_stream(sctp_transport.ref, id)
 
-      {reliability, param} =
-        cond do
-          channel.max_packet_life_time != nil -> {:timed, channel.max_packet_life_time}
-          channel.max_retransmits != nil -> {:rexmit, channel.max_retransmits}
-          true -> {:reliable, 0}
-        end
+      {reliability, param} = reliability(channel)
 
       dco = %DCEP.DataChannelOpen{
         reliability: reliability,
@@ -237,8 +229,19 @@ if Code.ensure_loaded?(ExSCTP) do
 
       :ok = ExSCTP.send(sctp_transport.ref, id, @dcep_ppi, DCEP.encode(dco))
 
-      channel = %{channel | id: id}
-      %{sctp_transport | channels: Map.replace!(sctp_transport.channels, channel.ref, channel)}
+      # RFC 8832 allows sending user data right after DATA_CHANNEL_OPEN,
+      # but the stream has to stay ordered until the peer confirms the channel,
+      # so user messages can't overtake the OPEN message (RFC 8832, sec. 6)
+      :ok = ExSCTP.configure_stream(sctp_transport.ref, id, true, reliability, param)
+
+      Logger.debug("Locally opened DataChannel #{id}, waiting for remote confirmation")
+
+      channel = %{channel | id: id, ready_state: :open}
+      channels = Map.replace!(sctp_transport.channels, channel.ref, channel)
+      unconfirmed = MapSet.put(sctp_transport.unconfirmed, channel.ref)
+      sctp_transport = %{sctp_transport | channels: channels, unconfirmed: unconfirmed}
+
+      {[{:state_change, channel.ref, :open}], sctp_transport}
     end
 
     defp handle_events(sctp_transport, events \\ []) do
@@ -269,10 +272,8 @@ if Code.ensure_loaded?(ExSCTP) do
 
       case get_channel_by_id(sctp_transport, id) do
         {ref, %DataChannel{ref: ref}} ->
-          channels = Map.delete(sctp_transport.channels, ref)
-          stats = Map.delete(sctp_transport.stats, ref)
-          event = {:state_change, ref, :closed}
-          {event, %{sctp_transport | channels: channels, stats: stats}}
+          {_channel, sctp_transport} = pop_channel(sctp_transport, ref)
+          {{:state_change, ref, :closed}, sctp_transport}
 
         _other ->
           {nil, sctp_transport}
@@ -282,11 +283,13 @@ if Code.ensure_loaded?(ExSCTP) do
     defp handle_event(sctp_transport, :connected) do
       Logger.debug("SCTP connection has been established")
 
-      sctp_transport =
+      {open_events, sctp_transport} =
         %{sctp_transport | state: :connected}
         |> handle_pending_channels()
 
-      {nil, sctp_transport}
+      # handle_events/2 reverses the accumulated list at the end,
+      # so the events have to be returned in reverse order here
+      {Enum.reverse(open_events), sctp_transport}
     end
 
     defp handle_event(sctp_transport, {:timeout, val}) do
@@ -310,7 +313,6 @@ if Code.ensure_loaded?(ExSCTP) do
     defp handle_event(sctp_transport, {:data, id, @dcep_ppi, data}) do
       with {:ok, dcep} <- DCEP.decode(data),
            {:ok, sctp_transport, events} <- handle_dcep(sctp_transport, id, dcep) do
-        # events is either list or a single event
         {events, sctp_transport}
       else
         :error ->
@@ -320,9 +322,7 @@ if Code.ensure_loaded?(ExSCTP) do
 
           case get_channel_by_id(sctp_transport, id) do
             {ref, %DataChannel{}} ->
-              channels = Map.delete(sctp_transport.channels, ref)
-              stats = Map.delete(sctp_transport.stats, ref)
-              sctp_transport = %{sctp_transport | channels: channels, stats: stats}
+              {_channel, sctp_transport} = pop_channel(sctp_transport, ref)
               {{:state_change, ref, :closed}, sctp_transport}
 
             nil ->
@@ -333,7 +333,16 @@ if Code.ensure_loaded?(ExSCTP) do
 
     defp handle_event(sctp_transport, {:data, id, ppi, data}) do
       with {:ok, data} <- from_raw_data(data, ppi),
-           {ref, %DataChannel{ready_state: :open}} <- get_channel_by_id(sctp_transport, id) do
+           {ref, %DataChannel{ready_state: :open} = channel} <-
+             get_channel_by_id(sctp_transport, id) do
+        sctp_transport =
+          if MapSet.member?(sctp_transport.unconfirmed, ref) do
+            Logger.debug("Locally opened DataChannel #{id} confirmed by remote user message")
+            confirm_channel(sctp_transport, channel)
+          else
+            sctp_transport
+          end
+
         stats = update_stats(sctp_transport.stats, ref, data, :received)
         {{:data, ref, data}, %{sctp_transport | stats: stats}}
       else
@@ -408,42 +417,52 @@ if Code.ensure_loaded?(ExSCTP) do
 
     defp handle_dcep(sctp_transport, id, %DCEP.DataChannelAck{}) do
       case get_channel_by_id(sctp_transport, id) do
-        {ref, %DataChannel{ready_state: :connecting} = channel} ->
-          Logger.debug("Locally opened DataChannel #{id} has been negotiated succesfully")
-
-          channel = %DataChannel{channel | ready_state: :open}
-          channels = Map.put(sctp_transport.channels, ref, channel)
-          sctp_transport = %{sctp_transport | channels: channels}
-
-          {rel_type, rel_param} =
-            case channel do
-              %DataChannel{max_packet_life_time: nil, max_retransmits: nil} -> {:reliable, 0}
-              %DataChannel{max_retransmits: v} when v != nil -> {:rexmit, v}
-              %DataChannel{max_packet_life_time: v} when v != nil -> {:timed, v}
-            end
-
-          case ExSCTP.configure_stream(
-                 sctp_transport.ref,
-                 id,
-                 channel.ordered,
-                 rel_type,
-                 rel_param
-               ) do
-            :ok ->
-              {:ok, sctp_transport, {:state_change, ref, :open}}
-
-            {:error, _res} ->
-              Logger.warning("Unable to set stream #{id} parameters")
-              :error
+        {ref, %DataChannel{} = channel} ->
+          if MapSet.member?(sctp_transport.unconfirmed, ref) do
+            Logger.debug("Locally opened DataChannel #{id} has been negotiated succesfully")
+            {:ok, confirm_channel(sctp_transport, channel), []}
+          else
+            Logger.debug("Received unexpected or late DCEP Ack on stream #{id}, ignoring")
+            {:ok, sctp_transport, []}
           end
 
-        _other ->
+        nil ->
           Logger.warning(
-            "Received DCEP Ack without sending the DCEP Open message on stream #{id}"
+            "Received DCEP Ack without sending the DCEP Open message on stream #{id}, ignoring"
           )
 
-          :error
+          {:ok, sctp_transport, []}
       end
+    end
+
+    defp confirm_channel(sctp_transport, %DataChannel{ref: ref, id: id} = channel) do
+      {reliability, param} = reliability(channel)
+
+      case ExSCTP.configure_stream(sctp_transport.ref, id, channel.ordered, reliability, param) do
+        :ok ->
+          :ok
+
+        {:error, _res} ->
+          Logger.warning("Unable to set stream #{id} parameters, keeping it ordered")
+      end
+
+      %{sctp_transport | unconfirmed: MapSet.delete(sctp_transport.unconfirmed, ref)}
+    end
+
+    defp reliability(%DataChannel{max_packet_life_time: lifetime}) when lifetime != nil,
+      do: {:timed, lifetime}
+
+    defp reliability(%DataChannel{max_retransmits: max_rtx}) when max_rtx != nil,
+      do: {:rexmit, max_rtx}
+
+    defp reliability(%DataChannel{}), do: {:reliable, 0}
+
+    defp pop_channel(sctp_transport, ref) do
+      {channel, channels} = Map.pop(sctp_transport.channels, ref)
+      stats = Map.delete(sctp_transport.stats, ref)
+      unconfirmed = MapSet.delete(sctp_transport.unconfirmed, ref)
+
+      {channel, %{sctp_transport | channels: channels, stats: stats, unconfirmed: unconfirmed}}
     end
 
     defp get_channel_by_id(%{channels: channels} = _sctp_transport, id) do
