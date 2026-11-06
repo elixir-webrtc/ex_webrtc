@@ -645,6 +645,9 @@ defmodule ExWebRTC.PeerConnection do
       transport: config.ice_transport_protocol,
       ip_filter: config.ice_ip_filter,
       aggressive_nomination: config.ice_aggressive_nomination,
+      disconnected_timeout: config.ice_disconnected_timeout,
+      failed_timeout: config.ice_failed_timeout,
+      keepalive_interval: config.ice_keepalive_interval,
       host_to_srflx_ip_mapper: config.host_to_srflx_ip_mapper,
       ports: config.ice_port_range,
       on_data: nil,
@@ -1598,18 +1601,21 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:ex_ice, _from, {:connection_state_change, new_ice_state}}, state) do
-    state = %{state | ice_state: new_ice_state}
-    notify(state.owner, {:ice_connection_state_change, new_ice_state})
-    next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
-    state = update_conn_state(state, next_conn_state)
-
-    if new_ice_state == :connected do
+    # When ICE is disconnected, data can still be sent, so we don't notify DTLS about it.
+    # When ICE recovers from :disconnected, DTLS has already been notified about it being connected.
+    if new_ice_state in [:connected, :completed] and
+         state.ice_state not in [:connected, :completed, :disconnected] do
       :ok = DTLSTransport.set_ice_connected(state.dtls_transport)
     end
 
     if new_ice_state == :failed do
       :ok = DTLSTransport.set_ice_disconnected(state.dtls_transport)
     end
+
+    state = %{state | ice_state: new_ice_state}
+    notify(state.owner, {:ice_connection_state_change, new_ice_state})
+    next_conn_state = next_conn_state(new_ice_state, state.dtls_state)
+    state = update_conn_state(state, next_conn_state)
 
     {:noreply, state}
   end
@@ -1743,17 +1749,13 @@ defmodule ExWebRTC.PeerConnection do
         :send_twcc_feedback,
         %{twcc_recv_log: twcc_recv_log, conn_state: conn_state} = state
       )
-      when conn_state not in [:failed, :closed] do
+      when conn_state != :closed do
+    # keep the timer running in the failed state, as we can recover with an ICE restart
     Process.send_after(self(), :send_twcc_feedback, @twcc_interval)
 
     if twcc_recv_log.media_ssrc != nil do
       {feedbacks, twcc_recv_log} = TWCCRecvLog.get_feedback(twcc_recv_log)
-
-      for feedback <- feedbacks do
-        encoded = ExRTCP.Packet.encode(feedback)
-        :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
-      end
-
+      send_rtcp_packets(state, feedbacks)
       {:noreply, %{state | twcc_recv_log: twcc_recv_log}}
     else
       {:noreply, state}
@@ -1763,13 +1765,13 @@ defmodule ExWebRTC.PeerConnection do
   @impl true
   def handle_info(:send_twcc_feedback, state) do
     # Note that we're not scheduling any more TWCC feedback sends --
-    # this is OK as long as conn_states `:closed` and `:failed` are permanent
+    # this is OK as long as conn_state `:closed` is permanent
     {:noreply, state}
   end
 
   @impl true
   def handle_info({:send_reports, transceiver_id}, %{conn_state: conn_state} = state)
-      when conn_state not in [:failed, :closed] do
+      when conn_state != :closed do
     transceiver =
       state.transceivers
       |> Enum.with_index()
@@ -1781,13 +1783,10 @@ defmodule ExWebRTC.PeerConnection do
           state.transceivers
 
         {tr, idx} ->
+          # this also schedules the next reports,
+          # so they are sent again after recovering from the failed state
           {reports, tr} = RTPTransceiver.get_reports(tr)
-
-          for report <- reports do
-            encoded = ExRTCP.Packet.encode(report)
-            :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
-          end
-
+          send_rtcp_packets(state, reports)
           List.replace_at(state.transceivers, idx, tr)
       end
 
@@ -1801,7 +1800,7 @@ defmodule ExWebRTC.PeerConnection do
 
   @impl true
   def handle_info({:send_nacks, transceiver_id}, %{conn_state: conn_state} = state)
-      when conn_state not in [:failed, :closed] do
+      when conn_state != :closed do
     transceiver =
       state.transceivers
       |> Enum.with_index()
@@ -1813,13 +1812,10 @@ defmodule ExWebRTC.PeerConnection do
           state.transceivers
 
         {tr, idx} ->
+          # this also schedules the next NACKs,
+          # so they are sent again after recovering from the failed state
           {nacks, tr} = RTPTransceiver.get_nacks(tr)
-
-          for nack <- nacks do
-            encoded = ExRTCP.Packet.encode(nack)
-            :ok = DTLSTransport.send_rtcp(state.dtls_transport, encoded)
-          end
-
+          send_rtcp_packets(state, nacks)
           List.replace_at(state.transceivers, idx, tr)
       end
 
@@ -2444,7 +2440,6 @@ defmodule ExWebRTC.PeerConnection do
   defp get_last_answer(%{current_local_desc: {:answer, desc}}), do: desc
   defp get_last_answer(%{current_remote_desc: {:answer, desc}}), do: desc
 
-  # TODO support :disconnected state - our ICE doesn't provide disconnected state for now
   # the order of these clauses is important
   defp next_conn_state(ice_state, dtls_state)
 
@@ -2453,6 +2448,8 @@ defmodule ExWebRTC.PeerConnection do
   defp next_conn_state(:failed, _dtls_state), do: :failed
 
   defp next_conn_state(_ice_state, :failed), do: :failed
+
+  defp next_conn_state(:disconnected, _dtls_state), do: :disconnected
 
   defp next_conn_state(:new, :new), do: :new
 
@@ -2467,6 +2464,17 @@ defmodule ExWebRTC.PeerConnection do
   defp next_conn_state(ice_state, dtls_state)
        when ice_state in [:connected, :completed] and dtls_state in [:connected, :closed],
        do: :connected
+
+  # Nothing can be sent in the failed state, until ICE is restarted.
+  defp send_rtcp_packets(%{conn_state: :failed}, _packets), do: :ok
+
+  defp send_rtcp_packets(state, packets) do
+    for packet <- packets do
+      :ok = DTLSTransport.send_rtcp(state.dtls_transport, ExRTCP.Packet.encode(packet))
+    end
+
+    :ok
+  end
 
   defp update_conn_state(state, conn_state, opts \\ [])
   defp update_conn_state(%{conn_state: conn_state} = state, conn_state, _opts), do: state

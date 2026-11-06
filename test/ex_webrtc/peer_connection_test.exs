@@ -4,6 +4,7 @@ defmodule ExWebRTC.PeerConnectionTest do
   import ExWebRTC.Support.TestUtils
 
   alias ExWebRTC.{
+    ICECandidate,
     RTPTransceiver,
     RTPSender,
     MediaStreamTrack,
@@ -1455,6 +1456,153 @@ defmodule ExWebRTC.PeerConnectionTest do
 
       assert_receive {:ex_webrtc, ^pc1, {:rtcp, [{^id1, nack}]}}
       assert %ExRTCP.Packet.TransportFeedback.NACK{nacks: [%{pid: 101}]} = nack
+    end
+  end
+
+  describe "ICE liveness" do
+    @ice_liveness_opts [
+      ice_disconnected_timeout: 300,
+      ice_failed_timeout: 1_500,
+      ice_keepalive_interval: 100
+    ]
+
+    test "options are passed to the ICE agent" do
+      {:ok, pc} = PeerConnection.start_link(@ice_liveness_opts)
+
+      assert %{disconnected_timeout: 300, failed_timeout: 1_500, keepalive_interval: 100} =
+               :sys.get_state(:sys.get_state(pc).ice_pid).ice_agent
+    end
+
+    test "ICE agent defaults are used when the options are not set" do
+      {:ok, pc} = PeerConnection.start_link()
+
+      assert %{disconnected_timeout: 5_000, failed_timeout: 30_000, keepalive_interval: 2_000} =
+               :sys.get_state(:sys.get_state(pc).ice_pid).ice_agent
+    end
+
+    test "disconnected and back to connected" do
+      {pc1, pc2, track1, track2, id1, id2} = connected_pcs()
+      pc2_ice = :sys.get_state(pc2).ice_pid
+
+      :ok = :sys.suspend(pc2_ice)
+
+      assert_receive {:ex_webrtc, ^pc1, {:ice_connection_state_change, :disconnected}}, 2_000
+      assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :disconnected}}
+      assert PeerConnection.get_connection_state(pc1) == :disconnected
+
+      # sending still works, as DTLS is not told that ICE is disconnected
+      :ok = PeerConnection.send_rtp(pc1, track1.id, ExRTP.Packet.new(<<1>>))
+      assert %{ice_connected: true} = :sys.get_state(:sys.get_state(pc1).dtls_transport)
+
+      :ok = :sys.resume(pc2_ice)
+
+      assert_receive {:ex_webrtc, ^pc1, {:ice_connection_state_change, ice_state}}, 2_000
+      assert ice_state in [:connected, :completed]
+      assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :connected}}
+      refute_received {:ex_webrtc, ^pc1, {:connection_state_change, :failed}}
+
+      assert_media_flows(pc1, pc2, track1, track2, id1, id2)
+    end
+
+    test "failed and back to connected after an ICE restart" do
+      {pc1, pc2, track1, track2, id1, id2} = connected_pcs()
+      pc1_ice = :sys.get_state(pc1).ice_pid
+      pc2_ice = :sys.get_state(pc2).ice_pid
+      {:ok, ufrag, _pwd} = ExICE.ICEAgent.get_local_credentials(pc1_ice)
+
+      :ok = :sys.suspend(pc2_ice)
+      assert_receive {:ex_webrtc, ^pc1, {:connection_state_change, :failed}}, 5_000
+      :ok = :sys.resume(pc2_ice)
+      # pc1 has closed its sockets, so pc2 fails too
+      assert_receive {:ex_webrtc, ^pc2, {:connection_state_change, :failed}}, 5_000
+
+      flush_mailbox(pc1)
+      flush_mailbox(pc2)
+
+      :ok = negotiate(pc2, pc1, ice_restart: true)
+      :ok = connect(pc2, pc1)
+
+      assert_receive {:ex_webrtc, ^pc1, {:ice_gathering_state_change, :new}}
+      assert_receive {:ex_webrtc, ^pc1, {:ice_gathering_state_change, :gathering}}
+      assert {:ok, new_ufrag, _pwd} = ExICE.ICEAgent.get_local_credentials(pc1_ice)
+      assert new_ufrag != ufrag
+      assert PeerConnection.get_connection_state(pc1) == :connected
+
+      assert_media_flows(pc1, pc2, track1, track2, id1, id2)
+
+      # pc1's report and TWCC timers kept running while it was failed
+      assert_rtcp(pc2, [ExRTCP.Packet.SenderReport, ExRTCP.Packet.TransportFeedback.CC])
+    end
+
+    defp connected_pcs() do
+      {:ok, pc1} = PeerConnection.start_link(@ice_liveness_opts)
+      {:ok, pc2} = PeerConnection.start_link(@ice_liveness_opts)
+
+      track1 = MediaStreamTrack.new(:audio)
+      track2 = MediaStreamTrack.new(:audio)
+      {:ok, _sender} = PeerConnection.add_track(pc1, track1)
+
+      {:ok, offer} = PeerConnection.create_offer(pc1)
+      :ok = PeerConnection.set_local_description(pc1, offer)
+      :ok = PeerConnection.set_remote_description(pc2, offer)
+
+      [tr] = PeerConnection.get_transceivers(pc2)
+      :ok = PeerConnection.set_transceiver_direction(pc2, tr.id, :sendrecv)
+      :ok = PeerConnection.replace_track(pc2, tr.sender.id, track2)
+
+      {:ok, answer} = PeerConnection.create_answer(pc2)
+      :ok = PeerConnection.set_local_description(pc2, answer)
+      :ok = PeerConnection.set_remote_description(pc1, answer)
+      :ok = connect(pc1, pc2)
+
+      # without end-of-candidates, ICE would go back to checking
+      # instead of failing until its end-of-candidates timer fires
+      for pc <- [pc1, pc2] do
+        eoc = %ICECandidate{candidate: "", sdp_mid: "0", sdp_m_line_index: 0}
+        :ok = PeerConnection.add_ice_candidate(pc, eoc)
+      end
+
+      assert_receive {:ex_webrtc, ^pc1, {:track, %MediaStreamTrack{id: id1}}}
+      assert_receive {:ex_webrtc, ^pc2, {:track, %MediaStreamTrack{id: id2}}}
+
+      flush_mailbox(pc1)
+      flush_mailbox(pc2)
+
+      {pc1, pc2, track1, track2, id1, id2}
+    end
+
+    # sends RTP in both directions until it is received
+    defp assert_media_flows(pc1, pc2, track1, track2, id1, id2) do
+      for {from, to, track, id} <- [{pc1, pc2, track1, id2}, {pc2, pc1, track2, id1}] do
+        assert Enum.any?(1..20, fn _ ->
+                 :ok = PeerConnection.send_rtp(from, track.id, ExRTP.Packet.new(<<1, 2, 3>>))
+
+                 receive do
+                   {:ex_webrtc, ^to, {:rtp, ^id, _rid, _packet}} -> true
+                 after
+                   100 -> false
+                 end
+               end)
+      end
+    end
+
+    defp assert_rtcp(pc, packet_modules) do
+      deadline = System.monotonic_time(:millisecond) + 3_000
+      do_assert_rtcp(pc, packet_modules, deadline)
+    end
+
+    defp do_assert_rtcp(_pc, [], _deadline), do: :ok
+
+    defp do_assert_rtcp(pc, packet_modules, deadline) do
+      timeout = max(deadline - System.monotonic_time(:millisecond), 0)
+
+      receive do
+        {:ex_webrtc, ^pc, {:rtcp, packets}} ->
+          received = Enum.map(packets, fn {_track_id, packet} -> packet.__struct__ end)
+          do_assert_rtcp(pc, packet_modules -- received, deadline)
+      after
+        timeout -> flunk("RTCP packets not received: #{inspect(packet_modules)}")
+      end
     end
   end
 
